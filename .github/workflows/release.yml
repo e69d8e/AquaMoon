@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   # ==========================================
-  # 1. Android Build
+  # 1. Android Build (APK & AAB)
   # ==========================================
   build-android:
     name: Build Android (APK & AAB)
@@ -60,10 +60,46 @@ jobs:
           path: release-android/*
 
   # ==========================================
-  # 2. macOS Build
+  # 2. iOS Build (Unsigned IPA)
+  # ==========================================
+  build-ios:
+    name: Build iOS (Unsigned IPA)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS Application (No Code Sign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          mkdir -p release-ios/Payload
+          cp -r build/ios/iphoneos/Runner.app release-ios/Payload/
+          cd release-ios
+          zip -r -y AquaMoon-iOS-Unsigned.ipa Payload
+          rm -rf Payload
+
+      - name: Upload iOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release
+          path: release-ios/*
+
+  # ==========================================
+  # 3. macOS Build (DMG & ZIP)
   # ==========================================
   build-macos:
-    name: Build macOS (.app ZIP)
+    name: Build macOS (DMG & ZIP)
     runs-on: macos-latest
     steps:
       - name: Checkout repository
@@ -81,11 +117,21 @@ jobs:
       - name: Build macOS Application
         run: flutter build macos --release
 
-      - name: Package macOS Artifact
+      - name: Package macOS Artifacts (DMG & ZIP)
         run: |
           mkdir -p release-macos
+          
+          # 1. ZIP bundle
           cd build/macos/Build/Products/Release
           zip -r -y "${GITHUB_WORKSPACE}/release-macos/AquaMoon-macOS.zip" *.app
+          cd "${GITHUB_WORKSPACE}"
+
+          # 2. DMG disk image with Applications shortcut
+          mkdir -p dmg_temp
+          cp -r build/macos/Build/Products/Release/*.app dmg_temp/
+          ln -s /Applications dmg_temp/Applications
+          hdiutil create -volname "AquaMoon" -srcfolder dmg_temp -ov -format UDZO "${GITHUB_WORKSPACE}/release-macos/AquaMoon-macOS.dmg"
+          rm -rf dmg_temp
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
@@ -94,10 +140,10 @@ jobs:
           path: release-macos/*
 
   # ==========================================
-  # 3. Windows Build
+  # 4. Windows Build (Installer EXE & Portable ZIP)
   # ==========================================
   build-windows:
-    name: Build Windows (ZIP)
+    name: Build Windows (Installer EXE & ZIP)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -115,15 +161,21 @@ jobs:
       - name: Build Windows Executable
         run: flutter build windows --release
 
-      - name: Package Windows Artifact
+      - name: Package Windows Artifacts (Installer EXE & Portable ZIP)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-windows
+          
+          # 1. Portable ZIP
           if (Test-Path "build\windows\x64\runner\Release") {
-            Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "release-windows\AquaMoon-Windows-x64.zip"
+            Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "release-windows\AquaMoon-Windows-x64-Portable.zip"
           } elseif (Test-Path "build\windows\runner\Release") {
-            Compress-Archive -Path "build\windows\runner\Release\*" -DestinationPath "release-windows\AquaMoon-Windows-x64.zip"
+            Compress-Archive -Path "build\windows\runner\Release\*" -DestinationPath "release-windows\AquaMoon-Windows-x64-Portable.zip"
           }
+
+          # 2. Installer EXE (Inno Setup)
+          choco install innosetup -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\installer\installer.iss
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
@@ -132,10 +184,10 @@ jobs:
           path: release-windows/*
 
   # ==========================================
-  # 4. Linux Build
+  # 5. Linux Build (DEB & tar.gz)
   # ==========================================
   build-linux:
-    name: Build Linux (tar.gz)
+    name: Build Linux (DEB & tar.gz)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -158,14 +210,62 @@ jobs:
       - name: Build Linux Application
         run: flutter build linux --release
 
-      - name: Package Linux Artifact
+      - name: Package Linux Artifacts (DEB & tar.gz)
         run: |
           mkdir -p release-linux
+          
+          # 1. Portable tar.gz
           if [ -d "build/linux/x64/release/bundle" ]; then
             tar -czvf release-linux/AquaMoon-Linux-x64.tar.gz -C build/linux/x64/release/bundle .
           elif [ -d "build/linux/release/bundle" ]; then
             tar -czvf release-linux/AquaMoon-Linux-x64.tar.gz -C build/linux/release/bundle .
           fi
+
+          # 2. Debian .deb package
+          mkdir -p deb_root/DEBIAN
+          mkdir -p deb_root/opt/aquamoon
+          mkdir -p deb_root/usr/share/applications
+          mkdir -p deb_root/usr/share/pixmaps
+          mkdir -p deb_root/usr/bin
+
+          if [ -d "build/linux/x64/release/bundle" ]; then
+            cp -r build/linux/x64/release/bundle/* deb_root/opt/aquamoon/
+          elif [ -d "build/linux/release/bundle" ]; then
+            cp -r build/linux/release/bundle/* deb_root/opt/aquamoon/
+          fi
+          
+          cp assets/icons/app_icon.png deb_root/usr/share/pixmaps/aquamoon.png
+
+          cat << 'EOF' > deb_root/usr/share/applications/aquamoon.desktop
+[Desktop Entry]
+Name=AquaMoon
+Comment=水墨禅意跨平台现代音乐播放器
+Exec=/usr/bin/aquamoon
+Icon=aquamoon
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;Music;
+EOF
+
+          cat << 'EOF' > deb_root/usr/bin/aquamoon
+#!/bin/bash
+exec /opt/aquamoon/aquamoon "$@"
+EOF
+          chmod +x deb_root/usr/bin/aquamoon
+
+          cat << 'EOF' > deb_root/DEBIAN/control
+Package: aquamoon
+Version: 1.0.0
+Section: sound
+Priority: optional
+Architecture: amd64
+Maintainer: AquaMoon Authors <https://github.com/e69d8e/AquaMoon>
+Description: AquaMoon - Zen ink modern music player
+ A modern, cross-platform music player blending Zen ink aesthetics with an industrial-grade audio core.
+EOF
+
+          dpkg-deb --build deb_root release-linux/AquaMoon-Linux-x64.deb
+          rm -rf deb_root
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
@@ -174,7 +274,7 @@ jobs:
           path: release-linux/*
 
   # ==========================================
-  # 5. Web Build
+  # 6. Web Build (ZIP)
   # ==========================================
   build-web:
     name: Build Web (ZIP)
@@ -207,11 +307,11 @@ jobs:
           path: release-web/*
 
   # ==========================================
-  # 6. Publish to GitHub Releases
+  # 7. Publish to GitHub Releases
   # ==========================================
   publish-release:
     name: Publish GitHub Release
-    needs: [build-android, build-macos, build-windows, build-linux, build-web]
+    needs: [build-android, build-ios, build-macos, build-windows, build-linux, build-web]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

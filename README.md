@@ -209,11 +209,11 @@ flutter run -d chrome
 
 ## 📦 打包构建 / Build & Release
 
-您可以使用以下命令在本地为各平台构建 Release 生产包：
+您可以使用以下命令在本地或借助 GitHub Actions 为各平台构建对应格式的安装与发布包：
 
-### 🤖 Android
+### 🤖 Android (APK & AAB)
 ```bash
-# 构建拆分 ABI 的 APK (包体积更小)
+# 构建拆分架构的 APK (包体积更小)
 flutter build apk --release --split-per-abi
 
 # 构建通用全架构 APK
@@ -223,25 +223,40 @@ flutter build apk --release
 flutter build appbundle --release
 ```
 
-### 🍎 macOS
+### 🍎 iOS (IPA)
 ```bash
+# 构建未签名 iOS App (用于 AltStore / TrollStore / Sideloadly 侧载自签)
+flutter build ios --release --no-codesign
+mkdir -p Payload && cp -r build/ios/iphoneos/Runner.app Payload/
+zip -r -y AquaMoon-iOS-Unsigned.ipa Payload
+```
+
+### 🍎 macOS (.app / DMG / ZIP)
+```bash
+# 本地编译
 flutter build macos --release
-# 产物位于 build/macos/Build/Products/Release/
+
+# 制作 DMG 磁盘映像 (包含拖拽到 Applications 快捷安装)
+mkdir -p dmg_temp && cp -r build/macos/Build/Products/Release/*.app dmg_temp/
+ln -s /Applications dmg_temp/Applications
+hdiutil create -volname "AquaMoon" -srcfolder dmg_temp -ov -format UDZO AquaMoon-macOS.dmg
 ```
 
-### 🪟 Windows
+### 🪟 Windows (EXE 安装包 / 便携 ZIP)
 ```bash
+# 本地编译
 flutter build windows --release
-# 产物位于 build/windows/x64/runner/Release/
+# 可配合 Inno Setup (windows/installer/installer.iss) 编译一键安装向导 EXE 安装程序
 ```
 
-### 🐧 Linux
+### 🐧 Linux (.deb 安装包 / tar.gz)
 ```bash
+# 本地编译
 flutter build linux --release
-# 产物位于 build/linux/x64/release/bundle/
+# 支持打包为标准 Debian / Ubuntu / Deepin / UOS .deb 安装包以及便携 tar.gz
 ```
 
-### 🌐 Web
+### 🌐 Web (ZIP)
 ```bash
 flutter build web --release
 # 产物位于 build/web/
@@ -249,15 +264,21 @@ flutter build web --release
 
 ---
 
-## 🤖 GitHub Actions 自动化 CI/CD
+## 🤖 GitHub Actions 自动化 CI/CD 与多格式全平台 Release
 
 本项目已预配置全自动化的 GitHub Actions 工作流：
 
-1. **持续集成 (CI)**：每次提交代码或提交 PR 时，自动触发代码格式化检查、静态分析 (`flutter analyze`) 与单元测试 (`flutter test`)。
-2. **自动跨平台发布 (Release)**：
-   - 当向仓库推送版本标签（如 `git tag v1.0.0 && git push origin v1.0.0`）时，会自动触发 `.github/workflows/release.yml`。
-   - 自动在 GitHub Actions 云端并行编译 **Android (APK & AAB)**、**macOS (.app ZIP)**、**Windows (x64 ZIP)**、**Linux (tar.gz)** 及 **Web (ZIP)**。
-   - 自动在 GitHub Releases 发布新版本并上传所有打包产物，附带自动生成的更新日志。
+1. **持续集成 (CI)**：每次提交代码或提交 PR 时，自动触发代码规范分析 (`flutter analyze`) 与单元测试 (`flutter test`)。
+2. **多格式全平台自动构建发布 (Release)**：
+   - 当向仓库推送版本标签（如 `git tag v1.0.1 && git push origin v1.0.1`）时，会自动触发 `.github/workflows/release.yml`。
+   - 自动在 GitHub Actions 云端并行编译并输出以下丰富格式产物：
+     - 🤖 **Android**：`AquaMoon-Android-arm64-v8a.apk`, `AquaMoon-Android-armeabi-v7a.apk`, `AquaMoon-Android-Universal.apk`, `AquaMoon-Android.aab`
+     - 🍎 **iOS**：`AquaMoon-iOS-Unsigned.ipa`（支持 TrollStore 免越狱直装、AltStore / Sideloadly / 爱思助手个人 Apple ID 7 天免费自签侧载）
+     - 🍎 **macOS**：`AquaMoon-macOS.dmg`（内置 Applications 拖拽软链）与 `AquaMoon-macOS.zip`
+     - 🪟 **Windows**：`AquaMoon-Windows-x64-Setup.exe`（Inno Setup 专业向导安装程序）与 `AquaMoon-Windows-x64-Portable.zip`
+     - 🐧 **Linux**：`AquaMoon-Linux-x64.deb`（标准 deb 双击安装包）与 `AquaMoon-Linux-x64.tar.gz`
+     - 🌐 **Web**：`AquaMoon-Web.zip`
+   - 自动在 GitHub Releases 发布新版本并上传所有格式的安装包，附带自动生成的更新日志。
 
 ---
 
