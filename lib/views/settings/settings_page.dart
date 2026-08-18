@@ -1,0 +1,259 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/app_toast.dart';
+import '../../providers/library_provider.dart';
+import '../../providers/lyrics_provider.dart';
+import 'notification_player_settings_page.dart';
+
+class SettingsPage extends ConsumerWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final libraryState = ref.watch(libraryNotifierProvider);
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('设置'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        children: [
+          // 1. Library Management Header / Info Card
+          Card(
+            elevation: 0,
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.library_music_rounded, color: theme.colorScheme.primary, size: 26),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '曲库概览',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '当前已收录 ${libraryState.songs.length} 首本地音频',
+                          style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Scanning Progress Card (if scanning/enriching)
+          if (libraryState.isScanning) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.25)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          libraryState.scanProgressText ?? '正在处理曲库数据...',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (libraryState.scanProgressPercent != null) ...[
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(value: libraryState.scanProgressPercent),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // Section 1: 曲库管理与歌曲导入
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Text(
+              '曲库与文件管理',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
+          ),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+            ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.audio_file_outlined),
+                  title: const Text('导入音频文件', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: const Text('选择单个或多个音频 (FLAC / MP3 / M4A / WAV 等)', style: TextStyle(fontSize: 12)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final count = await ref.read(libraryNotifierProvider.notifier).importFiles();
+                    if (context.mounted) {
+                      AppToast.show(
+                        context,
+                        count > 0 ? '成功导入 $count 首歌曲！' : '未导入新歌曲',
+                        icon: count > 0 ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded,
+                      );
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.folder_open_outlined),
+                  title: const Text('扫描指定文件夹', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: const Text('选择文件夹并自动递归检索其中的所有音频', style: TextStyle(fontSize: 12)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final count = await ref.read(libraryNotifierProvider.notifier).importFolder();
+                    if (context.mounted) {
+                      AppToast.show(
+                        context,
+                        count > 0 ? '成功扫描并导入 $count 首歌曲！' : '该目录未发现新音频文件',
+                        icon: count > 0 ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded,
+                      );
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.devices_other_outlined),
+                  title: const Text('快速扫描系统音乐目录', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: const Text('自动检测手机/系统的 Music 与 Download 文件夹', style: TextStyle(fontSize: 12)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final count = await ref.read(libraryNotifierProvider.notifier).scanSystemMusicDirectory();
+                    if (context.mounted) {
+                      AppToast.show(
+                        context,
+                        count > 0 ? '成功扫描并导入 $count 首系统音频！' : '系统目录未发现新音频',
+                        icon: count > 0 ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded,
+                      );
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: Icon(Icons.auto_awesome_rounded, color: theme.colorScheme.primary),
+                  title: Text(
+                    '智能补齐所有封面与歌词',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  subtitle: const Text('一键检索在线库，为缺失封面和歌词的歌曲自动补全', style: TextStyle(fontSize: 12)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final onlineService = ref.read(onlineMetadataServiceProvider);
+                    final count = await ref
+                        .read(libraryNotifierProvider.notifier)
+                        .batchAutoMatchOnlineMetadata(onlineService);
+                    if (context.mounted) {
+                      AppToast.show(
+                        context,
+                        count > 0 ? '成功智能补齐 $count 首歌曲！' : '所有歌曲已有完整封面与歌词',
+                        icon: count > 0 ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded,
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Section 3: 播放与通知设置
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Text(
+              '播放与系统适配',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
+          ),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+            ),
+            child: ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('通知栏音乐播放器设置', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              subtitle: const Text('系统通知卡片、小米 HyperOS / 鸿蒙锁屏常驻与省电保活', style: TextStyle(fontSize: 12)),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NotificationPlayerSettingsPage()),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Section 4: 关于应用
+          Center(
+            child: Column(
+              children: [
+                Icon(Icons.graphic_eq_rounded, size: 28, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
+                const SizedBox(height: 6),
+                const Text(
+                  '水月音 SoundCraft',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: -0.2),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '极简纯粹 · 本地高保真音乐播放器',
+                  style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+}

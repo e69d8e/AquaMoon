@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="notif_title_color">#FFFFFF</color>
+    <color name="notif_artist_color">#A0A0A0</color>
+    <color name="notif_time_color">#777777</color>
+    <color name="notif_icon_tint">#FFFFFF</color>
+    <color name="notif_close_tint">#A0A0A0</color>
+    <color name="notif_progress_track">#333338</color>
+    <color name="notif_progress_fill">#CCCCCC</color>
+</resources>

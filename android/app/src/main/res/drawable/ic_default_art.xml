@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- Vinyl / Disc Background -->
+    <path
+        android:fillColor="#E8ECF2"
+        android:pathData="M24,4C12.95,4 4,12.95 4,24s8.95,20 20,20 20,-8.95 20,-20S35.05,4 24,4z"/>
+    <!-- Outer Groove -->
+    <path
+        android:fillColor="#D2D8E2"
+        android:pathData="M24,8c-8.84,0 -16,7.16 -16,16s7.16,16 16,16 16,-7.16 16,-16S32.84,8 24,8zm0,30c-7.73,0 -14,-6.27 -14,-14s6.27,-14 14,-14 14,6.27 14,14 -6.27,14 -14,14z"/>
+    <!-- Center Label -->
+    <path
+        android:fillColor="#7C5295"
+        android:pathData="M24,15c-4.97,0 -9,4.03 -9,9s4.03,9 9,9 9,-4.03 9,-9 -4.03,-9 -9,-9z"/>
+    <!-- Center Spindle Hole -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,21.5c-1.38,0 -2.5,1.12 -2.5,2.5s1.12,2.5 2.5,2.5 2.5,-1.12 2.5,-2.5 -1.12,-2.5 -2.5,-2.5z"/>
+</vector>
