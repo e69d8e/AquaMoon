@@ -72,8 +72,6 @@
 
 ---
 
-## 🤝 参与贡献与问题反馈
-
-如果您在使用过程中遇到任何问题或有新的功能建议，欢迎在 GitHub 提交 [Issue](https://github.com/e69d8e/AquaMoon/issues) 或发起 [Pull Request](https://github.com/e69d8e/AquaMoon/pulls)！
-
-感谢所有支持与喜爱 AquaMoon 的朋友！🎉
+<div align="center">
+Made with ❤️ by AquaMoon Team
+</div>
