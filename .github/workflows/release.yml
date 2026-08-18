@@ -85,7 +85,7 @@ jobs:
         run: |
           mkdir -p release-macos
           cd build/macos/Build/Products/Release
-          zip -r -y ../../../../release-macos/AquaMoon-macOS.zip *.app
+          zip -r -y "${GITHUB_WORKSPACE}/release-macos/AquaMoon-macOS.zip" *.app
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
@@ -198,7 +198,7 @@ jobs:
       - name: Package Web Artifact
         run: |
           mkdir -p release-web
-          cd build/web && zip -r ../../release-web/AquaMoon-Web.zip .
+          cd build/web && zip -r "${GITHUB_WORKSPACE}/release-web/AquaMoon-Web.zip" .
 
       - name: Upload Web Artifacts
         uses: actions/upload-artifact@v4
