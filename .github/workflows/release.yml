@@ -236,33 +236,12 @@ jobs:
           
           cp assets/icons/app_icon.png deb_root/usr/share/pixmaps/aquamoon.png
 
-          cat << 'EOF' > deb_root/usr/share/applications/aquamoon.desktop
-[Desktop Entry]
-Name=AquaMoon
-Comment=水墨禅意跨平台现代音乐播放器
-Exec=/usr/bin/aquamoon
-Icon=aquamoon
-Terminal=false
-Type=Application
-Categories=AudioVideo;Audio;Player;Music;
-EOF
+          printf "[Desktop Entry]\nName=AquaMoon\nComment=水墨禅意跨平台现代音乐播放器\nExec=/usr/bin/aquamoon\nIcon=aquamoon\nTerminal=false\nType=Application\nCategories=AudioVideo;Audio;Player;Music;\n" > deb_root/usr/share/applications/aquamoon.desktop
 
-          cat << 'EOF' > deb_root/usr/bin/aquamoon
-#!/bin/bash
-exec /opt/aquamoon/aquamoon "$@"
-EOF
+          printf "#!/bin/bash\nexec /opt/aquamoon/aquamoon \"\$@\"\n" > deb_root/usr/bin/aquamoon
           chmod +x deb_root/usr/bin/aquamoon
 
-          cat << 'EOF' > deb_root/DEBIAN/control
-Package: aquamoon
-Version: 1.0.0
-Section: sound
-Priority: optional
-Architecture: amd64
-Maintainer: AquaMoon Authors <https://github.com/e69d8e/AquaMoon>
-Description: AquaMoon - Zen ink modern music player
- A modern, cross-platform music player blending Zen ink aesthetics with an industrial-grade audio core.
-EOF
+          printf "Package: aquamoon\nVersion: 1.0.0\nSection: sound\nPriority: optional\nArchitecture: amd64\nMaintainer: AquaMoon Authors <https://github.com/e69d8e/AquaMoon>\nDescription: AquaMoon - Zen ink modern music player\n A modern, cross-platform music player blending Zen ink aesthetics with an industrial-grade audio core.\n" > deb_root/DEBIAN/control
 
           dpkg-deb --build deb_root release-linux/AquaMoon-Linux-x64.deb
           rm -rf deb_root
