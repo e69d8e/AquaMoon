@@ -67,7 +67,18 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   }
 
   @override
+  void didUpdateWidget(covariant LyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.song.id != widget.song.id) {
+      _itemKeys.clear();
+      _lastActiveIndex = -1;
+      _userScrolling = false;
+    }
+  }
+
+  @override
   void dispose() {
+    _itemKeys.clear();
     _scrollController.dispose();
     super.dispose();
   }

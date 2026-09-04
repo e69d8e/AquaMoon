@@ -39,8 +39,11 @@ class MetadataExtractor {
       // Read up to first 2MB for header analysis (large enough for high-res cover art in metadata)
       final length = await file.length();
       final readLen = length > (2 * 1024 * 1024) ? (2 * 1024 * 1024) : length;
-      final headerBytes = await file.openRead(0, readLen).fold<List<int>>([], (prev, elem) => prev..addAll(elem));
-      final uint8 = Uint8List.fromList(headerBytes);
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in file.openRead(0, readLen)) {
+        builder.add(chunk);
+      }
+      final uint8 = builder.takeBytes();
 
       AudioMetadataResult? result;
 
@@ -802,6 +805,9 @@ class MetadataExtractor {
 
       final hash = md5.convert(utf8.encode(filePath)).toString();
       final coverFile = File(p.join(coverDir.path, 'cover_$hash.jpg'));
+      if (await coverFile.exists() && (await coverFile.length()) == artBytes.length) {
+        return coverFile.uri.toString();
+      }
       await coverFile.writeAsBytes(artBytes);
       return coverFile.uri.toString(); // file:///...
     } catch (_) {
@@ -824,13 +830,28 @@ class MetadataExtractor {
     return watermarks.contains(lower) || lower.startsWith('kuwo_') || lower.startsWith('kw_') || lower.startsWith('kg_');
   }
 
+  static final RegExp _leadingTrackRegex = RegExp(r'^\s*\d+[\.\s\-_]+');
+  static final RegExp _squareQualityRegex = RegExp(
+    r'\[.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗).*?\]',
+    caseSensitive: false,
+  );
+  static final RegExp _roundQualityRegex = RegExp(
+    r'\(.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗).*?\)',
+    caseSensitive: false,
+  );
+  static final RegExp _chineseQualityRegex = RegExp(
+    r'【.*?(高音质|无损|官方|原版|独家|首发|超清|重制).*?】',
+    caseSensitive: false,
+  );
+  static final RegExp _prefixNoiseRegex = RegExp(r'^\s*(kw|kuwo|kg)[\s\-_]+', caseSensitive: false);
+
   static String cleanTrackName(String raw) {
     return raw
-        .replaceAll(RegExp(r'^\s*\d+[\.\s\-_]+'), '') // Leading track numbers: '01. ', '01 - '
-        .replaceAll(RegExp(r'\[.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗).*?\]', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\(.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗).*?\)', caseSensitive: false), '')
-        .replaceAll(RegExp(r'【.*?(高音质|无损|官方|原版|独家|首发|超清|重制).*?】', caseSensitive: false), '')
-        .replaceAll(RegExp(r'^\s*(kw|kuwo|kg)[\s\-_]+', caseSensitive: false), '')
+        .replaceAll(_leadingTrackRegex, '') // Leading track numbers: '01. ', '01 - '
+        .replaceAll(_squareQualityRegex, '')
+        .replaceAll(_roundQualityRegex, '')
+        .replaceAll(_chineseQualityRegex, '')
+        .replaceAll(_prefixNoiseRegex, '')
         .trim();
   }
 

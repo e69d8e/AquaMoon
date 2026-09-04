@@ -664,10 +664,12 @@ class OnlineMetadataService {
     return score.clamp(0.0, 100.0);
   }
 
+  static final RegExp _punctAndSpacesRegex = RegExp(r'[\s\p{P}\p{S}]+', unicode: true);
+
   static String _normalizeString(String input) {
     return input
         .toLowerCase()
-        .replaceAll(RegExp(r'[\s\p{P}\p{S}]+', unicode: true), '')
+        .replaceAll(_punctAndSpacesRegex, '')
         .trim();
   }
 
@@ -726,25 +728,57 @@ class OnlineMetadataService {
     return imageUrl;
   }
 
+  static final RegExp _extFilterRegex = RegExp(
+    r'\.(mp3|flac|wav|m4a|aac|ogg|opus|wma|ape|alac|dsd|dsf|dff)$',
+    caseSensitive: false,
+  );
+  static final RegExp _titleLeadingTrackRegex = RegExp(r'^\s*\d+[\.\s\-_]+');
+  static final RegExp _titleSquareQualityRegex = RegExp(
+    r'\[.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗|无损|品质).*?\]',
+    caseSensitive: false,
+  );
+  static final RegExp _titleRoundQualityRegex = RegExp(
+    r'\(.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗|无损|品质).*?\)',
+    caseSensitive: false,
+  );
+  static final RegExp _titleChineseQualityRegex = RegExp(
+    r'【.*?(高音质|无损|官方|原版|独家|首发|超清|重制|品质).*?】',
+    caseSensitive: false,
+  );
+  static final RegExp _titleMetaNoiseRegex = RegExp(
+    r'\((official|video|audio|mv|remaster|remastered|ost|soundtrack|version).*?\)',
+    caseSensitive: false,
+  );
+
   /// Smart filename and title sanitizer for music search
   static String cleanSongTitle(String rawTitle) {
     return rawTitle
-        .replaceAll(RegExp(r'\.(mp3|flac|wav|m4a|aac|ogg|opus|wma|ape|alac|dsd|dsf|dff)$', caseSensitive: false), '')
-        .replaceAll(RegExp(r'^\s*\d+[\.\s\-_]+'), '') // '01. ', '01 - '
-        .replaceAll(RegExp(r'\[.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗|无损|品质).*?\]', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\(.*?(flac|320k|128k|24bit|96k|hq|sq|lossless|cd|hires|hi-res|kuwo|kugou|qqmusic|网易云|酷我|酷狗|无损|品质).*?\)', caseSensitive: false), '')
-        .replaceAll(RegExp(r'【.*?(高音质|无损|官方|原版|独家|首发|超清|重制|品质).*?】', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\((official|video|audio|mv|remaster|remastered|ost|soundtrack|version).*?\)', caseSensitive: false), '')
+        .replaceAll(_extFilterRegex, '')
+        .replaceAll(_titleLeadingTrackRegex, '') // '01. ', '01 - '
+        .replaceAll(_titleSquareQualityRegex, '')
+        .replaceAll(_titleRoundQualityRegex, '')
+        .replaceAll(_titleChineseQualityRegex, '')
+        .replaceAll(_titleMetaNoiseRegex, '')
         .replaceAll('_', ' ')
         .trim();
   }
 
+  static final RegExp _artistSquareRegex = RegExp(
+    r'\[.*?(kuwo|kugou|qqmusic|网易云|酷我|酷狗|flac|320k).*?\]',
+    caseSensitive: false,
+  );
+  static final RegExp _artistRoundRegex = RegExp(
+    r'\(.*?(kuwo|kugou|qqmusic|网易云|酷我|酷狗|flac|320k).*?\)',
+    caseSensitive: false,
+  );
+  static final RegExp _artistPrefixNoiseRegex = RegExp(r'^\s*(kw|kuwo|kg)[\s\-_]+', caseSensitive: false);
+
   /// Clean noise from artist name
   static String cleanArtistName(String rawArtist) {
     return rawArtist
-        .replaceAll(RegExp(r'\[.*?(kuwo|kugou|qqmusic|网易云|酷我|酷狗|flac|320k).*?\]', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\(.*?(kuwo|kugou|qqmusic|网易云|酷我|酷狗|flac|320k).*?\)', caseSensitive: false), '')
-        .replaceAll(RegExp(r'^\s*(kw|kuwo|kg)[\s\-_]+', caseSensitive: false), '')
+        .replaceAll(_artistSquareRegex, '')
+        .replaceAll(_artistRoundRegex, '')
+        .replaceAll(_artistPrefixNoiseRegex, '')
         .trim();
   }
 

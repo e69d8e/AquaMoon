@@ -6,6 +6,7 @@ import 'package:rxdart/rxdart.dart';
 import '../../models/song.dart';
 import '../../models/playback_mode.dart';
 import '../../models/playback_progress.dart';
+import '../../services/listening_stats_tracker.dart';
 import '../../services/storage_service.dart';
 import 'audio_session_coordinator.dart';
 import 'custom_notification_service.dart';
@@ -13,6 +14,7 @@ import 'custom_notification_service.dart';
 class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
   final StorageService _storageService;
+  late final ListeningStatsTracker _statsTracker;
   AudioSessionCoordinator? _sessionCoordinator;
 
   List<Song> _playlist = [];
@@ -25,6 +27,8 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   final BehaviorSubject<PlaybackMode> _playbackModeSubject =
       BehaviorSubject<PlaybackMode>.seeded(PlaybackMode.sequence);
   final BehaviorSubject<List<Song>> _playlistSubject = BehaviorSubject<List<Song>>.seeded([]);
+
+  ListeningStatsTracker get statsTracker => _statsTracker;
 
   /// Completes once the async part of handler initialisation has finished.
   /// Playback entry points await this so that the audio_service state bridge
@@ -54,6 +58,8 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       );
 
   SoundCraftAudioHandler(this._storageService) {
+    _statsTracker = ListeningStatsTracker(_storageService);
+
     // Attach the player listeners synchronously, before any async gap. The
     // audio_service notification is only shown when `playing=true` propagates
     // through playbackState; if playback started before these listeners were
@@ -63,7 +69,14 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
     _player.playerStateStream.listen((state) {
       _broadcastPlaybackState(_player.playbackEvent);
+      if (state.playing && currentSong != null &&
+          (state.processingState == ProcessingState.ready || state.processingState == ProcessingState.buffering)) {
+        _statsTracker.onPlay(currentSong!);
+      } else if (!state.playing) {
+        _statsTracker.onPause();
+      }
       if (state.processingState == ProcessingState.completed) {
+        _statsTracker.onPause();
         _handlePlaybackCompleted();
       }
     });
@@ -226,6 +239,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> stop() async {
+    _statsTracker.onStop();
     await _player.stop();
     await CustomNotificationService.cancel();
     await super.stop();
@@ -429,8 +443,8 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
     if (isCurrent) {
       if (_playlist.isNotEmpty) {
-        final newIndex = _currentIndex.clamp(0, _playlist.length - 1);
-        playAtIndex(newIndex);
+        _currentIndex = _currentIndex.clamp(0, _playlist.length - 1);
+        playAtIndex(_currentIndex);
       } else {
         _currentIndex = -1;
         _currentSongSubject.add(null);
@@ -531,6 +545,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   Future<void> disposeHandler() async {
     await _ready;
+    _statsTracker.dispose();
     _sessionCoordinator?.dispose();
     await _player.dispose();
     await _currentSongSubject.close();

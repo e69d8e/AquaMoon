@@ -24,8 +24,8 @@ class PlaylistDetailPage extends ConsumerWidget {
       orElse: () => playlist,
     );
 
-    final library = ref.watch(libraryNotifierProvider);
-    final songMap = {for (final s in library.songs) s.id: s};
+    final songsInLibrary = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+    final songMap = {for (final s in songsInLibrary) s.id: s};
 
     final songs = currentPlaylist.songIds
         .map((id) => songMap[id])
@@ -220,6 +220,7 @@ class PlaylistDetailPage extends ConsumerWidget {
                     ),
                   )
                 : ListView.builder(
+                    itemExtent: 58.0,
                     padding: const EdgeInsets.only(bottom: 120),
                     itemCount: songs.length,
                     itemBuilder: (context, index) {

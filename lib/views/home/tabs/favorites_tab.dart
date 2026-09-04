@@ -25,7 +25,7 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab> {
   void _scrollToCurrentPlaying(String currentSongId, List<Song> songs) {
     final index = songs.indexWhere((s) => s.id == currentSongId);
     if (index >= 0 && _scrollController.hasClients) {
-      const itemHeight = 68.0;
+      const itemHeight = 58.0;
       final viewportHeight = _scrollController.position.viewportDimension;
       final targetOffset = (index * itemHeight) - (viewportHeight / 2) + (itemHeight / 2);
       final clamped = targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent);
@@ -140,6 +140,7 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab> {
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
+            itemExtent: 58.0,
             padding: const EdgeInsets.only(bottom: 120),
             itemCount: favorites.length,
             itemBuilder: (context, index) {

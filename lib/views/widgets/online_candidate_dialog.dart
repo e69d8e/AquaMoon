@@ -446,6 +446,8 @@ class _OnlineCandidateSelectDialogState extends ConsumerState<OnlineCandidateSel
                                                     imageUrl: item.coverUrl!,
                                                     width: 52,
                                                     height: 52,
+                                                    memCacheWidth: 160,
+                                                    memCacheHeight: 160,
                                                     fit: BoxFit.cover,
                                                     errorWidget: (context, error, stackTrace) => Container(
                                                       width: 52,

@@ -1,4 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
+import '../core/utils/formatters.dart';
+import '../models/listening_stats.dart';
 import '../models/song.dart';
 import '../models/playlist.dart';
 import '../models/playback_mode.dart';
@@ -8,18 +10,25 @@ class StorageService {
   static const String _playlistsBoxName = 'soundcraft_playlists';
   static const String _historyBoxName = 'soundcraft_history';
   static const String _settingsBoxName = 'soundcraft_settings';
+  static const String _statsBoxName = 'soundcraft_stats';
 
   late Box _songsBox;
   late Box _playlistsBox;
   late Box _historyBox;
   late Box _settingsBox;
+  late Box _statsBox;
 
-  Future<void> init() async {
-    await Hive.initFlutter();
+  Future<void> init([String? customPath]) async {
+    if (customPath != null) {
+      Hive.init(customPath);
+    } else {
+      await Hive.initFlutter();
+    }
     _songsBox = await Hive.openBox(_songsBoxName);
     _playlistsBox = await Hive.openBox(_playlistsBoxName);
     _historyBox = await Hive.openBox(_historyBoxName);
     _settingsBox = await Hive.openBox(_settingsBoxName);
+    _statsBox = await Hive.openBox(_statsBoxName);
   }
 
   // --- Song Operations ---
@@ -68,13 +77,15 @@ class StorageService {
     }
   }
 
-  Future<void> toggleFavorite(String songId) async {
+  Future<Song?> toggleFavorite(String songId) async {
     final songData = _songsBox.get(songId);
     if (songData != null && songData is Map) {
       final song = Song.fromMap(songData);
       final updated = song.copyWith(isFavorite: !song.isFavorite);
       await _songsBox.put(songId, updated.toMap());
+      return updated;
     }
+    return null;
   }
 
   // --- Playlist Operations ---
@@ -158,5 +169,118 @@ class StorageService {
 
   Future<void> saveVolume(double volume) async {
     await _settingsBox.put('volume', volume);
+  }
+
+  // --- Listening Statistics Operations ---
+
+  DailyListeningRecord getDailyListeningRecord(String dateStr) {
+    final raw = _statsBox.get('daily:$dateStr');
+    if (raw != null && raw is Map) {
+      return DailyListeningRecord.fromMap(raw);
+    }
+    return DailyListeningRecord(dateStr: dateStr);
+  }
+
+  Future<void> saveDailyListeningRecord(DailyListeningRecord record) async {
+    await _statsBox.put('daily:${record.dateStr}', record.toMap());
+  }
+
+  /// Add listening duration for a song in a single step (with snapshot caching)
+  Future<void> recordListeningDuration({
+    required Song song,
+    required int seconds,
+    required DateTime timestamp,
+  }) async {
+    if (seconds <= 0) return;
+
+    final dateStr = Formatters.formatDateKey(timestamp);
+    final current = getDailyListeningRecord(dateStr);
+
+    final updatedSongDurations = Map<String, int>.from(current.songDurationSeconds);
+    updatedSongDurations[song.id] = (updatedSongDurations[song.id] ?? 0) + seconds;
+
+    final updatedHourly = Map<int, int>.from(current.hourlyDurationSeconds);
+    updatedHourly[timestamp.hour] = (updatedHourly[timestamp.hour] ?? 0) + seconds;
+
+    final updatedMetaCache = Map<String, SongMetaSnapshot>.from(current.songMetaCache);
+    if (!updatedMetaCache.containsKey(song.id)) {
+      updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
+    }
+
+    final updatedRecord = current.copyWith(
+      totalDurationSeconds: current.totalDurationSeconds + seconds,
+      songDurationSeconds: updatedSongDurations,
+      hourlyDurationSeconds: updatedHourly,
+      songMetaCache: updatedMetaCache,
+    );
+
+    await saveDailyListeningRecord(updatedRecord);
+  }
+
+  /// Increment play count for a song on a specific date in stats
+  Future<void> recordSongPlayCount({
+    required Song song,
+    required DateTime timestamp,
+  }) async {
+    final dateStr = Formatters.formatDateKey(timestamp);
+    final current = getDailyListeningRecord(dateStr);
+
+    final updatedPlayCounts = Map<String, int>.from(current.songPlayCounts);
+    updatedPlayCounts[song.id] = (updatedPlayCounts[song.id] ?? 0) + 1;
+
+    final updatedMetaCache = Map<String, SongMetaSnapshot>.from(current.songMetaCache);
+    if (!updatedMetaCache.containsKey(song.id)) {
+      updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
+    }
+
+    final updatedRecord = current.copyWith(
+      songPlayCounts: updatedPlayCounts,
+      songMetaCache: updatedMetaCache,
+    );
+
+    await saveDailyListeningRecord(updatedRecord);
+  }
+
+  /// Retrieve all records within the [startDate, endDate] range (inclusive of days)
+  List<DailyListeningRecord> getDailyRecordsInRange(DateTime startDate, DateTime endDate) {
+    final results = <DailyListeningRecord>[];
+    final startDay = DateTime(startDate.year, startDate.month, startDate.day);
+    final endDay = DateTime(endDate.year, endDate.month, endDate.day);
+
+    var current = startDay;
+    while (!current.isAfter(endDay)) {
+      final dateKey = Formatters.formatDateKey(current);
+      final raw = _statsBox.get('daily:$dateKey');
+      if (raw != null && raw is Map) {
+        results.add(DailyListeningRecord.fromMap(raw));
+      }
+      current = current.add(const Duration(days: 1));
+    }
+
+    return results;
+  }
+
+  /// Retrieve all recorded daily statistics
+  List<DailyListeningRecord> getAllDailyRecords() {
+    final records = <DailyListeningRecord>[];
+    for (final key in _statsBox.keys) {
+      if (key is String && key.startsWith('daily:')) {
+        final raw = _statsBox.get(key);
+        if (raw is Map) {
+          records.add(DailyListeningRecord.fromMap(raw));
+        }
+      }
+    }
+    records.sort((a, b) => a.dateStr.compareTo(b.dateStr));
+    return records;
+  }
+
+  /// Get total listening time across all dates in seconds
+  int getTotalLifetimeListeningSeconds() {
+    int total = 0;
+    for (final record in getAllDailyRecords()) {
+      total += record.totalDurationSeconds;
+    }
+    return total;
   }
 }

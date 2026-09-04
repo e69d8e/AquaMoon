@@ -27,13 +27,13 @@ class PlaylistNotifier extends StateNotifier<List<Playlist>> {
       createdAt: DateTime.now(),
     );
     await _storageService.savePlaylist(playlist);
-    _loadPlaylists();
+    state = [...state, playlist];
     return playlist;
   }
 
   Future<void> deletePlaylist(String id) async {
     await _storageService.deletePlaylist(id);
-    _loadPlaylists();
+    state = state.where((p) => p.id != id).toList();
   }
 
   Future<void> addSongToPlaylist(String playlistId, String songId) async {
@@ -45,7 +45,10 @@ class PlaylistNotifier extends StateNotifier<List<Playlist>> {
           songIds: [...playlist.songIds, songId],
         );
         await _storageService.savePlaylist(updated);
-        _loadPlaylists();
+        state = [
+          for (final p in state)
+            if (p.id == playlistId) updated else p,
+        ];
       }
     }
   }
@@ -61,7 +64,10 @@ class PlaylistNotifier extends StateNotifier<List<Playlist>> {
           songIds: [...playlist.songIds, ...toAdd],
         );
         await _storageService.savePlaylist(updated);
-        _loadPlaylists();
+        state = [
+          for (final p in state)
+            if (p.id == playlistId) updated else p,
+        ];
       }
     }
   }
@@ -73,7 +79,10 @@ class PlaylistNotifier extends StateNotifier<List<Playlist>> {
       final newIds = List<String>.from(playlist.songIds)..remove(songId);
       final updated = playlist.copyWith(songIds: newIds);
       await _storageService.savePlaylist(updated);
-      _loadPlaylists();
+      state = [
+        for (final p in state)
+          if (p.id == playlistId) updated else p,
+      ];
     }
   }
 
@@ -99,7 +108,10 @@ class PlaylistNotifier extends StateNotifier<List<Playlist>> {
       final playlist = state[index];
       final updated = playlist.copyWith(coverArtUri: coverArtUri);
       await _storageService.savePlaylist(updated);
-      _loadPlaylists();
+      state = [
+        for (final p in state)
+          if (p.id == playlistId) updated else p,
+      ];
     }
   }
 }
@@ -110,16 +122,16 @@ final playlistNotifierProvider = StateNotifierProvider<PlaylistNotifier, List<Pl
 });
 
 final favoritesSongsProvider = Provider<List<Song>>((ref) {
-  final library = ref.watch(libraryNotifierProvider);
-  return library.songs.where((s) => s.isFavorite).toList();
+  final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+  return songs.where((s) => s.isFavorite).toList();
 });
 
 final historySongsProvider = Provider<List<Song>>((ref) {
-  final library = ref.watch(libraryNotifierProvider);
+  final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
   final storage = ref.watch(storageServiceProvider);
   final historyIds = storage.getHistoryIds();
 
-  final songMap = {for (final s in library.songs) s.id: s};
+  final songMap = {for (final s in songs) s.id: s};
   final result = <Song>[];
 
   for (final id in historyIds) {

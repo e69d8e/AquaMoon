@@ -12,8 +12,8 @@ class PlaylistsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playlists = ref.watch(playlistNotifierProvider);
-    final libraryState = ref.watch(libraryNotifierProvider);
-    final songMap = {for (final s in libraryState.songs) s.id: s};
+    final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+    final songMap = {for (final s in songs) s.id: s};
     final theme = Theme.of(context);
 
     return Column(

@@ -7,6 +7,7 @@ import '../../core/utils/app_toast.dart';
 import '../online_search/online_search_page.dart';
 import '../player/mini_player.dart';
 import '../settings/settings_page.dart';
+import '../stats/listening_stats_page.dart';
 import 'tabs/all_songs_tab.dart';
 import 'tabs/favorites_tab.dart';
 import 'tabs/playlists_tab.dart';
@@ -159,6 +160,17 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
                           automaticallyImplyLeading: false,
                           actions: [
                             IconButton(
+                              icon: const Icon(Icons.insights_rounded),
+                              tooltip: '听歌统计',
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const ListeningStatsPage(),
+                                  ),
+                                );
+                              },
+                            ),
+                            IconButton(
                               icon: const Icon(Icons.cloud_download_outlined),
                               tooltip: '全网在线歌曲与歌词检索',
                               onPressed: () {
@@ -224,6 +236,17 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
             ],
           ),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.insights_rounded, size: 22),
+              tooltip: '听歌统计',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const ListeningStatsPage(),
+                  ),
+                );
+              },
+            ),
             IconButton(
               icon: const Icon(Icons.cloud_download_outlined, size: 22),
               tooltip: '全网检索与下载',

@@ -29,6 +29,9 @@ class SongArtwork extends StatelessWidget {
     final effectiveUri = artUri ?? song?.albumArtUri;
     final effectiveBytes = artBytes ?? song?.albumArtBytes;
 
+    final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2.0;
+    final cacheDim = (size * dpr).round().clamp(64, 1024);
+
     Widget imageWidget = _buildPlaceholder(context);
 
     if (effectiveBytes != null && effectiveBytes.isNotEmpty) {
@@ -37,6 +40,8 @@ class SongArtwork extends StatelessWidget {
         fit: BoxFit.cover,
         width: size,
         height: size,
+        cacheWidth: cacheDim,
+        cacheHeight: cacheDim,
         errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
       );
     } else if (effectiveUri != null && effectiveUri.isNotEmpty) {
@@ -48,6 +53,8 @@ class SongArtwork extends StatelessWidget {
           fit: BoxFit.cover,
           width: size,
           height: size,
+          cacheWidth: cacheDim,
+          cacheHeight: cacheDim,
           errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
         );
       } else if (effectiveUri.startsWith('http://') || effectiveUri.startsWith('https://')) {
@@ -56,6 +63,8 @@ class SongArtwork extends StatelessWidget {
           fit: BoxFit.cover,
           width: size,
           height: size,
+          memCacheWidth: cacheDim,
+          memCacheHeight: cacheDim,
           placeholder: (context, url) => _buildPlaceholder(context, isLoading: true),
           errorWidget: (context, url, error) => _buildPlaceholder(context),
         );
@@ -66,6 +75,8 @@ class SongArtwork extends StatelessWidget {
           fit: BoxFit.cover,
           width: size,
           height: size,
+          cacheWidth: cacheDim,
+          cacheHeight: cacheDim,
           errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
         );
       }

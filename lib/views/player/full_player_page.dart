@@ -54,7 +54,8 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     }
   }
 
-  Future<void> _exportCurrentLyrics(Song song, LyricsState lyricsState) async {
+  Future<void> _exportCurrentLyrics(Song song) async {
+    final lyricsState = ref.read(lyricsNotifierProvider);
     String? content = song.lrcContent;
     if (content == null || content.trim().isEmpty) {
       if (lyricsState.lines.isNotEmpty) {
@@ -89,7 +90,8 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     }
   }
 
-  Future<void> _copyCurrentLyrics(Song song, LyricsState lyricsState) async {
+  Future<void> _copyCurrentLyrics(Song song) async {
+    final lyricsState = ref.read(lyricsNotifierProvider);
     String? content = song.lrcContent ?? lyricsState.plainText;
     if (content == null || content.trim().isEmpty) {
       if (lyricsState.lines.isNotEmpty) {
@@ -111,19 +113,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
   @override
   Widget build(BuildContext context) {
     final currentSongAsync = ref.watch(currentSongProvider);
-    final playbackStateAsync = ref.watch(playbackStateStreamProvider);
-    final playbackModeAsync = ref.watch(playbackModeStreamProvider);
-    final progressAsync = ref.watch(playbackProgressStreamProvider);
-    final lyricsState = ref.watch(lyricsNotifierProvider);
-    final activeLyricIndex = ref.watch(currentLyricIndexProvider);
-
     final song = currentSongAsync.valueOrNull;
-    final isPlaying = playbackStateAsync.valueOrNull?.playing ?? false;
-    final playbackMode = playbackModeAsync.valueOrNull ?? PlaybackMode.sequence;
-    final progress = progressAsync.valueOrNull ?? const PlaybackProgress();
-
-    final theme = Theme.of(context);
-    final isLight = theme.brightness == Brightness.light;
 
     if (song == null) {
       return Scaffold(
@@ -132,17 +122,11 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
       );
     }
 
-    // Determine currently active lyric text for the sub-artwork preview
-    String activeLyricText = '纯音乐，请欣赏';
-    if (lyricsState.lines.isNotEmpty) {
-      if (activeLyricIndex >= 0 && activeLyricIndex < lyricsState.lines.length) {
-        activeLyricText = lyricsState.lines[activeLyricIndex].text;
-      } else if (activeLyricIndex == -1) {
-        activeLyricText = lyricsState.lines.first.text;
-      }
-    } else if (lyricsState.plainText != null && lyricsState.plainText!.trim().isNotEmpty) {
-      activeLyricText = lyricsState.plainText!.trim().split('\n').first;
-    }
+    final isPlaying = ref.watch(playbackStateStreamProvider.select((s) => s.valueOrNull?.playing ?? false));
+    final playbackMode = ref.watch(playbackModeStreamProvider.select((m) => m.valueOrNull ?? PlaybackMode.sequence));
+
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
 
     final screenWidth = MediaQuery.of(context).size.width;
     final coverSize = min(screenWidth * 0.72, 300.0);
@@ -255,10 +239,10 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                             _saveCurrentCover(song);
                             break;
                           case 'export_lyrics':
-                            _exportCurrentLyrics(song, lyricsState);
+                            _exportCurrentLyrics(song);
                             break;
                           case 'copy_lyrics':
-                            _copyCurrentLyrics(song, lyricsState);
+                            _copyCurrentLyrics(song);
                             break;
                           case 'online_calibrate':
                             final selected = await OnlineCandidateSelectDialog.show(context, song);
@@ -442,40 +426,10 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                 ),
                                 const Spacer(flex: 3),
                                 // Sub-Artwork Composer & Synced Lyric
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 32.0),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        '作曲 : ${song.artist}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w400,
-                                          color: composerTextColor,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      AnimatedSwitcher(
-                                        duration: const Duration(milliseconds: 250),
-                                        child: Text(
-                                          activeLyricText,
-                                          key: ValueKey(activeLyricText),
-                                          textAlign: TextAlign.center,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            color: primaryTextColor,
-                                            height: 1.4,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                _FullPlayerLyricPreview(
+                                  artist: song.artist,
+                                  primaryTextColor: primaryTextColor,
+                                  composerTextColor: composerTextColor,
                                 ),
                                 const Spacer(flex: 2),
                               ],
@@ -525,14 +479,8 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
 
               const SizedBox(height: 12),
 
-              // Progress Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: CustomProgressBar(
-                  progress: progress,
-                  onSeek: (pos) => ref.read(audioControllerProvider).seek(pos),
-                ),
-              ),
+              // Progress Bar (Isolated Rebuild)
+              const _FullPlayerProgressBar(),
 
               const SizedBox(height: 16),
 
@@ -742,6 +690,87 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _FullPlayerLyricPreview extends ConsumerWidget {
+  final String artist;
+  final Color primaryTextColor;
+  final Color composerTextColor;
+
+  const _FullPlayerLyricPreview({
+    required this.artist,
+    required this.primaryTextColor,
+    required this.composerTextColor,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lyricsState = ref.watch(lyricsNotifierProvider);
+    final activeLyricIndex = ref.watch(currentLyricIndexProvider);
+
+    String activeLyricText = '纯音乐，请欣赏';
+    if (lyricsState.lines.isNotEmpty) {
+      if (activeLyricIndex >= 0 && activeLyricIndex < lyricsState.lines.length) {
+        activeLyricText = lyricsState.lines[activeLyricIndex].text;
+      } else if (activeLyricIndex == -1) {
+        activeLyricText = lyricsState.lines.first.text;
+      }
+    } else if (lyricsState.plainText != null && lyricsState.plainText!.trim().isNotEmpty) {
+      activeLyricText = lyricsState.plainText!.trim().split('\n').first;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '作曲 : $artist',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+              color: composerTextColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: Text(
+              activeLyricText,
+              key: ValueKey(activeLyricText),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: primaryTextColor,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FullPlayerProgressBar extends ConsumerWidget {
+  const _FullPlayerProgressBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = ref.watch(playbackProgressStreamProvider).valueOrNull ?? const PlaybackProgress();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: CustomProgressBar(
+        progress: progress,
+        onSeek: (pos) => ref.read(audioControllerProvider).seek(pos),
       ),
     );
   }

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/app_toast.dart';
+import '../../core/utils/formatters.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/listening_stats_provider.dart';
 import '../../providers/lyrics_provider.dart';
+import '../stats/listening_stats_page.dart';
 import 'notification_player_settings_page.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -11,6 +14,7 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final libraryState = ref.watch(libraryNotifierProvider);
+    final todayStats = ref.watch(todayListeningSummaryProvider);
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -56,6 +60,63 @@ class SettingsPage extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // 2. Listening Stats Entry Card
+          Card(
+            elevation: 0,
+            color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.35),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ListeningStatsPage()),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.insights_rounded, color: theme.colorScheme.primary, size: 26),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Text(
+                                '听歌统计与时长',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            todayStats.totalDurationSeconds > 0
+                                ? '今日已听歌 ${Formatters.formatListeningDuration(Duration(seconds: todayStats.totalDurationSeconds))} · 点击查看日/周/月/年统计'
+                                : '今日暂无听歌 · 点击查看历史日/周/月/年统计',
+                            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+                  ],
+                ),
               ),
             ),
           ),

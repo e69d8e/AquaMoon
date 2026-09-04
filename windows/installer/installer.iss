@@ -1,5 +1,5 @@
 #define MyAppName "AquaMoon"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "AquaMoon Authors"
 #define MyAppURL "https://github.com/e69d8e/AquaMoon"
 #define MyAppExeName "aquamoon.exe"

@@ -85,42 +85,30 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
   List<Song> _deduplicateSongs(List<Song> songs) {
     final unique = <Song>[];
     final seenPaths = <String>{};
-    final seenKeys = <String>{};
+    final metaKeyMap = <String, Song>{};
 
     for (final song in songs) {
-      String canonicalPath = song.filePath;
-      try {
-        if (File(song.filePath).existsSync()) {
-          canonicalPath = File(song.filePath).resolveSymbolicLinksSync();
-        }
-      } catch (_) {}
+      final path = song.filePath;
+      if (seenPaths.contains(path)) {
+        continue;
+      }
 
       final titleNorm = song.title.trim().toLowerCase();
       final artistNorm = song.artist.trim().toLowerCase();
       final metaKey = '$titleNorm|$artistNorm';
 
-      if (seenPaths.contains(canonicalPath) || seenPaths.contains(song.filePath)) {
-        continue;
-      }
-
       if (titleNorm.isNotEmpty && titleNorm != '未知曲目' && titleNorm != '本地歌曲' && artistNorm != '未知歌手') {
-        if (seenKeys.contains(metaKey)) {
-          final existing = unique.firstWhere(
-            (s) => s.title.trim().toLowerCase() == titleNorm && s.artist.trim().toLowerCase() == artistNorm,
-            orElse: () => song,
-          );
-          if (existing.id != song.id) {
-            if (existing.durationMs == 0 || song.durationMs == 0 || (existing.durationMs - song.durationMs).abs() < 3000) {
-              continue;
-            }
+        final existing = metaKeyMap[metaKey];
+        if (existing != null && existing.id != song.id) {
+          if (existing.durationMs == 0 || song.durationMs == 0 || (existing.durationMs - song.durationMs).abs() < 3000) {
+            continue;
           }
         }
       }
 
-      seenPaths.add(canonicalPath);
-      seenPaths.add(song.filePath);
+      seenPaths.add(path);
       if (artistNorm != '未知歌手') {
-        seenKeys.add(metaKey);
+        metaKeyMap[metaKey] = song;
       }
       unique.add(song);
     }
@@ -305,64 +293,71 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     final newSongs = <Song>[];
     final currentSongs = state.songs;
 
-    for (int i = 0; i < paths.length; i++) {
-      final path = paths[i];
-      final percent = (i + 1) / paths.length;
+    final existingPaths = {for (final s in currentSongs) s.filePath};
+    final existingMetaMap = <String, Song>{
+      for (final s in currentSongs)
+        if (s.title.trim().isNotEmpty && s.artist.trim().isNotEmpty && s.artist.trim() != '未知歌手')
+          '${s.title.trim().toLowerCase()}|${s.artist.trim().toLowerCase()}': s
+    };
+
+    const chunkSize = 8;
+    for (int i = 0; i < paths.length; i += chunkSize) {
+      final end = (i + chunkSize < paths.length) ? i + chunkSize : paths.length;
+      final chunk = paths.sublist(i, end);
+      final percent = end / paths.length;
 
       state = state.copyWith(
-        scanProgressText: '正在解析 (${i + 1}/${paths.length}): ${p.basename(path)}',
+        scanProgressText: '正在解析 ($end/${paths.length}): ${p.basename(chunk.last)}',
         scanProgressPercent: percent,
       );
 
-      String canonicalPath = path;
-      try {
-        if (File(path).existsSync()) {
-          canonicalPath = File(path).resolveSymbolicLinksSync();
-        }
-      } catch (_) {}
-
-      // 1. Check path deduplication against both existing library and current scan batch
-      if (currentSongs.any((s) => s.filePath == path || s.filePath == canonicalPath) ||
-          newSongs.any((s) => s.filePath == path || s.filePath == canonicalPath)) {
-        continue;
-      }
-
-      final metadata = await MetadataExtractor.extractFromFile(path);
-
-      final titleNorm = metadata.title.trim().toLowerCase();
-      final artistNorm = metadata.artist.trim().toLowerCase();
-
-      // 2. Check metadata deduplication (same title + artist + close duration)
-      if (titleNorm.isNotEmpty && titleNorm != '未知曲目' && titleNorm != '本地歌曲' && artistNorm != '未知歌手') {
-        final isDupInCurrent = currentSongs.any((s) =>
-            s.title.trim().toLowerCase() == titleNorm &&
-            s.artist.trim().toLowerCase() == artistNorm &&
-            (s.durationMs == 0 || metadata.durationMs == 0 || (s.durationMs - metadata.durationMs).abs() < 3000));
-        final isDupInNew = newSongs.any((s) =>
-            s.title.trim().toLowerCase() == titleNorm &&
-            s.artist.trim().toLowerCase() == artistNorm &&
-            (s.durationMs == 0 || metadata.durationMs == 0 || (s.durationMs - metadata.durationMs).abs() < 3000));
-
-        if (isDupInCurrent || isDupInNew) {
-          continue;
-        }
-      }
-
-      final song = Song(
-        id: _uuid.v4(),
-        title: metadata.title,
-        artist: metadata.artist,
-        album: metadata.album,
-        durationMs: metadata.durationMs,
-        filePath: canonicalPath.isNotEmpty ? canonicalPath : path,
-        albumArtUri: metadata.albumArtUri,
-        albumArtBytes: metadata.albumArtBytes,
-        dateAdded: DateTime.now(),
-        source: SongSource.local,
-        year: metadata.year,
+      final chunkResults = await Future.wait(
+        chunk.map((filePath) async {
+          if (existingPaths.contains(filePath)) return null;
+          final meta = await MetadataExtractor.extractFromFile(filePath);
+          return (filePath, meta);
+        }),
       );
 
-      newSongs.add(song);
+      for (final item in chunkResults) {
+        if (item == null) continue;
+        final filePath = item.$1;
+        final metadata = item.$2;
+
+        final titleNorm = metadata.title.trim().toLowerCase();
+        final artistNorm = metadata.artist.trim().toLowerCase();
+        final metaKey = '$titleNorm|$artistNorm';
+
+        // Check metadata deduplication (same title + artist + close duration)
+        if (titleNorm.isNotEmpty && titleNorm != '未知曲目' && titleNorm != '本地歌曲' && artistNorm != '未知歌手') {
+          final existing = existingMetaMap[metaKey];
+          if (existing != null) {
+            if (existing.durationMs == 0 || metadata.durationMs == 0 || (existing.durationMs - metadata.durationMs).abs() < 3000) {
+              continue;
+            }
+          }
+        }
+
+        final song = Song(
+          id: _uuid.v4(),
+          title: metadata.title,
+          artist: metadata.artist,
+          album: metadata.album,
+          durationMs: metadata.durationMs,
+          filePath: filePath,
+          albumArtUri: metadata.albumArtUri,
+          albumArtBytes: metadata.albumArtBytes,
+          dateAdded: DateTime.now(),
+          source: SongSource.local,
+          year: metadata.year,
+        );
+
+        existingPaths.add(filePath);
+        if (artistNorm != '未知歌手') {
+          existingMetaMap[metaKey] = song;
+        }
+        newSongs.add(song);
+      }
     }
 
     if (newSongs.isNotEmpty) {
@@ -427,38 +422,46 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
 
   Future<void> deleteSong(Song song) async {
     await _storageService.deleteSong(song.id);
-    _loadSongs();
+    state = state.copyWith(
+      songs: state.songs.where((s) => s.id != song.id).toList(),
+    );
   }
 
   Future<void> toggleFavorite(Song song) async {
-    await _storageService.toggleFavorite(song.id);
-    _loadSongs();
-    final updated = _storageService.getSong(song.id);
+    final updated = await _storageService.toggleFavorite(song.id);
     if (updated != null) {
+      state = state.copyWith(
+        songs: state.songs.map((s) => s.id == updated.id ? updated : s).toList(),
+      );
       _audioHandler?.syncSong(updated);
     }
   }
 
   Future<void> updateSong(Song song) async {
     await _storageService.saveSong(song);
-    _loadSongs();
+    state = state.copyWith(
+      songs: state.songs.map((s) => s.id == song.id ? song : s).toList(),
+    );
     _audioHandler?.syncSong(song);
   }
 }
 
 final libraryNotifierProvider = StateNotifierProvider<LibraryNotifier, LibraryState>((ref) {
   final storage = ref.watch(storageServiceProvider);
-  final handler = ref.watch(audioHandlerProvider);
+  SoundCraftAudioHandler? handler;
+  try {
+    handler = ref.watch(audioHandlerProvider);
+  } catch (_) {}
   return LibraryNotifier(storage, handler);
 });
 
 final filteredSongsProvider = Provider<List<Song>>((ref) {
-  final library = ref.watch(libraryNotifierProvider);
+  final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final sortType = ref.watch(sortTypeProvider);
   final ascending = ref.watch(sortAscendingProvider);
 
-  var list = List<Song>.from(library.songs);
+  var list = List<Song>.from(songs);
 
   if (query.isNotEmpty) {
     list = list.where((s) {

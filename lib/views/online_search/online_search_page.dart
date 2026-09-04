@@ -458,6 +458,8 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                                   imageUrl: item.coverUrl!,
                                   width: 54,
                                   height: 54,
+                                  memCacheWidth: 160,
+                                  memCacheHeight: 160,
                                   fit: BoxFit.cover,
                                   errorWidget: (context, error, stackTrace) => Container(
                                     width: 54,
@@ -969,6 +971,8 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                         child: CachedNetworkImage(
                           imageUrl: _item.coverUrl!,
                           fit: BoxFit.cover,
+                          memCacheWidth: 600,
+                          memCacheHeight: 600,
                         ),
                       ),
                     ),

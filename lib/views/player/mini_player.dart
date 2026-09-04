@@ -11,16 +11,12 @@ class MiniPlayer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentSongAsync = ref.watch(currentSongProvider);
-    final playbackStateAsync = ref.watch(playbackStateStreamProvider);
-    final progressAsync = ref.watch(playbackProgressStreamProvider);
-
     final song = currentSongAsync.valueOrNull;
     if (song == null) {
       return const SizedBox.shrink();
     }
 
-    final isPlaying = playbackStateAsync.valueOrNull?.playing ?? false;
-    final progress = progressAsync.valueOrNull;
+    final isPlaying = ref.watch(playbackStateStreamProvider.select((s) => s.valueOrNull?.playing ?? false));
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
 
@@ -140,18 +136,29 @@ class MiniPlayer extends ConsumerWidget {
                   ],
                 ),
               ),
-              // Bottom border thin progress indicator
-              if (progress != null)
-                LinearProgressIndicator(
-                  value: progress.progressRatio,
-                  minHeight: 2.5,
-                  backgroundColor: Colors.transparent,
-                  valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-                ),
+              // Bottom border thin progress indicator isolated from main container
+              const _MiniPlayerProgressIndicator(),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MiniPlayerProgressIndicator extends ConsumerWidget {
+  const _MiniPlayerProgressIndicator();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progressRatio = ref.watch(playbackProgressStreamProvider.select((p) => p.valueOrNull?.progressRatio ?? 0.0));
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    return LinearProgressIndicator(
+      value: progressRatio,
+      minHeight: 2.5,
+      backgroundColor: Colors.transparent,
+      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
     );
   }
 }

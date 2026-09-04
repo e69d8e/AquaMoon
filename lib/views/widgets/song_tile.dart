@@ -31,12 +31,10 @@ class SongTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentSongAsync = ref.watch(currentSongProvider);
-    final playbackStateAsync = ref.watch(playbackStateStreamProvider);
-
-    final currentSong = currentSongAsync.valueOrNull;
-    final isCurrent = currentSong?.id == song.id;
-    final isPlaying = isCurrent && (playbackStateAsync.valueOrNull?.playing ?? false);
+    final isCurrent = ref.watch(currentSongProvider.select((s) => s.valueOrNull?.id == song.id));
+    final isPlaying = isCurrent
+        ? ref.watch(playbackStateStreamProvider.select((s) => s.valueOrNull?.playing ?? false))
+        : false;
 
     final theme = Theme.of(context);
 
