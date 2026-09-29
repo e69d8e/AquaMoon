@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/utils/app_toast.dart';
 import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
@@ -12,11 +15,7 @@ class LyricsView extends ConsumerStatefulWidget {
   final Song song;
   final VoidCallback? onTapBackground;
 
-  const LyricsView({
-    super.key,
-    required this.song,
-    this.onTapBackground,
-  });
+  const LyricsView({super.key, required this.song, this.onTapBackground});
 
   @override
   ConsumerState<LyricsView> createState() => _LyricsViewState();
@@ -27,9 +26,13 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   final Map<int, GlobalKey> _itemKeys = {};
   bool _userScrolling = false;
   int _lastActiveIndex = -1;
+  Timer? _userScrollResumeTimer;
 
   Future<void> _calibrateOnline() async {
-    final selected = await OnlineCandidateSelectDialog.show(context, widget.song);
+    final selected = await OnlineCandidateSelectDialog.show(
+      context,
+      widget.song,
+    );
     if (selected != null) {
       final onlineService = ref.read(onlineMetadataServiceProvider);
       String? newArtUri = widget.song.albumArtUri;
@@ -47,7 +50,9 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
       );
 
       await ref.read(libraryNotifierProvider.notifier).updateSong(updated);
-      ref.read(audioHandlerProvider).updateCurrentSongMetadata(
+      ref
+          .read(audioHandlerProvider)
+          .updateCurrentSongMetadata(
             title: updated.title,
             artist: updated.artist,
             album: updated.album,
@@ -78,13 +83,17 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
 
   @override
   void dispose() {
+    _userScrollResumeTimer?.cancel();
     _itemKeys.clear();
     _scrollController.dispose();
     super.dispose();
   }
 
   void _scrollToActiveIndex(int index, int totalCount) {
-    if (_userScrolling || !_scrollController.hasClients || index < 0 || totalCount == 0) {
+    if (_userScrolling ||
+        !_scrollController.hasClients ||
+        index < 0 ||
+        totalCount == 0) {
       return;
     }
 
@@ -103,7 +112,10 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
       const estimatedLineHeight = 56.0;
       final targetOffset = index * estimatedLineHeight;
       if (_scrollController.hasClients) {
-        final clampedOffset = targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent);
+        final clampedOffset = targetOffset.clamp(
+          0.0,
+          _scrollController.position.maxScrollExtent,
+        );
         _scrollController.animateTo(
           clampedOffset,
           duration: const Duration(milliseconds: 700),
@@ -168,7 +180,9 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
               Icon(
                 Icons.lyrics_rounded,
                 size: 56,
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.5,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
@@ -187,7 +201,9 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
                 children: [
                   FilledButton.tonalIcon(
                     onPressed: () {
-                      ref.read(lyricsNotifierProvider.notifier).loadLyricsForSong(widget.song, forceOnline: true);
+                      ref
+                          .read(lyricsNotifierProvider.notifier)
+                          .loadLyricsForSong(widget.song, forceOnline: true);
                     },
                     icon: const Icon(Icons.cloud_download_rounded, size: 16),
                     label: const Text('智能匹配在线歌词'),
@@ -224,8 +240,10 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
               if (notification.direction != ScrollDirection.idle) {
                 _userScrolling = true;
               } else {
-                // Delay re-enabling auto scroll after manual swipe
-                Future.delayed(const Duration(seconds: 3), () {
+                // Delay re-enabling auto scroll after manual swipe; a new
+                // swipe cancels the pending resume so timers don't pile up.
+                _userScrollResumeTimer?.cancel();
+                _userScrollResumeTimer = Timer(const Duration(seconds: 3), () {
                   if (mounted) {
                     setState(() {
                       _userScrolling = false;
@@ -257,14 +275,21 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
                   borderRadius: BorderRadius.circular(12),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       color: isActive
                           ? (isLight
-                              ? theme.colorScheme.primary.withValues(alpha: 0.14)
-                              : theme.colorScheme.primary.withValues(alpha: 0.12))
+                                ? theme.colorScheme.primary.withValues(
+                                    alpha: 0.14,
+                                  )
+                                : theme.colorScheme.primary.withValues(
+                                    alpha: 0.12,
+                                  ))
                           : Colors.transparent,
                     ),
                     child: Text(
@@ -272,10 +297,16 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: isActive ? 21 : 16,
-                        fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                        fontWeight: isActive
+                            ? FontWeight.w800
+                            : FontWeight.w500,
                         color: isActive
-                            ? (isLight ? const Color(0xFF1B1C26) : theme.colorScheme.primary)
-                            : theme.colorScheme.onSurface.withValues(alpha: isLight ? 0.38 : 0.45),
+                            ? (isLight
+                                  ? const Color(0xFF1B1C26)
+                                  : theme.colorScheme.primary)
+                            : theme.colorScheme.onSurface.withValues(
+                                alpha: isLight ? 0.38 : 0.45,
+                              ),
                         height: 1.5,
                       ),
                     ),

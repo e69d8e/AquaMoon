@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/utils/app_toast.dart';
 import '../../../models/song.dart';
 import '../../../providers/library_provider.dart';
 import '../../../providers/playlist_provider.dart';
@@ -26,7 +28,9 @@ class PlaylistsTab extends ConsumerWidget {
               Icon(
                 Icons.queue_music_rounded,
                 size: 16,
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
               ),
               const SizedBox(width: 4),
               Text(
@@ -34,7 +38,9 @@ class PlaylistsTab extends ConsumerWidget {
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.75,
+                  ),
                 ),
               ),
               const Spacer(),
@@ -62,12 +68,17 @@ class PlaylistsTab extends ConsumerWidget {
                       Icon(
                         Icons.queue_music_rounded,
                         size: 56,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.4,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       const Text(
                         '暂无自定义歌单',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
@@ -76,10 +87,16 @@ class PlaylistsTab extends ConsumerWidget {
                         style: FilledButton.styleFrom(
                           backgroundColor: theme.colorScheme.primary,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                        onPressed: () => _showCreatePlaylistDialog(context, ref),
+                        onPressed: () =>
+                            _showCreatePlaylistDialog(context, ref),
                       ),
                     ],
                   ),
@@ -92,18 +109,26 @@ class PlaylistsTab extends ConsumerWidget {
                     final firstSongWithArt = pl.songIds
                         .map((id) => songMap[id])
                         .whereType<Song>()
-                        .where((s) => s.albumArtUri != null && s.albumArtUri!.isNotEmpty)
+                        .where(
+                          (s) =>
+                              s.albumArtUri != null &&
+                              s.albumArtUri!.isNotEmpty,
+                        )
                         .firstOrNull;
-                    final effectiveCover = pl.coverArtUri ?? firstSongWithArt?.albumArtUri;
+                    final effectiveCover =
+                        pl.coverArtUri ?? firstSongWithArt?.albumArtUri;
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: ListTile(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         leading: SongArtwork(
                           artUri: effectiveCover,
                           size: 44,
@@ -111,10 +136,15 @@ class PlaylistsTab extends ConsumerWidget {
                         ),
                         title: Text(
                           pl.name,
-                          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         subtitle: Text(
-                          pl.description.isNotEmpty ? pl.description : '${pl.songIds.length} 首歌曲',
+                          pl.description.isNotEmpty
+                              ? pl.description
+                              : '${pl.songIds.length} 首歌曲',
                           style: TextStyle(
                             fontSize: 12,
                             color: theme.colorScheme.onSurfaceVariant,
@@ -123,11 +153,15 @@ class PlaylistsTab extends ConsumerWidget {
                         trailing: Icon(
                           Icons.chevron_right_rounded,
                           size: 20,
-                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.5,
+                          ),
                         ),
                         onTap: () {
                           Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => PlaylistDetailPage(playlist: pl)),
+                            MaterialPageRoute(
+                              builder: (_) => PlaylistDetailPage(playlist: pl),
+                            ),
                           );
                         },
                       ),
@@ -143,9 +177,9 @@ class PlaylistsTab extends ConsumerWidget {
     final titleController = TextEditingController();
     final descController = TextEditingController();
 
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('新建歌单'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -169,21 +203,41 @@ class PlaylistsTab extends ConsumerWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-            onPressed: () {
-              if (titleController.text.trim().isNotEmpty) {
-                ref.read(playlistNotifierProvider.notifier).createPlaylist(
-                      titleController.text,
-                      description: descController.text,
-                    );
-                Navigator.pop(ctx);
-              }
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          // Create stays disabled until the name is non-blank.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: titleController,
+            builder: (context, value, _) {
+              final name = value.text.trim();
+              return FilledButton(
+                onPressed: name.isEmpty
+                    ? null
+                    : () {
+                        ref
+                            .read(playlistNotifierProvider.notifier)
+                            .createPlaylist(
+                              name,
+                              description: descController.text,
+                            );
+                        AppToast.show(
+                          dialogContext,
+                          '已创建歌单「$name」',
+                          icon: Icons.check_circle_outline_rounded,
+                        );
+                        Navigator.pop(dialogContext);
+                      },
+                child: const Text('创建'),
+              );
             },
-            child: const Text('创建'),
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      titleController.dispose();
+      descController.dispose();
+    });
   }
 }

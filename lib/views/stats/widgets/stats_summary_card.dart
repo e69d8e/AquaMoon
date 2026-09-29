@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/utils/formatters.dart';
 import '../../../models/listening_stats.dart';
 
 class StatsSummaryCard extends StatelessWidget {
   final ListeningPeriodStats stats;
 
-  const StatsSummaryCard({
-    super.key,
-    required this.stats,
-  });
+  const StatsSummaryCard({super.key, required this.stats});
 
   @override
   Widget build(BuildContext context) {
@@ -27,22 +25,28 @@ class StatsSummaryCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-                  const Color(0xFF1E2230),
-                  const Color(0xFF181B26),
+                  theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.35,
+                  ),
+                  theme.colorScheme.surface,
                 ]
               : [
                   theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                  Colors.white,
+                  theme.colorScheme.surface,
                 ],
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: isDark ? 0.25 : 0.15),
+          color: theme.colorScheme.primary.withValues(
+            alpha: isDark ? 0.25 : 0.15,
+          ),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: theme.colorScheme.primary.withValues(alpha: isDark ? 0.08 : 0.04),
+            color: theme.colorScheme.primary.withValues(
+              alpha: isDark ? 0.08 : 0.04,
+            ),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -88,7 +92,9 @@ class StatsSummaryCard extends StatelessWidget {
               '已在此周期内沉浸聆听 ${Formatters.formatListeningDuration(totalDuration)}',
               style: TextStyle(
                 fontSize: 12,
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.75),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.75,
+                ),
               ),
             ),
           ] else ...[
@@ -106,7 +112,9 @@ class StatsSummaryCard extends StatelessWidget {
               '静心聆听，曲随心动',
               style: TextStyle(
                 fontSize: 12,
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.6,
+                ),
               ),
             ),
           ],
@@ -139,12 +147,16 @@ class StatsSummaryCard extends StatelessWidget {
                   label: '常听歌手',
                   value: '${stats.distinctArtistsCount} 位',
                 ),
-              if (stats.periodType != PeriodType.day && stats.averageDailySeconds > 0)
+              if (stats.periodType != PeriodType.day &&
+                  stats.averageDailySeconds > 0)
                 _buildMetricChip(
                   context,
                   icon: Icons.calendar_today_rounded,
                   label: '日均时长',
-                  value: Formatters.formatListeningDuration(stats.averageDailyDuration, short: true),
+                  value: Formatters.formatListeningDuration(
+                    stats.averageDailyDuration,
+                    short: true,
+                  ),
                 ),
               if (hasData && stats.peakTimeSummary.isNotEmpty)
                 _buildMetricChip(
@@ -195,7 +207,9 @@ class StatsSummaryCard extends StatelessWidget {
           style: TextStyle(
             fontSize: 40,
             fontWeight: FontWeight.w900,
-            color: hours > 0 ? theme.colorScheme.onSurface : theme.colorScheme.primary,
+            color: hours > 0
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.primary,
             letterSpacing: -1.0,
           ),
         ),
@@ -224,7 +238,9 @@ class StatsSummaryCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.05) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.05)
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -241,10 +257,7 @@ class StatsSummaryCard extends StatelessWidget {
           ),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
-            ),
+            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
           ),
         ],
       ),

@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/utils/app_toast.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/song.dart';
@@ -24,14 +25,27 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   final FocusNode _focusNode = FocusNode();
 
   String _selectedPlatform = '全部';
-  final List<String> _platforms = ['全部', 'QQ音乐', '网易云音乐', 'Apple Music', 'LRCLIB'];
+  final List<String> _platforms = [
+    '全部',
+    'QQ音乐',
+    '网易云音乐',
+    'Apple Music',
+    'LRCLIB',
+  ];
 
   bool _isLoading = false;
   List<OnlineSearchResult> _results = [];
   String? _errorMessage;
   bool _hasSearched = false;
 
-  final List<String> _quickTags = ['周杰伦', '陈奕迅', '林俊杰', '王菲', 'Taylor Swift', '纯音乐'];
+  final List<String> _quickTags = [
+    '周杰伦',
+    '陈奕迅',
+    '林俊杰',
+    '王菲',
+    'Taylor Swift',
+    '纯音乐',
+  ];
 
   @override
   void initState() {
@@ -82,11 +96,11 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
           }
         });
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = '检索失败: $e';
+          _errorMessage = '检索失败，请检查网络连接后重试';
         });
       }
     }
@@ -109,7 +123,11 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
 
   Future<void> _downloadCover(OnlineSearchResult item) async {
     if (item.coverUrl == null || item.coverUrl!.isEmpty) {
-      AppToast.show(context, '该歌曲暂无在线封面图片', icon: Icons.image_not_supported_rounded);
+      AppToast.show(
+        context,
+        '该歌曲暂无在线封面图片',
+        icon: Icons.image_not_supported_rounded,
+      );
       return;
     }
 
@@ -124,7 +142,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       AppToast.show(
         context,
         res.success ? '封面已下载保存到 SoundCraft 文件夹！' : res.message,
-        icon: res.success ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+        icon: res.success
+            ? Icons.check_circle_outline_rounded
+            : Icons.error_outline_rounded,
       );
     }
   }
@@ -135,7 +155,18 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
 
     if (!target.hasLyrics && target.extraId != null) {
       AppToast.show(context, '正在解析完整歌词...', icon: Icons.sync_rounded);
-      target = await service.ensureLyricsLoaded(item);
+      try {
+        target = await service.ensureLyricsLoaded(item);
+      } catch (_) {
+        if (mounted) {
+          AppToast.show(
+            context,
+            '歌词获取失败，请检查网络后重试',
+            icon: Icons.error_outline_rounded,
+          );
+        }
+        return;
+      }
     }
 
     if (!mounted) return;
@@ -157,7 +188,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       AppToast.show(
         context,
         res.success ? 'LRC 歌词文件已保存到 SoundCraft 文件夹！' : res.message,
-        icon: res.success ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+        icon: res.success
+            ? Icons.check_circle_outline_rounded
+            : Icons.error_outline_rounded,
       );
     }
   }
@@ -168,7 +201,18 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
 
     if (!target.hasLyrics && target.extraId != null) {
       AppToast.show(context, '正在获取完整歌词...', icon: Icons.sync_rounded);
-      target = await service.ensureLyricsLoaded(item);
+      try {
+        target = await service.ensureLyricsLoaded(item);
+      } catch (_) {
+        if (mounted) {
+          AppToast.show(
+            context,
+            '歌词获取失败，请检查网络后重试',
+            icon: Icons.error_outline_rounded,
+          );
+        }
+        return;
+      }
     }
 
     if (!mounted) return;
@@ -197,12 +241,16 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
         onDownloadCover: () => _downloadCover(item),
         onDownloadLyrics: () => _downloadLyrics(item),
         onCopyLyrics: () => _copyLyrics(item),
-        onApplyToLocalSong: (song, enriched) => _applyMetadataToLocalSong(song, enriched),
+        onApplyToLocalSong: (song, enriched) =>
+            _applyMetadataToLocalSong(song, enriched),
       ),
     );
   }
 
-  Future<void> _applyMetadataToLocalSong(Song localSong, OnlineSearchResult onlineData) async {
+  Future<void> _applyMetadataToLocalSong(
+    Song localSong,
+    OnlineSearchResult onlineData,
+  ) async {
     final onlineService = ref.read(onlineMetadataServiceProvider);
     String? newArtUri = localSong.albumArtUri;
     if (onlineData.coverUrl != null && onlineData.coverUrl!.isNotEmpty) {
@@ -222,7 +270,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
 
     final currentSong = ref.read(currentSongProvider).valueOrNull;
     if (currentSong != null && currentSong.id == updated.id) {
-      ref.read(audioHandlerProvider).updateCurrentSongMetadata(
+      ref
+          .read(audioHandlerProvider)
+          .updateCurrentSongMetadata(
             title: updated.title,
             artist: updated.artist,
             album: updated.album,
@@ -247,10 +297,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     final isLight = theme.brightness == Brightness.light;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('全网在线歌曲与歌词检索'),
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('全网在线歌曲与歌词检索'), elevation: 0),
       body: Column(
         children: [
           // Search Input Bar
@@ -259,38 +306,52 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    focusNode: _focusNode,
-                    style: const TextStyle(fontSize: 14.5),
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      hintText: '搜索在线歌曲、歌手、专辑...',
-                      hintStyle: TextStyle(
-                        fontSize: 13.5,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                      ),
-                      prefixIcon: const Icon(Icons.saved_search_rounded, size: 22),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear_rounded, size: 18),
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() {});
-                              },
-                            )
-                          : null,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
-                      filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) => _performSearch(),
+                  // Listen to the controller locally so keystrokes only rebuild
+                  // the field (suffix icon visibility), not the whole page.
+                  child: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _searchController,
+                    builder: (context, value, _) {
+                      return TextField(
+                        controller: _searchController,
+                        focusNode: _focusNode,
+                        style: const TextStyle(fontSize: 14.5),
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: '搜索在线歌曲、歌手、专辑...',
+                          hintStyle: TextStyle(
+                            fontSize: 13.5,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.7),
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.saved_search_rounded,
+                            size: 22,
+                          ),
+                          suffixIcon: value.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.clear_rounded,
+                                    size: 18,
+                                  ),
+                                  onPressed: () => _searchController.clear(),
+                                )
+                              : null,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 11,
+                            horizontal: 12,
+                          ),
+                          filled: true,
+                          fillColor: theme.colorScheme.surfaceContainerHighest
+                              .withValues(alpha: 0.6),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onSubmitted: (_) => _performSearch(),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -300,13 +361,21 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                       ? const SizedBox(
                           width: 14,
                           height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : const Icon(Icons.search_rounded, size: 18),
                   label: const Text('检索'),
                   style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ],
@@ -339,18 +408,23 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                         : null,
                     labelStyle: TextStyle(
                       fontSize: 12.5,
-                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                       color: isSelected
                           ? (isLight ? theme.colorScheme.primary : Colors.white)
                           : theme.colorScheme.onSurfaceVariant,
                     ),
-                    selectedColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                    selectedColor: theme.colorScheme.primaryContainer
+                        .withValues(alpha: 0.5),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
                       side: BorderSide(
                         color: isSelected
                             ? theme.colorScheme.primary
-                            : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                            : theme.colorScheme.outlineVariant.withValues(
+                                alpha: 0.5,
+                              ),
                       ),
                     ),
                     onSelected: (val) {
@@ -386,10 +460,10 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                     ),
                   )
                 : _results.isNotEmpty
-                    ? _buildResultsList()
-                    : _hasSearched
-                        ? _buildEmptyOrErrorState()
-                        : _buildInitialGuideState(),
+                ? _buildResultsList()
+                : _hasSearched
+                ? _buildEmptyOrErrorState()
+                : _buildInitialGuideState(),
           ),
         ],
       ),
@@ -419,7 +493,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                 '点击卡片可查看大图与歌词，或直接点击右侧下载',
                 style: TextStyle(
                   fontSize: 11.5,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.7,
+                  ),
                 ),
               ),
             ],
@@ -439,7 +515,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                   side: BorderSide(
-                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.4,
+                    ),
                   ),
                 ),
                 color: theme.colorScheme.surface,
@@ -453,7 +531,8 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                         // Cover Art Thumbnail
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: item.coverUrl != null && item.coverUrl!.isNotEmpty
+                          child:
+                              item.coverUrl != null && item.coverUrl!.isNotEmpty
                               ? CachedNetworkImage(
                                   imageUrl: item.coverUrl!,
                                   width: 54,
@@ -461,18 +540,28 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                                   memCacheWidth: 160,
                                   memCacheHeight: 160,
                                   fit: BoxFit.cover,
-                                  errorWidget: (context, error, stackTrace) => Container(
-                                    width: 54,
-                                    height: 54,
-                                    color: theme.colorScheme.surfaceContainerHighest,
-                                    child: const Icon(Icons.album_rounded, size: 28),
-                                  ),
+                                  errorWidget: (context, error, stackTrace) =>
+                                      Container(
+                                        width: 54,
+                                        height: 54,
+                                        color: theme
+                                            .colorScheme
+                                            .surfaceContainerHighest,
+                                        child: const Icon(
+                                          Icons.album_rounded,
+                                          size: 28,
+                                        ),
+                                      ),
                                 )
                               : Container(
                                   width: 54,
                                   height: 54,
-                                  color: theme.colorScheme.surfaceContainerHighest,
-                                  child: const Icon(Icons.music_note_rounded, size: 28),
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                  child: const Icon(
+                                    Icons.music_note_rounded,
+                                    size: 28,
+                                  ),
                                 ),
                         ),
                         const SizedBox(width: 12),
@@ -486,11 +575,20 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                                 children: [
                                   // Source Badge
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1.5,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: sourceColor.withValues(alpha: 0.12),
+                                      color: sourceColor.withValues(
+                                        alpha: 0.12,
+                                      ),
                                       borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: sourceColor.withValues(alpha: 0.35)),
+                                      border: Border.all(
+                                        color: sourceColor.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                      ),
                                     ),
                                     child: Text(
                                       item.source,
@@ -533,34 +631,55 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                                       Formatters.formatDuration(item.duration),
                                       style: TextStyle(
                                         fontSize: 11,
-                                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                                        color: theme
+                                            .colorScheme
+                                            .onSurfaceVariant
+                                            .withValues(alpha: 0.8),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
                                   ],
                                   if (item.hasLyrics)
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: Colors.purple.withValues(alpha: 0.1),
+                                        color: Colors.purple.withValues(
+                                          alpha: 0.1,
+                                        ),
                                         borderRadius: BorderRadius.circular(3),
                                       ),
                                       child: const Text(
                                         '含歌词',
-                                        style: TextStyle(fontSize: 9.5, color: Colors.purple, fontWeight: FontWeight.w600),
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          color: Colors.purple,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
                                   if (item.coverUrl != null) ...[
                                     const SizedBox(width: 4),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: Colors.blue.withValues(alpha: 0.1),
+                                        color: Colors.blue.withValues(
+                                          alpha: 0.1,
+                                        ),
                                         borderRadius: BorderRadius.circular(3),
                                       ),
                                       child: const Text(
                                         '高清封面',
-                                        style: TextStyle(fontSize: 9.5, color: Colors.blue, fontWeight: FontWeight.w600),
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          color: Colors.blue,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -587,7 +706,10 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                               onPressed: () => _downloadLyrics(item),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.more_horiz_rounded, size: 20),
+                              icon: const Icon(
+                                Icons.more_horiz_rounded,
+                                size: 20,
+                              ),
                               tooltip: '更多详情与操作',
                               visualDensity: VisualDensity.compact,
                               onPressed: () => _showResourceDetails(item),
@@ -661,11 +783,17 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
             decoration: BoxDecoration(
               color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.2)),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.2),
+              ),
             ),
             child: Row(
               children: [
-                Icon(Icons.cloud_download_rounded, color: theme.colorScheme.primary, size: 36),
+                Icon(
+                  Icons.cloud_download_rounded,
+                  color: theme.colorScheme.primary,
+                  size: 36,
+                ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -673,12 +801,18 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                     children: [
                       const Text(
                         '多源音乐与歌词下载中心',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         '检索 QQ 音乐、网易云、Apple Music 与 LRCLIB，一键下载保存高清封面图片与标准 LRC 歌词文件，或关联至本地歌曲。',
-                        style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -717,7 +851,8 @@ class _ResourceDetailSheet extends ConsumerStatefulWidget {
   final VoidCallback onDownloadCover;
   final VoidCallback onDownloadLyrics;
   final VoidCallback onCopyLyrics;
-  final Function(Song localSong, OnlineSearchResult onlineData) onApplyToLocalSong;
+  final Function(Song localSong, OnlineSearchResult onlineData)
+  onApplyToLocalSong;
 
   const _ResourceDetailSheet({
     required this.initialItem,
@@ -728,7 +863,8 @@ class _ResourceDetailSheet extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<_ResourceDetailSheet> createState() => _ResourceDetailSheetState();
+  ConsumerState<_ResourceDetailSheet> createState() =>
+      _ResourceDetailSheetState();
 }
 
 class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
@@ -748,12 +884,27 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
         _isLoadingLyrics = true;
       });
       final service = ref.read(onlineMetadataServiceProvider);
-      final enriched = await service.ensureLyricsLoaded(_item);
-      if (mounted) {
-        setState(() {
-          _item = enriched;
-          _isLoadingLyrics = false;
-        });
+      try {
+        final enriched = await service.ensureLyricsLoaded(_item);
+        if (mounted) {
+          setState(() {
+            _item = enriched;
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          AppToast.show(
+            context,
+            '歌词获取失败，请检查网络后重试',
+            icon: Icons.error_outline_rounded,
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoadingLyrics = false;
+          });
+        }
       }
     }
   }
@@ -778,7 +929,10 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
             }).toList();
 
             return AlertDialog(
-              title: const Text('选择要关联的本地歌曲', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              title: const Text(
+                '选择要关联的本地歌曲',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
               content: SizedBox(
                 width: 480,
                 height: 400,
@@ -806,8 +960,16 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                               itemBuilder: (context, idx) {
                                 final s = filtered[idx];
                                 return ListTile(
-                                  title: Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  subtitle: Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  title: Text(
+                                    s.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    s.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                   trailing: const Icon(Icons.link_rounded),
                                   onTap: () {
                                     Navigator.of(dialogCtx).pop();
@@ -855,7 +1017,9 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.3,
+                ),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -872,14 +1036,20 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                     children: [
                       Text(
                         _item.title,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
                       Text(
                         '${_item.artist} · ${_item.album.isNotEmpty ? _item.album : "未知专辑"} (${_item.source})',
-                        style: TextStyle(fontSize: 12.5, color: theme.colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -904,12 +1074,16 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: _item.coverUrl != null ? widget.onDownloadCover : null,
+                  onPressed: _item.coverUrl != null
+                      ? widget.onDownloadCover
+                      : null,
                   icon: const Icon(Icons.image_outlined, size: 16),
                   label: const Text('下载封面图片'),
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 FilledButton.tonalIcon(
@@ -918,7 +1092,9 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                   label: const Text('下载 LRC 歌词'),
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 OutlinedButton.icon(
@@ -927,7 +1103,9 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                   label: const Text('复制歌词'),
                   style: OutlinedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 OutlinedButton.icon(
@@ -936,7 +1114,9 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                   label: const Text('关联至本地歌曲'),
                   style: OutlinedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ],
@@ -982,20 +1162,32 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant.withValues(
+                          alpha: 0.4,
+                        ),
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.lyrics_rounded, size: 18, color: theme.colorScheme.primary),
+                            Icon(
+                              Icons.lyrics_rounded,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
                             const SizedBox(width: 8),
                             const Text(
                               '歌词内容试看',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
@@ -1007,7 +1199,8 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                               child: CircularProgressIndicator(),
                             ),
                           )
-                        else if (lyricText != null && lyricText.trim().isNotEmpty)
+                        else if (lyricText != null &&
+                            lyricText.trim().isNotEmpty)
                           SelectableText(
                             lyricText,
                             style: TextStyle(

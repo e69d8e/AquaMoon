@@ -1,5 +1,7 @@
 import 'dart:math';
+
 import 'package:flutter/material.dart';
+
 import '../../../core/utils/formatters.dart';
 import '../../../models/listening_stats.dart';
 
@@ -33,14 +35,19 @@ class _ListeningChartState extends State<ListeningChart> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final maxDurationSec = widget.bars.fold<int>(0, (max, b) => b.durationSeconds > max ? b.durationSeconds : max);
+    final maxDurationSec = widget.bars.fold<int>(
+      0,
+      (max, b) => b.durationSeconds > max ? b.durationSeconds : max,
+    );
 
     if (widget.bars.isEmpty || maxDurationSec <= 0) {
       return Container(
         height: 190,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.35,
+          ),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -56,7 +63,9 @@ class _ListeningChartState extends State<ListeningChart> {
               '当前时段暂无时长分布数据',
               style: TextStyle(
                 fontSize: 13,
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.6,
+                ),
               ),
             ),
           ],
@@ -64,7 +73,8 @@ class _ListeningChartState extends State<ListeningChart> {
       );
     }
 
-    final selectedBar = _selectedBarIndex != null && _selectedBarIndex! < widget.bars.length
+    final selectedBar =
+        _selectedBarIndex != null && _selectedBarIndex! < widget.bars.length
         ? widget.bars[_selectedBarIndex!]
         : null;
 
@@ -73,7 +83,7 @@ class _ListeningChartState extends State<ListeningChart> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E2230) : Colors.white,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
@@ -106,7 +116,10 @@ class _ListeningChartState extends State<ListeningChart> {
                   const SizedBox(width: 8),
                   Text(
                     _getChartTitle(widget.periodType),
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
@@ -115,7 +128,10 @@ class _ListeningChartState extends State<ListeningChart> {
                   duration: const Duration(milliseconds: 200),
                   child: Container(
                     key: ValueKey(selectedBar.label),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primary.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
@@ -135,7 +151,9 @@ class _ListeningChartState extends State<ListeningChart> {
                   '最高: ${Formatters.formatListeningDuration(Duration(seconds: maxDurationSec), short: true)}',
                   style: TextStyle(
                     fontSize: 11.5,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.7,
+                    ),
                   ),
                 ),
             ],
@@ -160,7 +178,10 @@ class _ListeningChartState extends State<ListeningChart> {
                           maxSec: maxDurationSec,
                           width: 14,
                           margin: 4,
-                          showLabel: (index == 0 || (index + 1) % 5 == 0 || index == widget.bars.length - 1),
+                          showLabel:
+                              (index == 0 ||
+                              (index + 1) % 5 == 0 ||
+                              index == widget.bars.length - 1),
                         );
                       }),
                     ),
@@ -174,7 +195,11 @@ class _ListeningChartState extends State<ListeningChart> {
                           index: index,
                           bar: widget.bars[index],
                           maxSec: maxDurationSec,
-                          showLabel: _shouldShowLabel(widget.periodType, index, widget.bars.length),
+                          showLabel: _shouldShowLabel(
+                            widget.periodType,
+                            index,
+                            widget.bars.length,
+                          ),
                         ),
                       );
                     }),
@@ -198,18 +223,24 @@ class _ListeningChartState extends State<ListeningChart> {
     final isDark = theme.brightness == Brightness.dark;
     final isSelected = _selectedBarIndex == index;
 
-    final ratio = maxSec > 0 ? (bar.durationSeconds / maxSec).clamp(0.0, 1.0) : 0.0;
+    final ratio = maxSec > 0
+        ? (bar.durationSeconds / maxSec).clamp(0.0, 1.0)
+        : 0.0;
     final barHeight = max(4.0, ratio * 96.0);
 
     Color barColor;
     if (bar.durationSeconds == 0) {
-      barColor = isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06);
+      barColor = isDark
+          ? Colors.white.withValues(alpha: 0.08)
+          : Colors.black.withValues(alpha: 0.06);
     } else if (isSelected) {
       barColor = theme.colorScheme.primary;
     } else if (bar.isHighlighted) {
       barColor = theme.colorScheme.primary.withValues(alpha: 0.85);
     } else {
-      barColor = theme.colorScheme.primary.withValues(alpha: isDark ? 0.45 : 0.35);
+      barColor = theme.colorScheme.primary.withValues(
+        alpha: isDark ? 0.45 : 0.35,
+      );
     }
 
     return GestureDetector(
@@ -232,17 +263,21 @@ class _ListeningChartState extends State<ListeningChart> {
             SizedBox(
               height: 14,
               child: isSelected && bar.durationSeconds > 0
-                  ? Icon(Icons.arrow_drop_down, size: 16, color: theme.colorScheme.primary)
+                  ? Icon(
+                      Icons.arrow_drop_down,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    )
                   : (bar.isHighlighted && bar.durationSeconds > 0
-                      ? Container(
-                          width: 4,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            shape: BoxShape.circle,
-                          ),
-                        )
-                      : null),
+                        ? Container(
+                            width: 4,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              shape: BoxShape.circle,
+                            ),
+                          )
+                        : null),
             ),
             const SizedBox(height: 2),
 
@@ -254,9 +289,11 @@ class _ListeningChartState extends State<ListeningChart> {
               height: barHeight,
               decoration: BoxDecoration(
                 color: barColor,
-                borderRadius: BorderRadius.circular(width != null ? width / 2 : 4),
+                borderRadius: BorderRadius.circular(
+                  width != null ? width / 2 : 4,
+                ),
                 border: isSelected
-                    ? Border.all(color: Colors.white, width: 1.2)
+                    ? Border.all(color: theme.colorScheme.surface, width: 1.2)
                     : null,
               ),
             ),
@@ -270,12 +307,16 @@ class _ListeningChartState extends State<ListeningChart> {
                 showLabel ? bar.sublabel : '',
                 style: TextStyle(
                   fontSize: 10,
-                  fontWeight: isSelected || bar.isHighlighted ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: isSelected || bar.isHighlighted
+                      ? FontWeight.bold
+                      : FontWeight.normal,
                   color: isSelected
                       ? theme.colorScheme.primary
                       : (bar.isHighlighted
-                          ? theme.colorScheme.onSurface
-                          : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+                            ? theme.colorScheme.onSurface
+                            : theme.colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.6,
+                              )),
                 ),
               ),
             ),

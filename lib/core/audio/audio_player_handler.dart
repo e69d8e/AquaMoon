@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:math';
+
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
+
 import '../../models/song.dart';
 import '../../models/playback_mode.dart';
 import '../../models/playback_progress.dart';
@@ -23,10 +26,18 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   final List<int> _shuffleHistory = [];
   double _volume = 1.0;
 
-  final BehaviorSubject<Song?> _currentSongSubject = BehaviorSubject<Song?>.seeded(null);
+  final BehaviorSubject<Song?> _currentSongSubject =
+      BehaviorSubject<Song?>.seeded(null);
   final BehaviorSubject<PlaybackMode> _playbackModeSubject =
       BehaviorSubject<PlaybackMode>.seeded(PlaybackMode.sequence);
-  final BehaviorSubject<List<Song>> _playlistSubject = BehaviorSubject<List<Song>>.seeded([]);
+  final BehaviorSubject<List<Song>> _playlistSubject =
+      BehaviorSubject<List<Song>>.seeded([]);
+  final StreamController<String> _playbackErrorController =
+      StreamController<String>.broadcast();
+
+  /// Emits a user-facing message whenever a song fails to load (file missing,
+  /// unsupported format, ...). The UI listens and shows a toast.
+  Stream<String> get playbackErrorStream => _playbackErrorController.stream;
 
   ListeningStatsTracker get statsTracker => _statsTracker;
 
@@ -46,14 +57,17 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   List<Song> get playlist => _playlist;
   int get currentIndex => _currentIndex;
 
-  Stream<PlaybackProgress> get progressStream => Rx.combineLatest3<Duration, Duration, Duration?, PlaybackProgress>(
+  Stream<PlaybackProgress> get progressStream =>
+      Rx.combineLatest3<Duration, Duration, Duration?, PlaybackProgress>(
         _player.positionStream,
         _player.bufferedPositionStream,
         _player.durationStream,
         (pos, buf, dur) => PlaybackProgress(
           position: pos,
           bufferedPosition: buf,
-          duration: dur ?? (currentSong != null ? currentSong!.duration : Duration.zero),
+          duration:
+              dur ??
+              (currentSong != null ? currentSong!.duration : Duration.zero),
         ),
       );
 
@@ -69,8 +83,10 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
     _player.playerStateStream.listen((state) {
       _broadcastPlaybackState(_player.playbackEvent);
-      if (state.playing && currentSong != null &&
-          (state.processingState == ProcessingState.ready || state.processingState == ProcessingState.buffering)) {
+      if (state.playing &&
+          currentSong != null &&
+          (state.processingState == ProcessingState.ready ||
+              state.processingState == ProcessingState.buffering)) {
         _statsTracker.onPlay(currentSong!);
       } else if (!state.playing) {
         _statsTracker.onPause();
@@ -82,14 +98,18 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     });
 
     // Save position periodically on pause/stop
-    _player.positionStream.throttleTime(const Duration(seconds: 3)).listen((pos) {
+    _player.positionStream.throttleTime(const Duration(seconds: 3)).listen((
+      pos,
+    ) {
       if (currentSong != null) {
         _storageService.saveLastPositionMs(pos.inMilliseconds);
       }
     });
 
     // Update custom notification progress bar every second during playback
-    _player.positionStream.throttleTime(const Duration(seconds: 1)).listen((pos) {
+    _player.positionStream.throttleTime(const Duration(seconds: 1)).listen((
+      pos,
+    ) {
       if (_player.playing && currentSong != null) {
         _syncCustomNotification(position: pos);
       }
@@ -127,21 +147,28 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
         getCurrentVolume: () => _volume,
       );
       _sessionCoordinator = sessionCoordinator;
-      await sessionCoordinator.init().timeout(const Duration(seconds: 5), onTimeout: () {
-        // Some OEM skins (e.g. HyperOS) can stall audio-session configuration;
-        // never let it block handler readiness or playback start.
-        // ignore: avoid_print
-        print('[SoundCraft] audio session init timed out');
-      });
+      await sessionCoordinator.init().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          // Some OEM skins (e.g. HyperOS) can stall audio-session configuration;
+          // never let it block handler readiness or playback start.
+          debugPrint('[SoundCraft] audio session init timed out');
+        },
+      );
     } catch (e, st) {
       // An audio-session hiccup on an OEM skin (HyperOS etc.) must never
       // break playback or the media-notification bridge. Log and continue.
-      // ignore: avoid_print
-      print('[SoundCraft] init warning: $e\n$st');
+      debugPrint('[SoundCraft] init warning: $e\n$st');
     }
   }
 
   bool _lastBroadcastPlaying = false;
+  // playbackEventStream fires on every position tick during playback; the
+  // custom-notification platform channel must only be hit when play/pause or
+  // the processing state actually changes. Periodic progress updates are
+  // handled by the 1s-throttled position listener below.
+  bool _lastSyncedNotificationPlaying = false;
+  ProcessingState? _lastSyncedNotificationProcessing;
 
   void _broadcastPlaybackState(PlaybackEvent event) {
     final playing = _player.playing;
@@ -150,11 +177,11 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     if (playing != _lastBroadcastPlaying) {
       // Diagnostic for the media-notification pipeline: audio_service only
       // shows the system notification when it receives playing=true.
-      // Uses print() because debugPrint is compiled out in release builds;
-      // shows in logcat under the "flutter" tag.
-      // ignore: avoid_print
-      print('[SoundCraft] pushing playing=$playing (processingState=$processingState) -> '
-          '${playing ? 'system notification should appear now' : 'paused'}');
+      // Uses debugPrint so it shows in logcat under the "flutter" tag.
+      debugPrint(
+        '[SoundCraft] pushing playing=$playing (processingState=$processingState) -> '
+        '${playing ? 'system notification should appear now' : 'paused'}',
+      );
       _lastBroadcastPlaying = playing;
     }
 
@@ -182,13 +209,15 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
           MediaAction.skipToPrevious,
         },
         androidCompactActionIndices: const [0, 1, 2],
-        processingState: const {
-          ProcessingState.idle: AudioProcessingState.idle,
-          ProcessingState.loading: AudioProcessingState.loading,
-          ProcessingState.buffering: AudioProcessingState.buffering,
-          ProcessingState.ready: AudioProcessingState.ready,
-          ProcessingState.completed: AudioProcessingState.completed,
-        }[processingState] ?? AudioProcessingState.idle,
+        processingState:
+            const {
+              ProcessingState.idle: AudioProcessingState.idle,
+              ProcessingState.loading: AudioProcessingState.loading,
+              ProcessingState.buffering: AudioProcessingState.buffering,
+              ProcessingState.ready: AudioProcessingState.ready,
+              ProcessingState.completed: AudioProcessingState.completed,
+            }[processingState] ??
+            AudioProcessingState.idle,
         playing: playing,
         updatePosition: _player.position,
         bufferedPosition: _player.bufferedPosition,
@@ -197,10 +226,20 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       ),
     );
 
-    _syncCustomNotification(playing: playing);
+    if (playing != _lastSyncedNotificationPlaying ||
+        processingState != _lastSyncedNotificationProcessing) {
+      _lastSyncedNotificationPlaying = playing;
+      _lastSyncedNotificationProcessing = processingState;
+      _syncCustomNotification(playing: playing);
+    }
   }
 
-  void _syncCustomNotification({bool? playing, Song? overrideSong, Duration? position, Duration? duration}) {
+  void _syncCustomNotification({
+    bool? playing,
+    Song? overrideSong,
+    Duration? position,
+    Duration? duration,
+  }) {
     final isPlaying = playing ?? _player.playing;
     final song = overrideSong ?? currentSong;
     if (song != null) {
@@ -322,7 +361,11 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   // --- Queue & Playlist Management ---
 
-  Future<void> loadPlaylist(List<Song> songs, {int initialIndex = 0, bool autoPlay = true}) async {
+  Future<void> loadPlaylist(
+    List<Song> songs, {
+    int initialIndex = 0,
+    bool autoPlay = true,
+  }) async {
     if (songs.isEmpty) return;
     _playlist = List.from(songs);
     _playlistSubject.add(List.unmodifiable(_playlist));
@@ -338,7 +381,11 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> playSong(Song song, {List<Song>? contextQueue}) async {
     if (contextQueue != null && contextQueue.isNotEmpty) {
       final index = contextQueue.indexWhere((s) => s.id == song.id);
-      await loadPlaylist(contextQueue, initialIndex: index >= 0 ? index : 0, autoPlay: true);
+      await loadPlaylist(
+        contextQueue,
+        initialIndex: index >= 0 ? index : 0,
+        autoPlay: true,
+      );
     } else {
       final existingIndex = _playlist.indexWhere((s) => s.id == song.id);
       if (existingIndex >= 0) {
@@ -361,9 +408,6 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _currentSongSubject.add(song);
     _shuffleHistory.add(index);
 
-    // ignore: avoid_print
-    print('[SoundCraft] playAtIndex($index) autoPlay=$autoPlay source=${song.source} path=${song.filePath}');
-
     // Update audio_service MediaItem (Notification, lockscreen info)
     final mediaItem = _songToMediaItem(song);
     this.mediaItem.add(mediaItem);
@@ -384,6 +428,8 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       }
     } catch (e) {
       // Audio playback failed (e.g. file missing or unreadable format)
+      debugPrint('[SoundCraft] playback failed for "${song.title}": $e');
+      _playbackErrorController.add('无法播放「${song.title}」，文件可能已移动或损坏');
       // Automatically attempt next song if available
       if (_playlist.length > 1) {
         skipToNext();
@@ -538,7 +584,9 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       title: song.title,
       artist: song.artist,
       album: song.album,
-      duration: song.durationMs > 0 ? Duration(milliseconds: song.durationMs) : null,
+      duration: song.durationMs > 0
+          ? Duration(milliseconds: song.durationMs)
+          : null,
       artUri: artUri,
     );
   }
@@ -551,5 +599,6 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     await _currentSongSubject.close();
     await _playbackModeSubject.close();
     await _playlistSubject.close();
+    await _playbackErrorController.close();
   }
 }

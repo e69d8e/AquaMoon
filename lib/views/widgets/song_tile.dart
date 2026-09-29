@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/utils/app_toast.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/song.dart';
@@ -31,31 +32,38 @@ class SongTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isCurrent = ref.watch(currentSongProvider.select((s) => s.valueOrNull?.id == song.id));
+    final isCurrent = ref.watch(
+      currentSongProvider.select((s) => s.valueOrNull?.id == song.id),
+    );
     final isPlaying = isCurrent
-        ? ref.watch(playbackStateStreamProvider.select((s) => s.valueOrNull?.playing ?? false))
+        ? ref.watch(
+            playbackStateStreamProvider.select(
+              (s) => s.valueOrNull?.playing ?? false,
+            ),
+          )
         : false;
 
     final theme = Theme.of(context);
 
     return Material(
-      color: isCurrent ? theme.colorScheme.primary.withValues(alpha: 0.08) : Colors.transparent,
+      color: isCurrent
+          ? theme.colorScheme.primary.withValues(alpha: 0.08)
+          : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        onTap: onTap ??
+        onTap:
+            onTap ??
             () {
-              ref.read(audioControllerProvider).playSong(song, queue: contextQueue);
+              ref
+                  .read(audioControllerProvider)
+                  .playSong(song, queue: contextQueue);
             },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 6.0),
           child: Row(
             children: [
-              SongArtwork(
-                song: song,
-                size: 44,
-                borderRadius: 8,
-              ),
+              SongArtwork(song: song, size: 44, borderRadius: 8),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -66,7 +74,9 @@ class SongTile extends ConsumerWidget {
                       children: [
                         if (isCurrent) ...[
                           Icon(
-                            isPlaying ? Icons.equalizer_rounded : Icons.pause_circle_filled_rounded,
+                            isPlaying
+                                ? Icons.equalizer_rounded
+                                : Icons.pause_circle_filled_rounded,
                             size: 15,
                             color: theme.colorScheme.primary,
                           ),
@@ -79,8 +89,12 @@ class SongTile extends ConsumerWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 14,
-                              fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-                              color: isCurrent ? theme.colorScheme.primary : theme.colorScheme.onSurface,
+                              fontWeight: isCurrent
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: isCurrent
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -88,14 +102,18 @@ class SongTile extends ConsumerWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      song.album.isNotEmpty && song.album != song.title && song.album != song.artist
+                      song.album.isNotEmpty &&
+                              song.album != song.title &&
+                              song.album != song.artist
                           ? '${song.artist} · ${song.album}'
                           : song.artist,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.8,
+                        ),
                       ),
                     ),
                   ],
@@ -106,29 +124,41 @@ class SongTile extends ConsumerWidget {
                 Formatters.formatDuration(song.duration),
                 style: TextStyle(
                   fontSize: 11.5,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.6,
+                  ),
                 ),
               ),
               const SizedBox(width: 2),
               IconButton(
                 icon: Icon(
-                  song.isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  song.isFavorite
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
                   size: 18,
-                  color: song.isFavorite ? Colors.redAccent : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
+                  color: song.isFavorite
+                      ? Colors.redAccent
+                      : theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.45,
+                        ),
                 ),
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 tooltip: song.isFavorite ? '取消收藏' : '收藏',
                 onPressed: () {
-                  ref.read(libraryNotifierProvider.notifier).toggleFavorite(song);
+                  ref
+                      .read(libraryNotifierProvider.notifier)
+                      .toggleFavorite(song);
                 },
               ),
               PopupMenuButton<String>(
                 icon: Icon(
                   Icons.more_vert_rounded,
                   size: 18,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.5,
+                  ),
                 ),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 28, minHeight: 32),
@@ -148,61 +178,68 @@ class SongTile extends ConsumerWidget {
                   const PopupMenuItem(
                     value: 'edit_song',
                     child: Row(
-                    children: [
-                      Icon(Icons.edit_note_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('编辑信息 / 修改封面与歌词'),
-                    ],
+                      children: [
+                        Icon(Icons.edit_note_rounded, size: 18),
+                        SizedBox(width: 8),
+                        Text('编辑信息 / 修改封面与歌词'),
+                      ],
+                    ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'add_to_playlist',
-                  child: Row(
-                    children: [
-                      Icon(Icons.playlist_add_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('添加到歌单'),
-                    ],
+                  const PopupMenuItem(
+                    value: 'add_to_playlist',
+                    child: Row(
+                      children: [
+                        Icon(Icons.playlist_add_rounded, size: 18),
+                        SizedBox(width: 8),
+                        Text('添加到歌单'),
+                      ],
+                    ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'online_candidate_select',
-                  child: Row(
-                    children: [
-                      Icon(Icons.saved_search_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('在线检索与更换数据'),
-                    ],
+                  const PopupMenuItem(
+                    value: 'online_candidate_select',
+                    child: Row(
+                      children: [
+                        Icon(Icons.saved_search_rounded, size: 18),
+                        SizedBox(width: 8),
+                        Text('在线检索与更换数据'),
+                      ],
+                    ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'fetch_online_metadata',
-                  child: Row(
-                    children: [
-                      Icon(Icons.cloud_download_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('智能匹配在线歌词与封面'),
-                    ],
+                  const PopupMenuItem(
+                    value: 'fetch_online_metadata',
+                    child: Row(
+                      children: [
+                        Icon(Icons.cloud_download_rounded, size: 18),
+                        SizedBox(width: 8),
+                        Text('智能匹配在线歌词与封面'),
+                      ],
+                    ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent),
-                      SizedBox(width: 8),
-                      Text('从曲库移除', style: TextStyle(color: Colors.redAccent)),
-                    ],
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.delete_outline_rounded,
+                          size: 18,
+                          color: Colors.redAccent,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          '从曲库移除',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   void _handleAction(BuildContext context, WidgetRef ref, String action) async {
     switch (action) {
@@ -221,7 +258,9 @@ class SongTile extends ConsumerWidget {
           final onlineService = ref.read(onlineMetadataServiceProvider);
           String? newArtUri = song.albumArtUri;
           if (selected.coverUrl != null && selected.coverUrl!.isNotEmpty) {
-            newArtUri = await onlineService.cacheOnlineImage(selected.coverUrl!);
+            newArtUri = await onlineService.cacheOnlineImage(
+              selected.coverUrl!,
+            );
           }
           final newLrc = selected.syncedLyrics ?? selected.plainLyrics;
 
@@ -237,14 +276,18 @@ class SongTile extends ConsumerWidget {
 
           final currentSong = ref.read(currentSongProvider).valueOrNull;
           if (currentSong != null && currentSong.id == updated.id) {
-            ref.read(audioHandlerProvider).updateCurrentSongMetadata(
+            ref
+                .read(audioHandlerProvider)
+                .updateCurrentSongMetadata(
                   title: updated.title,
                   artist: updated.artist,
                   album: updated.album,
                   albumArtUri: updated.albumArtUri,
                   lrcContent: updated.lrcContent,
                 );
-            ref.read(lyricsNotifierProvider.notifier).loadLyricsForSong(updated);
+            ref
+                .read(lyricsNotifierProvider.notifier)
+                .loadLyricsForSong(updated);
           }
 
           if (context.mounted) {
@@ -262,12 +305,17 @@ class SongTile extends ConsumerWidget {
           '正在匹配《${song.title}》在线信息...',
           icon: Icons.sync_rounded,
         );
-        await ref.read(lyricsNotifierProvider.notifier).loadLyricsForSong(song, forceOnline: true);
+        await ref
+            .read(lyricsNotifierProvider.notifier)
+            .loadLyricsForSong(song, forceOnline: true);
         if (context.mounted) {
+          final error = ref.read(lyricsNotifierProvider).error;
           AppToast.show(
             context,
-            '在线信息匹配完成！',
-            icon: Icons.check_circle_outline_rounded,
+            error != null ? '在线匹配失败：$error' : '在线信息匹配完成！',
+            icon: error != null
+                ? Icons.error_outline_rounded
+                : Icons.check_circle_outline_rounded,
           );
         }
         break;
@@ -302,9 +350,7 @@ class SongTile extends ConsumerWidget {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
               Navigator.of(ctx).pop();
               ref.read(libraryNotifierProvider.notifier).deleteSong(song);
@@ -341,11 +387,16 @@ class SongTile extends ConsumerWidget {
                       title: Text(pl.name),
                       subtitle: Text('${pl.songIds.length} 首歌曲'),
                       trailing: contains
-                          ? const Icon(Icons.check_circle_rounded, color: Colors.green)
+                          ? const Icon(
+                              Icons.check_circle_rounded,
+                              color: Colors.green,
+                            )
                           : const Icon(Icons.add_circle_outline_rounded),
                       onTap: () {
                         if (!contains) {
-                          ref.read(playlistNotifierProvider.notifier).addSongToPlaylist(pl.id, song.id);
+                          ref
+                              .read(playlistNotifierProvider.notifier)
+                              .addSongToPlaylist(pl.id, song.id);
                           Navigator.pop(ctx);
                           AppToast.show(
                             context,

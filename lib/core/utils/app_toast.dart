@@ -1,20 +1,32 @@
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 class AppToast {
-  /// Displays a floating, adaptive-width toast with theme green semi-transparent styling
+  /// Displays a floating, adaptive-width toast with theme green semi-transparent styling.
+  ///
+  /// [duration] defaults by message length: short messages stay 1.4s, longer
+  /// ones (error details, paths) get 2.8s so they remain readable.
   static void show(
     BuildContext context,
     String message, {
     IconData? icon,
-    Duration duration = const Duration(milliseconds: 1400),
+    Duration? duration,
     Color? backgroundColor,
+    int maxLines = 1,
   }) {
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
 
+    final effectiveDuration =
+        duration ??
+        (message.length > 24
+            ? const Duration(milliseconds: 2800)
+            : const Duration(milliseconds: 1400));
+
     // Theme green semi-transparent background (~90% opacity)
-    final bg = backgroundColor ??
+    final bg =
+        backgroundColor ??
         (isLight
             ? const Color(0xEE1DB954) // Vibrant Theme Green with 93% opacity
             : const Color(0xEE15803D)); // Deep Theme Green with 93% opacity
@@ -30,12 +42,14 @@ class AppToast {
         ),
       ),
       textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout();
+      maxLines: maxLines,
+    )..layout(maxWidth: MediaQuery.of(context).size.width - 60);
 
     final screenWidth = MediaQuery.of(context).size.width;
     final contentWidth = textPainter.width + (icon != null ? 24 : 0) + 40;
-    final double finalWidth = contentWidth.clamp(100.0, max(100.0, screenWidth - 36)).toDouble();
+    final double finalWidth = contentWidth
+        .clamp(100.0, max(100.0, screenWidth - 36))
+        .toDouble();
 
     final scaffold = ScaffoldMessenger.of(context);
     scaffold.hideCurrentSnackBar();
@@ -53,10 +67,13 @@ class AppToast {
             width: 0.8,
           ),
         ),
-        duration: duration,
+        duration: effectiveDuration,
         content: Row(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: maxLines > 1
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
           children: [
             if (icon != null) ...[
               Icon(icon, size: 16, color: Colors.white),
@@ -65,9 +82,9 @@ class AppToast {
             Flexible(
               child: Text(
                 message,
-                maxLines: 1,
+                maxLines: maxLines,
                 overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
+                textAlign: maxLines > 1 ? TextAlign.left : TextAlign.center,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,

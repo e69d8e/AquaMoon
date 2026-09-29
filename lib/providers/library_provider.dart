@@ -1,9 +1,11 @@
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
+
 import '../core/audio/audio_player_handler.dart';
 import '../core/utils/metadata_extractor.dart';
 import '../models/song.dart';
@@ -11,16 +13,33 @@ import '../services/online_metadata_service.dart';
 import '../services/storage_service.dart';
 import 'audio_provider.dart';
 
-enum SongSortType {
-  dateAdded,
-  title,
-  artist,
-  duration,
-  playCount,
+enum SongSortType { dateAdded, title, artist, duration, playCount }
+
+/// Thrown when storage permission is denied so the UI can guide the user to
+/// system settings instead of showing a misleading "no files found" toast.
+class StoragePermissionDeniedException implements Exception {
+  const StoragePermissionDeniedException();
+}
+
+/// Result of [LibraryNotifier.batchAutoMatchOnlineMetadata].
+class BatchMatchResult {
+  final int total;
+  final int enriched;
+  final int failed;
+
+  const BatchMatchResult({
+    required this.total,
+    required this.enriched,
+    required this.failed,
+  });
+
+  bool get allFailed => total > 0 && enriched == 0 && failed == total;
 }
 
 final searchQueryProvider = StateProvider<String>((ref) => '');
-final sortTypeProvider = StateProvider<SongSortType>((ref) => SongSortType.dateAdded);
+final sortTypeProvider = StateProvider<SongSortType>(
+  (ref) => SongSortType.dateAdded,
+);
 final sortAscendingProvider = StateProvider<bool>((ref) => false);
 
 class LibraryState {
@@ -68,7 +87,8 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     '.alac',
   ];
 
-  LibraryNotifier(this._storageService, [this._audioHandler]) : super(const LibraryState()) {
+  LibraryNotifier(this._storageService, [this._audioHandler])
+    : super(const LibraryState()) {
     _loadSongs();
   }
 
@@ -97,10 +117,15 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       final artistNorm = song.artist.trim().toLowerCase();
       final metaKey = '$titleNorm|$artistNorm';
 
-      if (titleNorm.isNotEmpty && titleNorm != '未知曲目' && titleNorm != '本地歌曲' && artistNorm != '未知歌手') {
+      if (titleNorm.isNotEmpty &&
+          titleNorm != '未知曲目' &&
+          titleNorm != '本地歌曲' &&
+          artistNorm != '未知歌手') {
         final existing = metaKeyMap[metaKey];
         if (existing != null && existing.id != song.id) {
-          if (existing.durationMs == 0 || song.durationMs == 0 || (existing.durationMs - song.durationMs).abs() < 3000) {
+          if (existing.durationMs == 0 ||
+              song.durationMs == 0 ||
+              (existing.durationMs - song.durationMs).abs() < 3000) {
             continue;
           }
         }
@@ -116,7 +141,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
   }
 
   void _fixMissingDurations(List<Song> songs) {
-    final missing = songs.where((s) => s.durationMs <= 0 && s.filePath.isNotEmpty).toList();
+    final missing = songs
+        .where((s) => s.durationMs <= 0 && s.filePath.isNotEmpty)
+        .toList();
     if (missing.isEmpty) return;
 
     Future.microtask(() async {
@@ -157,10 +184,27 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
   }
 
   Future<int> importFiles() async {
-    final pickedFiles = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['mp3', 'flac', 'm4a', 'wav', 'aac', 'ogg', 'opus', 'wma', 'ape', 'alac'],
-    );
+    final List<PlatformFile> pickedFiles;
+    try {
+      pickedFiles = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: [
+          'mp3',
+          'flac',
+          'm4a',
+          'wav',
+          'aac',
+          'ogg',
+          'opus',
+          'wma',
+          'ape',
+          'alac',
+        ],
+      );
+    } catch (_) {
+      // Platform picker crashed — treat as cancellation instead of crashing.
+      return 0;
+    }
 
     if (pickedFiles.isEmpty) {
       return 0;
@@ -172,16 +216,51 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       scanProgressPercent: 0.0,
     );
 
-    final validPaths = pickedFiles.map((f) => f.path).whereType<String>().toList();
+    final validPaths = pickedFiles
+        .map((f) => f.path)
+        .whereType<String>()
+        .toList();
     final count = await _processAudioFilePaths(validPaths);
 
-    state = state.copyWith(isScanning: false, scanProgressText: null, scanProgressPercent: null);
+    state = state.copyWith(
+      isScanning: false,
+      scanProgressText: null,
+      scanProgressPercent: null,
+    );
     return count;
+  }
+
+  /// Recursively collects supported audio file paths under [roots], resolving
+  /// symlinks and de-duplicating via a Set.
+  Future<List<String>> _collectAudioFiles(Iterable<String> roots) async {
+    final found = <String>{};
+    for (final root in roots) {
+      final dir = Directory(root);
+      if (!await dir.exists()) continue;
+      try {
+        await for (final entity in dir.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (entity is File) {
+            final ext = p.extension(entity.path).toLowerCase();
+            if (_supportedExtensions.contains(ext)) {
+              String canonical = entity.path;
+              try {
+                canonical = entity.resolveSymbolicLinksSync();
+              } catch (_) {}
+              found.add(canonical);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return found.toList();
   }
 
   Future<int> importFolder() async {
     final hasPermission = await requestStoragePermission();
-    if (!hasPermission) return 0;
+    if (!hasPermission) throw const StoragePermissionDeniedException();
 
     String? directoryPath;
     try {
@@ -204,23 +283,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       scanProgressPercent: null,
     );
 
-    final audioFilePaths = <String>[];
-    try {
-      await for (final entity in dir.list(recursive: true, followLinks: false)) {
-        if (entity is File) {
-          final ext = p.extension(entity.path).toLowerCase();
-          if (_supportedExtensions.contains(ext)) {
-            String canonical = entity.path;
-            try {
-              canonical = entity.resolveSymbolicLinksSync();
-            } catch (_) {}
-            if (!audioFilePaths.contains(canonical) && !audioFilePaths.contains(entity.path)) {
-              audioFilePaths.add(canonical);
-            }
-          }
-        }
-      }
-    } catch (_) {}
+    final audioFilePaths = await _collectAudioFiles([directoryPath]);
 
     if (audioFilePaths.isEmpty) {
       state = state.copyWith(isScanning: false, scanProgressText: null);
@@ -234,16 +297,19 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     );
 
     final count = await _processAudioFilePaths(audioFilePaths);
-    state = state.copyWith(isScanning: false, scanProgressText: null, scanProgressPercent: null);
+    state = state.copyWith(
+      isScanning: false,
+      scanProgressText: null,
+      scanProgressPercent: null,
+    );
     return count;
   }
 
   Future<int> scanSystemMusicDirectory() async {
     final hasPermission = await requestStoragePermission();
-    if (!hasPermission) return 0;
+    if (!hasPermission) throw const StoragePermissionDeniedException();
 
-    final audioFilePaths = <String>[];
-    final commonDirs = [
+    const commonDirs = [
       '/storage/emulated/0/Music',
       '/storage/emulated/0/Download',
       '/storage/emulated/0/netease/cloudmusic/Music',
@@ -257,27 +323,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       scanProgressPercent: null,
     );
 
-    for (final path in commonDirs) {
-      final d = Directory(path);
-      if (await d.exists()) {
-        try {
-          await for (final entity in d.list(recursive: true, followLinks: false)) {
-            if (entity is File) {
-              final ext = p.extension(entity.path).toLowerCase();
-              if (_supportedExtensions.contains(ext)) {
-                String canonical = entity.path;
-                try {
-                  canonical = entity.resolveSymbolicLinksSync();
-                } catch (_) {}
-                if (!audioFilePaths.contains(canonical) && !audioFilePaths.contains(entity.path)) {
-                  audioFilePaths.add(canonical);
-                }
-              }
-            }
-          }
-        } catch (_) {}
-      }
-    }
+    final audioFilePaths = await _collectAudioFiles(commonDirs);
 
     if (audioFilePaths.isEmpty) {
       state = state.copyWith(isScanning: false, scanProgressText: null);
@@ -285,7 +331,11 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     }
 
     final count = await _processAudioFilePaths(audioFilePaths);
-    state = state.copyWith(isScanning: false, scanProgressText: null, scanProgressPercent: null);
+    state = state.copyWith(
+      isScanning: false,
+      scanProgressText: null,
+      scanProgressPercent: null,
+    );
     return count;
   }
 
@@ -296,18 +346,21 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     final existingPaths = {for (final s in currentSongs) s.filePath};
     final existingMetaMap = <String, Song>{
       for (final s in currentSongs)
-        if (s.title.trim().isNotEmpty && s.artist.trim().isNotEmpty && s.artist.trim() != '未知歌手')
-          '${s.title.trim().toLowerCase()}|${s.artist.trim().toLowerCase()}': s
+        if (s.title.trim().isNotEmpty &&
+            s.artist.trim().isNotEmpty &&
+            s.artist.trim() != '未知歌手')
+          '${s.title.trim().toLowerCase()}|${s.artist.trim().toLowerCase()}': s,
     };
 
-    const chunkSize = 8;
+    const chunkSize = 4;
     for (int i = 0; i < paths.length; i += chunkSize) {
       final end = (i + chunkSize < paths.length) ? i + chunkSize : paths.length;
       final chunk = paths.sublist(i, end);
       final percent = end / paths.length;
 
       state = state.copyWith(
-        scanProgressText: '正在解析 ($end/${paths.length}): ${p.basename(chunk.last)}',
+        scanProgressText:
+            '正在解析 ($end/${paths.length}): ${p.basename(chunk.last)}',
         scanProgressPercent: percent,
       );
 
@@ -329,10 +382,15 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         final metaKey = '$titleNorm|$artistNorm';
 
         // Check metadata deduplication (same title + artist + close duration)
-        if (titleNorm.isNotEmpty && titleNorm != '未知曲目' && titleNorm != '本地歌曲' && artistNorm != '未知歌手') {
+        if (titleNorm.isNotEmpty &&
+            titleNorm != '未知曲目' &&
+            titleNorm != '本地歌曲' &&
+            artistNorm != '未知歌手') {
           final existing = existingMetaMap[metaKey];
           if (existing != null) {
-            if (existing.durationMs == 0 || metadata.durationMs == 0 || (existing.durationMs - metadata.durationMs).abs() < 3000) {
+            if (existing.durationMs == 0 ||
+                metadata.durationMs == 0 ||
+                (existing.durationMs - metadata.durationMs).abs() < 3000) {
               continue;
             }
           }
@@ -368,9 +426,15 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     return newSongs.length;
   }
 
-  Future<int> batchAutoMatchOnlineMetadata(OnlineMetadataService onlineService) async {
-    final targets = state.songs.where((s) => s.albumArtUri == null || s.lrcContent == null).toList();
-    if (targets.isEmpty) return 0;
+  Future<BatchMatchResult> batchAutoMatchOnlineMetadata(
+    OnlineMetadataService onlineService,
+  ) async {
+    final targets = state.songs
+        .where((s) => s.albumArtUri == null || s.lrcContent == null)
+        .toList();
+    if (targets.isEmpty) {
+      return const BatchMatchResult(total: 0, enriched: 0, failed: 0);
+    }
 
     state = state.copyWith(
       isScanning: true,
@@ -379,6 +443,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     );
 
     int enrichedCount = 0;
+    int failedCount = 0;
     for (int i = 0; i < targets.length; i++) {
       final song = targets[i];
       final percent = (i + 1) / targets.length;
@@ -401,7 +466,8 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
           if (newArtUri == null && result.coverUrl != null) {
             newArtUri = await onlineService.cacheOnlineImage(result.coverUrl!);
           }
-          final newLrc = song.lrcContent ?? result.syncedLyrics ?? result.plainLyrics;
+          final newLrc =
+              song.lrcContent ?? result.syncedLyrics ?? result.plainLyrics;
 
           if (newArtUri != song.albumArtUri || newLrc != song.lrcContent) {
             final updated = song.copyWith(
@@ -412,12 +478,22 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
             enrichedCount++;
           }
         }
-      } catch (_) {}
+      } catch (_) {
+        failedCount++;
+      }
     }
 
     _loadSongs();
-    state = state.copyWith(isScanning: false, scanProgressText: null, scanProgressPercent: null);
-    return enrichedCount;
+    state = state.copyWith(
+      isScanning: false,
+      scanProgressText: null,
+      scanProgressPercent: null,
+    );
+    return BatchMatchResult(
+      total: targets.length,
+      enriched: enrichedCount,
+      failed: failedCount,
+    );
   }
 
   Future<void> deleteSong(Song song) async {
@@ -431,7 +507,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     final updated = await _storageService.toggleFavorite(song.id);
     if (updated != null) {
       state = state.copyWith(
-        songs: state.songs.map((s) => s.id == updated.id ? updated : s).toList(),
+        songs: state.songs
+            .map((s) => s.id == updated.id ? updated : s)
+            .toList(),
       );
       _audioHandler?.syncSong(updated);
     }
@@ -446,14 +524,15 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
   }
 }
 
-final libraryNotifierProvider = StateNotifierProvider<LibraryNotifier, LibraryState>((ref) {
-  final storage = ref.watch(storageServiceProvider);
-  SoundCraftAudioHandler? handler;
-  try {
-    handler = ref.watch(audioHandlerProvider);
-  } catch (_) {}
-  return LibraryNotifier(storage, handler);
-});
+final libraryNotifierProvider =
+    StateNotifierProvider<LibraryNotifier, LibraryState>((ref) {
+      final storage = ref.watch(storageServiceProvider);
+      SoundCraftAudioHandler? handler;
+      try {
+        handler = ref.watch(audioHandlerProvider);
+      } catch (_) {}
+      return LibraryNotifier(storage, handler);
+    });
 
 final filteredSongsProvider = Provider<List<Song>>((ref) {
   final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
@@ -461,37 +540,45 @@ final filteredSongsProvider = Provider<List<Song>>((ref) {
   final sortType = ref.watch(sortTypeProvider);
   final ascending = ref.watch(sortAscendingProvider);
 
-  var list = List<Song>.from(songs);
+  // Decorate-sort-undecorate: lowercased search/sort keys are computed once
+  // per song instead of on every comparator invocation (O(n log n) calls).
+  var decorated = [
+    for (final s in songs)
+      (s, s.title.toLowerCase(), s.artist.toLowerCase(), s.album.toLowerCase()),
+  ];
 
   if (query.isNotEmpty) {
-    list = list.where((s) {
-      return s.title.toLowerCase().contains(query) ||
-          s.artist.toLowerCase().contains(query) ||
-          s.album.toLowerCase().contains(query);
-    }).toList();
+    decorated = decorated
+        .where(
+          (d) =>
+              d.$2.contains(query) ||
+              d.$3.contains(query) ||
+              d.$4.contains(query),
+        )
+        .toList();
   }
 
-  list.sort((a, b) {
+  decorated.sort((a, b) {
     int cmp = 0;
     switch (sortType) {
       case SongSortType.title:
-        cmp = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+        cmp = a.$2.compareTo(b.$2);
         break;
       case SongSortType.artist:
-        cmp = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+        cmp = a.$3.compareTo(b.$3);
         break;
       case SongSortType.duration:
-        cmp = a.durationMs.compareTo(b.durationMs);
+        cmp = a.$1.durationMs.compareTo(b.$1.durationMs);
         break;
       case SongSortType.playCount:
-        cmp = a.playCount.compareTo(b.playCount);
+        cmp = a.$1.playCount.compareTo(b.$1.playCount);
         break;
       case SongSortType.dateAdded:
-        cmp = a.dateAdded.compareTo(b.dateAdded);
+        cmp = a.$1.dateAdded.compareTo(b.$1.dateAdded);
         break;
     }
     return ascending ? cmp : -cmp;
   });
 
-  return list;
+  return [for (final d in decorated) d.$1];
 });

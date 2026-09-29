@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/utils/app_toast.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/listening_stats.dart';
@@ -31,7 +32,8 @@ class ListeningStatsPage extends ConsumerWidget {
           if (!isCurrentPeriod)
             TextButton.icon(
               onPressed: () {
-                ref.read(selectedStatsDateProvider.notifier).state = DateTime.now();
+                ref.read(selectedStatsDateProvider.notifier).state =
+                    DateTime.now();
               },
               icon: const Icon(Icons.today_rounded, size: 18),
               label: const Text('今天'),
@@ -56,7 +58,13 @@ class ListeningStatsPage extends ConsumerWidget {
           const SizedBox(height: 16),
 
           // 2. Date Navigation Bar (< Date Title >)
-          _buildDateNavigator(context, ref, periodType, selectedDate, isCurrentPeriod),
+          _buildDateNavigator(
+            context,
+            ref,
+            periodType,
+            selectedDate,
+            isCurrentPeriod,
+          ),
 
           const SizedBox(height: 16),
 
@@ -66,10 +74,7 @@ class ListeningStatsPage extends ConsumerWidget {
           const SizedBox(height: 20),
 
           // 4. Interactive Duration Distribution Chart
-          ListeningChart(
-            bars: stats.chartBars,
-            periodType: periodType,
-          ),
+          ListeningChart(bars: stats.chartBars, periodType: periodType),
 
           const SizedBox(height: 24),
 
@@ -92,7 +97,9 @@ class ListeningStatsPage extends ConsumerWidget {
                 '水月音 · 静心聆听，乐随心转',
                 style: TextStyle(
                   fontSize: 11,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.5,
+                  ),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -104,26 +111,33 @@ class ListeningStatsPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildPeriodSelector(BuildContext context, WidgetRef ref, PeriodType activeType) {
+  Widget _buildPeriodSelector(
+    BuildContext context,
+    WidgetRef ref,
+    PeriodType activeType,
+  ) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E2230) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        color: isDark
+            ? const Color(0xFF1E2230)
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: PeriodType.values.map((type) {
           final isSelected = type == activeType;
           return Expanded(
-            child: GestureDetector(
+            child: InkWell(
               onTap: () {
                 if (!isSelected) {
                   ref.read(statsPeriodTypeProvider.notifier).state = type;
                 }
               },
+              borderRadius: BorderRadius.circular(12),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -135,7 +149,9 @@ class ListeningStatsPage extends ConsumerWidget {
                   boxShadow: isSelected
                       ? [
                           BoxShadow(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.3,
+                            ),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -177,8 +193,11 @@ class ListeningStatsPage extends ConsumerWidget {
           icon: const Icon(Icons.chevron_left_rounded, size: 20),
           tooltip: '上一${periodType.label}',
           onPressed: () {
-            ref.read(selectedStatsDateProvider.notifier).state =
-                _stepDate(periodType, selectedDate, -1);
+            ref.read(selectedStatsDateProvider.notifier).state = _stepDate(
+              periodType,
+              selectedDate,
+              -1,
+            );
           },
         ),
         GestureDetector(
@@ -186,7 +205,9 @@ class ListeningStatsPage extends ConsumerWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.4,
+              ),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
@@ -223,8 +244,14 @@ class ListeningStatsPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildTopSongsSection(BuildContext context, WidgetRef ref, List<SongStatItem> topSongs) {
+  Widget _buildTopSongsSection(
+    BuildContext context,
+    WidgetRef ref,
+    List<SongStatItem> topSongs,
+  ) {
     final theme = Theme.of(context);
+    // Cap the rendered list like the artist leaderboard; header shows the total.
+    final displaySongs = topSongs.take(10).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,7 +261,11 @@ class ListeningStatsPage extends ConsumerWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.leaderboard_rounded, size: 20, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.leaderboard_rounded,
+                  size: 20,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
                 const Text(
                   '常听歌曲榜',
@@ -245,7 +276,10 @@ class ListeningStatsPage extends ConsumerWidget {
             if (topSongs.isNotEmpty)
               Text(
                 '共 ${topSongs.length} 首',
-                style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
           ],
         ),
@@ -256,7 +290,9 @@ class ListeningStatsPage extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(vertical: 28),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.3,
+              ),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
@@ -264,14 +300,18 @@ class ListeningStatsPage extends ConsumerWidget {
                 Icon(
                   Icons.library_music_outlined,
                   size: 32,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.4,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   '此周期内暂无听歌记录',
                   style: TextStyle(
                     fontSize: 13,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.7,
+                    ),
                   ),
                 ),
               ],
@@ -289,10 +329,11 @@ class ListeningStatsPage extends ConsumerWidget {
             child: ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: topSongs.length,
-              separatorBuilder: (context, index) => const Divider(height: 1, indent: 64),
+              itemCount: displaySongs.length,
+              separatorBuilder: (context, index) =>
+                  const Divider(height: 1, indent: 64),
               itemBuilder: (context, index) {
-                final item = topSongs[index];
+                final item = displaySongs[index];
                 return _buildTopSongTile(context, ref, index + 1, item);
               },
             ),
@@ -301,7 +342,12 @@ class ListeningStatsPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildTopSongTile(BuildContext context, WidgetRef ref, int rank, SongStatItem item) {
+  Widget _buildTopSongTile(
+    BuildContext context,
+    WidgetRef ref,
+    int rank,
+    SongStatItem item,
+  ) {
     final theme = Theme.of(context);
 
     // Medal colors for top 3
@@ -315,7 +361,14 @@ class ListeningStatsPage extends ConsumerWidget {
           shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
-        child: const Text('1', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11)),
+        child: const Text(
+          '1',
+          style: TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+          ),
+        ),
       );
     } else if (rank == 2) {
       rankWidget = Container(
@@ -326,7 +379,14 @@ class ListeningStatsPage extends ConsumerWidget {
           shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
-        child: const Text('2', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11)),
+        child: const Text(
+          '2',
+          style: TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+          ),
+        ),
       );
     } else if (rank == 3) {
       rankWidget = Container(
@@ -337,7 +397,14 @@ class ListeningStatsPage extends ConsumerWidget {
           shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
-        child: const Text('3', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+        child: const Text(
+          '3',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+          ),
+        ),
       );
     } else {
       rankWidget = SizedBox(
@@ -361,11 +428,7 @@ class ListeningStatsPage extends ConsumerWidget {
         children: [
           rankWidget,
           const SizedBox(width: 10),
-          SongArtwork(
-            artUri: item.albumArtUri,
-            size: 42,
-            borderRadius: 8,
-          ),
+          SongArtwork(artUri: item.albumArtUri, size: 42, borderRadius: 8),
         ],
       ),
       title: Text(
@@ -378,7 +441,10 @@ class ListeningStatsPage extends ConsumerWidget {
         item.artist,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+        style: TextStyle(
+          fontSize: 12,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
       ),
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -398,7 +464,9 @@ class ListeningStatsPage extends ConsumerWidget {
               '${item.playCount} 次',
               style: TextStyle(
                 fontSize: 11,
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
               ),
             ),
           ],
@@ -437,7 +505,10 @@ class ListeningStatsPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildTopArtistsSection(BuildContext context, List<ArtistStatItem> topArtists) {
+  Widget _buildTopArtistsSection(
+    BuildContext context,
+    List<ArtistStatItem> topArtists,
+  ) {
     final theme = Theme.of(context);
 
     return Column(
@@ -445,7 +516,11 @@ class ListeningStatsPage extends ConsumerWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.person_pin_rounded, size: 20, color: theme.colorScheme.primary),
+            Icon(
+              Icons.person_pin_rounded,
+              size: 20,
+              color: theme.colorScheme.primary,
+            ),
             const SizedBox(width: 8),
             const Text(
               '常听歌手榜',
@@ -466,14 +541,20 @@ class ListeningStatsPage extends ConsumerWidget {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: topArtists.length > 10 ? 10 : topArtists.length,
-            separatorBuilder: (context, index) => const Divider(height: 1, indent: 56),
+            separatorBuilder: (context, index) =>
+                const Divider(height: 1, indent: 56),
             itemBuilder: (context, index) {
               final item = topArtists[index];
               return ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 2,
+                ),
                 leading: CircleAvatar(
                   radius: 18,
-                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  backgroundColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.12,
+                  ),
                   child: Text(
                     '${index + 1}',
                     style: TextStyle(
@@ -485,14 +566,23 @@ class ListeningStatsPage extends ConsumerWidget {
                 ),
                 title: Text(
                   item.artist,
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 subtitle: Text(
                   '收听 ${item.songCount} 首曲目 · ${item.playCount} 次播放',
-                  style: TextStyle(fontSize: 11.5, color: theme.colorScheme.onSurfaceVariant),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 trailing: Text(
-                  Formatters.formatListeningDuration(item.duration, short: true),
+                  Formatters.formatListeningDuration(
+                    item.duration,
+                    short: true,
+                  ),
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
@@ -510,9 +600,13 @@ class ListeningStatsPage extends ConsumerWidget {
   bool _isCurrentPeriod(PeriodType type, DateTime selected, DateTime now) {
     switch (type) {
       case PeriodType.day:
-        return selected.year == now.year && selected.month == now.month && selected.day == now.day;
+        return selected.year == now.year &&
+            selected.month == now.month &&
+            selected.day == now.day;
       case PeriodType.week:
-        final selMonday = selected.subtract(Duration(days: selected.weekday - 1));
+        final selMonday = selected.subtract(
+          Duration(days: selected.weekday - 1),
+        );
         final nowMonday = now.subtract(Duration(days: now.weekday - 1));
         return selMonday.year == nowMonday.year &&
             selMonday.month == nowMonday.month &&
@@ -552,7 +646,11 @@ class ListeningStatsPage extends ConsumerWidget {
     }
   }
 
-  Future<void> _selectDate(BuildContext context, WidgetRef ref, DateTime initialDate) async {
+  Future<void> _selectDate(
+    BuildContext context,
+    WidgetRef ref,
+    DateTime initialDate,
+  ) async {
     final picked = await showDatePicker(
       context: context,
       initialDate: initialDate,

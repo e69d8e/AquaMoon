@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+
 import '../core/utils/formatters.dart';
 import '../models/listening_stats.dart';
 import '../models/song.dart';
@@ -24,11 +26,18 @@ class StorageService {
     } else {
       await Hive.initFlutter();
     }
-    _songsBox = await Hive.openBox(_songsBoxName);
-    _playlistsBox = await Hive.openBox(_playlistsBoxName);
-    _historyBox = await Hive.openBox(_historyBoxName);
-    _settingsBox = await Hive.openBox(_settingsBoxName);
-    _statsBox = await Hive.openBox(_statsBoxName);
+    final boxes = await Future.wait([
+      Hive.openBox(_songsBoxName),
+      Hive.openBox(_playlistsBoxName),
+      Hive.openBox(_historyBoxName),
+      Hive.openBox(_settingsBoxName),
+      Hive.openBox(_statsBoxName),
+    ]);
+    _songsBox = boxes[0];
+    _playlistsBox = boxes[1];
+    _historyBox = boxes[2];
+    _settingsBox = boxes[3];
+    _statsBox = boxes[4];
   }
 
   // --- Song Operations ---
@@ -105,6 +114,28 @@ class StorageService {
     await _playlistsBox.delete(playlistId);
   }
 
+  // --- Settings Operations ---
+
+  ThemeMode getSavedThemeMode() {
+    switch (_settingsBox.get('theme_mode')) {
+      case 'dark':
+        return ThemeMode.dark;
+      case 'system':
+        return ThemeMode.system;
+      default:
+        return ThemeMode.light;
+    }
+  }
+
+  Future<void> saveThemeMode(ThemeMode mode) async {
+    final name = switch (mode) {
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+      _ => 'light',
+    };
+    await _settingsBox.put('theme_mode', name);
+  }
+
   // --- History Operations ---
 
   List<String> getHistoryIds() {
@@ -136,7 +167,10 @@ class StorageService {
   // --- Settings / State Persistence ---
 
   PlaybackMode getSavedPlaybackMode() {
-    final name = _settingsBox.get('playback_mode', defaultValue: PlaybackMode.sequence.name);
+    final name = _settingsBox.get(
+      'playback_mode',
+      defaultValue: PlaybackMode.sequence.name,
+    );
     return PlaybackMode.values.firstWhere(
       (e) => e.name == name,
       orElse: () => PlaybackMode.sequence,
@@ -156,7 +190,8 @@ class StorageService {
   }
 
   int getLastPositionMs() {
-    return (_settingsBox.get('last_position_ms', defaultValue: 0) as num).toInt();
+    return (_settingsBox.get('last_position_ms', defaultValue: 0) as num)
+        .toInt();
   }
 
   Future<void> saveLastPositionMs(int ms) async {
@@ -196,13 +231,19 @@ class StorageService {
     final dateStr = Formatters.formatDateKey(timestamp);
     final current = getDailyListeningRecord(dateStr);
 
-    final updatedSongDurations = Map<String, int>.from(current.songDurationSeconds);
-    updatedSongDurations[song.id] = (updatedSongDurations[song.id] ?? 0) + seconds;
+    final updatedSongDurations = Map<String, int>.from(
+      current.songDurationSeconds,
+    );
+    updatedSongDurations[song.id] =
+        (updatedSongDurations[song.id] ?? 0) + seconds;
 
     final updatedHourly = Map<int, int>.from(current.hourlyDurationSeconds);
-    updatedHourly[timestamp.hour] = (updatedHourly[timestamp.hour] ?? 0) + seconds;
+    updatedHourly[timestamp.hour] =
+        (updatedHourly[timestamp.hour] ?? 0) + seconds;
 
-    final updatedMetaCache = Map<String, SongMetaSnapshot>.from(current.songMetaCache);
+    final updatedMetaCache = Map<String, SongMetaSnapshot>.from(
+      current.songMetaCache,
+    );
     if (!updatedMetaCache.containsKey(song.id)) {
       updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
     }
@@ -228,7 +269,9 @@ class StorageService {
     final updatedPlayCounts = Map<String, int>.from(current.songPlayCounts);
     updatedPlayCounts[song.id] = (updatedPlayCounts[song.id] ?? 0) + 1;
 
-    final updatedMetaCache = Map<String, SongMetaSnapshot>.from(current.songMetaCache);
+    final updatedMetaCache = Map<String, SongMetaSnapshot>.from(
+      current.songMetaCache,
+    );
     if (!updatedMetaCache.containsKey(song.id)) {
       updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
     }
@@ -242,7 +285,10 @@ class StorageService {
   }
 
   /// Retrieve all records within the [startDate, endDate] range (inclusive of days)
-  List<DailyListeningRecord> getDailyRecordsInRange(DateTime startDate, DateTime endDate) {
+  List<DailyListeningRecord> getDailyRecordsInRange(
+    DateTime startDate,
+    DateTime endDate,
+  ) {
     final results = <DailyListeningRecord>[];
     final startDay = DateTime(startDate.year, startDate.month, startDate.day);
     final endDay = DateTime(endDate.year, endDate.month, endDate.day);

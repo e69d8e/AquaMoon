@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -34,10 +35,17 @@ class OnlineSearchResult {
 
   Duration get duration => Duration(milliseconds: durationMs);
 
-  bool get hasLyrics => (syncedLyrics != null && syncedLyrics!.isNotEmpty) || (plainLyrics != null && plainLyrics!.isNotEmpty) || isInstrumental;
+  bool get hasLyrics =>
+      (syncedLyrics != null && syncedLyrics!.isNotEmpty) ||
+      (plainLyrics != null && plainLyrics!.isNotEmpty) ||
+      isInstrumental;
 
   int durationDiffSeconds(Duration? targetDuration) {
-    if (targetDuration == null || targetDuration.inSeconds <= 0 || durationMs <= 0) return 0;
+    if (targetDuration == null ||
+        targetDuration.inSeconds <= 0 ||
+        durationMs <= 0) {
+      return 0;
+    }
     return (duration.inSeconds - targetDuration.inSeconds).abs();
   }
 
@@ -81,7 +89,9 @@ class OnlineMetadataService {
     Duration? duration,
   }) async {
     final cleanTitle = cleanSongTitle(title);
-    final cleanArtist = (artist == '未知歌手' || artist.isEmpty) ? '' : cleanArtistName(artist);
+    final cleanArtist = (artist == '未知歌手' || artist.isEmpty)
+        ? ''
+        : cleanArtistName(artist);
 
     if (cleanTitle.isEmpty && cleanArtist.isEmpty) {
       return [];
@@ -106,7 +116,9 @@ class OnlineMetadataService {
     // If cleanArtist is not empty and initial results have low confidence or are empty,
     // swap title & artist (in case filename was 'Artist - Title' or 'Title - Artist' inverted).
     final hasHighConfidenceMatch = allCandidates.any((c) => c.matchScore >= 70);
-    if (!hasHighConfidenceMatch && cleanArtist.isNotEmpty && cleanArtist != cleanTitle) {
+    if (!hasHighConfidenceMatch &&
+        cleanArtist.isNotEmpty &&
+        cleanArtist != cleanTitle) {
       final reverseTasks = <Future<List<OnlineSearchResult>>>[
         _fetchQQMusicCandidates(cleanArtist, cleanTitle, duration),
         _fetchNetEaseCandidates(cleanArtist, cleanTitle, duration),
@@ -144,8 +156,10 @@ class OnlineMetadataService {
     // 4. Deduplicate and sort by matchScore descending
     final uniqueCandidates = <String, OnlineSearchResult>{};
     for (final c in allCandidates) {
-      final key = '${c.source}_${c.title}_${c.artist}_${c.durationMs ~/ 1000}'.toLowerCase();
-      if (!uniqueCandidates.containsKey(key) || (c.matchScore > uniqueCandidates[key]!.matchScore)) {
+      final key = '${c.source}_${c.title}_${c.artist}_${c.durationMs ~/ 1000}'
+          .toLowerCase();
+      if (!uniqueCandidates.containsKey(key) ||
+          (c.matchScore > uniqueCandidates[key]!.matchScore)) {
         uniqueCandidates[key] = c;
       }
     }
@@ -159,7 +173,8 @@ class OnlineMetadataService {
   /// Free-form online song & lyric search for independent search center
   Future<List<OnlineSearchResult>> searchOnlineSongs({
     required String query,
-    String? platformFilter, // '全部' | 'QQ音乐' | '网易云音乐' | 'Apple Music' | 'LRCLIB'
+    String?
+    platformFilter, // '全部' | 'QQ音乐' | '网易云音乐' | 'Apple Music' | 'LRCLIB'
   }) async {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return [];
@@ -197,7 +212,9 @@ class OnlineMetadataService {
       tasks.add(_fetchITunesCandidates(cleanQuery, '', null, limit: 12));
     }
     if (selectedPlatform == '全部' || selectedPlatform == 'LRCLIB') {
-      tasks.add(_fetchLrclibCandidates(titlePart, artistPart, null, null, limit: 12));
+      tasks.add(
+        _fetchLrclibCandidates(titlePart, artistPart, null, null, limit: 12),
+      );
     }
 
     final responses = await Future.wait(tasks);
@@ -208,7 +225,8 @@ class OnlineMetadataService {
     // Deduplicate
     final unique = <String, OnlineSearchResult>{};
     for (final r in allResults) {
-      final key = '${r.source}_${r.title}_${r.artist}_${r.durationMs ~/ 1000}'.toLowerCase();
+      final key = '${r.source}_${r.title}_${r.artist}_${r.durationMs ~/ 1000}'
+          .toLowerCase();
       if (!unique.containsKey(key)) {
         unique[key] = r;
       }
@@ -234,7 +252,9 @@ class OnlineMetadataService {
     if (candidates.isEmpty) return null;
 
     // 1. Priority Rule: Check QQ Music candidate with score >= 45 and complete dataset
-    final qqCandidates = candidates.where((c) => c.source == 'QQ音乐' && c.matchScore >= 45).toList();
+    final qqCandidates = candidates
+        .where((c) => c.source == 'QQ音乐' && c.matchScore >= 45)
+        .toList();
     if (qqCandidates.isNotEmpty) {
       var topQQ = qqCandidates.first;
       if (!topQQ.hasLyrics && topQQ.extraId != null) {
@@ -247,7 +267,9 @@ class OnlineMetadataService {
       if (topQQ.coverUrl != null) {
         if (!topQQ.hasLyrics) {
           final lrcFallback = candidates.firstWhere(
-            (c) => c.hasLyrics && (c.durationDiffSeconds(duration) <= 4 || duration == null),
+            (c) =>
+                c.hasLyrics &&
+                (c.durationDiffSeconds(duration) <= 4 || duration == null),
             orElse: () => topQQ,
           );
           if (lrcFallback != topQQ) {
@@ -262,7 +284,9 @@ class OnlineMetadataService {
     }
 
     // 2. Priority Rule: NetEase candidate with score >= 45
-    final neteaseCandidates = candidates.where((c) => c.source == '网易云音乐' && c.matchScore >= 45).toList();
+    final neteaseCandidates = candidates
+        .where((c) => c.source == '网易云音乐' && c.matchScore >= 45)
+        .toList();
     if (neteaseCandidates.isNotEmpty) {
       var topNetEase = neteaseCandidates.first;
       if (!topNetEase.hasLyrics && topNetEase.extraId != null) {
@@ -278,7 +302,9 @@ class OnlineMetadataService {
     var best = candidates.first;
     if (best.source == 'QQ音乐' && !best.hasLyrics && best.extraId != null) {
       best = await _ensureQQMusicLyrics(best);
-    } else if (best.source == '网易云音乐' && !best.hasLyrics && best.extraId != null) {
+    } else if (best.source == '网易云音乐' &&
+        !best.hasLyrics &&
+        best.extraId != null) {
       best = await _ensureNetEaseLyrics(best);
     }
 
@@ -286,7 +312,9 @@ class OnlineMetadataService {
   }
 
   /// Ensure lyrics are fully loaded for a given candidate (useful when user selects from dialog)
-  Future<OnlineSearchResult> ensureLyricsLoaded(OnlineSearchResult candidate) async {
+  Future<OnlineSearchResult> ensureLyricsLoaded(
+    OnlineSearchResult candidate,
+  ) async {
     if (candidate.hasLyrics) return candidate;
     if (candidate.source == 'QQ音乐' && candidate.extraId != null) {
       return await _ensureQQMusicLyrics(candidate);
@@ -314,13 +342,15 @@ class OnlineMetadataService {
         'https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=1&n=$limit&w=${Uri.encodeComponent(keyword)}&format=json',
       );
 
-      final response = await _client.get(
-        uri,
-        headers: {
-          'Referer': 'https://y.qq.com/',
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        },
-      ).timeout(const Duration(seconds: 4));
+      final response = await _client
+          .get(
+            uri,
+            headers: {
+              'Referer': 'https://y.qq.com/',
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            },
+          )
+          .timeout(const Duration(seconds: 4));
 
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
@@ -330,7 +360,8 @@ class OnlineMetadataService {
           for (final item in songList) {
             final songName = item['songname'] as String? ?? title;
             final singers = item['singer'] as List<dynamic>?;
-            final singerName = singers?.map((s) => s['name']).join('/') ?? artist;
+            final singerName =
+                singers?.map((s) => s['name']).join('/') ?? artist;
             final albumName = item['albumname'] as String? ?? '';
             final albumMid = item['albummid'] as String?;
             final songMid = item['songmid'] as String?;
@@ -338,8 +369,11 @@ class OnlineMetadataService {
             final durationMs = interval * 1000;
 
             String? coverUrl;
-            if (albumMid != null && albumMid.isNotEmpty && albumMid != '00000000000000') {
-              coverUrl = 'https://y.gtimg.cn/music/photo_new/T002R800x800M000$albumMid.jpg';
+            if (albumMid != null &&
+                albumMid.isNotEmpty &&
+                albumMid != '00000000000000') {
+              coverUrl =
+                  'https://y.gtimg.cn/music/photo_new/T002R800x800M000$albumMid.jpg';
             }
 
             final score = _calculateMatchScore(
@@ -352,16 +386,18 @@ class OnlineMetadataService {
               source: 'QQ音乐',
             );
 
-            list.add(OnlineSearchResult(
-              source: 'QQ音乐',
-              title: songName,
-              artist: singerName,
-              album: albumName,
-              coverUrl: coverUrl,
-              durationMs: durationMs,
-              matchScore: score,
-              extraId: songMid,
-            ));
+            list.add(
+              OnlineSearchResult(
+                source: 'QQ音乐',
+                title: songName,
+                artist: singerName,
+                album: albumName,
+                coverUrl: coverUrl,
+                durationMs: durationMs,
+                matchScore: score,
+                extraId: songMid,
+              ),
+            );
           }
         }
       }
@@ -369,7 +405,9 @@ class OnlineMetadataService {
     return list;
   }
 
-  Future<OnlineSearchResult> _ensureQQMusicLyrics(OnlineSearchResult candidate) async {
+  Future<OnlineSearchResult> _ensureQQMusicLyrics(
+    OnlineSearchResult candidate,
+  ) async {
     final songMid = candidate.extraId;
     if (songMid == null || songMid.isEmpty) return candidate;
 
@@ -377,19 +415,24 @@ class OnlineMetadataService {
       final lyricUri = Uri.parse(
         'https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=$songMid&format=json&nobase64=0',
       );
-      final lyricResp = await _client.get(
-        lyricUri,
-        headers: {
-          'Referer': 'https://y.qq.com/',
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        },
-      ).timeout(const Duration(seconds: 4));
+      final lyricResp = await _client
+          .get(
+            lyricUri,
+            headers: {
+              'Referer': 'https://y.qq.com/',
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            },
+          )
+          .timeout(const Duration(seconds: 4));
 
       if (lyricResp.statusCode == 200) {
         final lyricData = json.decode(utf8.decode(lyricResp.bodyBytes));
         final b64Lyric = lyricData['lyric'] as String?;
         if (b64Lyric != null && b64Lyric.isNotEmpty) {
-          final decoded = utf8.decode(base64.decode(b64Lyric), allowMalformed: true);
+          final decoded = utf8.decode(
+            base64.decode(b64Lyric),
+            allowMalformed: true,
+          );
           return candidate.copyWith(syncedLyrics: decoded);
         }
       }
@@ -411,10 +454,14 @@ class OnlineMetadataService {
         'https://music.163.com/api/search/get/web?s=${Uri.encodeComponent(keyword)}&type=1&offset=0&limit=$limit',
       );
 
-      final searchResponse = await _client.get(
-        searchUrl,
-        headers: {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'},
-      ).timeout(const Duration(seconds: 4));
+      final searchResponse = await _client
+          .get(
+            searchUrl,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+            },
+          )
+          .timeout(const Duration(seconds: 4));
 
       if (searchResponse.statusCode == 200) {
         final data = json.decode(utf8.decode(searchResponse.bodyBytes));
@@ -424,7 +471,8 @@ class OnlineMetadataService {
             final songId = song['id']?.toString();
             final songTitle = song['name'] as String? ?? title;
             final artistsList = song['artists'] as List<dynamic>?;
-            final artistName = artistsList?.map((a) => a['name']).join('/') ?? artist;
+            final artistName =
+                artistsList?.map((a) => a['name']).join('/') ?? artist;
             final albumObj = song['album'];
             final albumName = albumObj?['name'] as String? ?? '';
             final coverUrl = albumObj?['picUrl'] as String?;
@@ -440,16 +488,18 @@ class OnlineMetadataService {
               source: '网易云音乐',
             );
 
-            list.add(OnlineSearchResult(
-              source: '网易云音乐',
-              title: songTitle,
-              artist: artistName,
-              album: albumName,
-              coverUrl: coverUrl,
-              durationMs: durationMs,
-              matchScore: score,
-              extraId: songId,
-            ));
+            list.add(
+              OnlineSearchResult(
+                source: '网易云音乐',
+                title: songTitle,
+                artist: artistName,
+                album: albumName,
+                coverUrl: coverUrl,
+                durationMs: durationMs,
+                matchScore: score,
+                extraId: songId,
+              ),
+            );
           }
         }
       }
@@ -457,7 +507,9 @@ class OnlineMetadataService {
     return list;
   }
 
-  Future<OnlineSearchResult> _ensureNetEaseLyrics(OnlineSearchResult candidate) async {
+  Future<OnlineSearchResult> _ensureNetEaseLyrics(
+    OnlineSearchResult candidate,
+  ) async {
     final songId = candidate.extraId;
     if (songId == null || songId.isEmpty) return candidate;
 
@@ -465,10 +517,14 @@ class OnlineMetadataService {
       final lyricUrl = Uri.parse(
         'https://music.163.com/api/song/lyric?os=pc&id=$songId&lv=-1&kv=-1&tv=-1',
       );
-      final lyricResp = await _client.get(
-        lyricUrl,
-        headers: {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'},
-      ).timeout(const Duration(seconds: 4));
+      final lyricResp = await _client
+          .get(
+            lyricUrl,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+            },
+          )
+          .timeout(const Duration(seconds: 4));
 
       if (lyricResp.statusCode == 200) {
         final lyricData = json.decode(utf8.decode(lyricResp.bodyBytes));
@@ -502,14 +558,19 @@ class OnlineMetadataService {
         'limit': limit.toString(),
       });
 
-      final response = await _client.get(uri).timeout(const Duration(seconds: 4));
+      final response = await _client
+          .get(uri)
+          .timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final results = data['results'] as List<dynamic>?;
         if (results != null) {
           for (final item in results) {
             final artwork100 = item['artworkUrl100'] as String?;
-            final artwork1000 = artwork100?.replaceAll('100x100bb', '1000x1000bb');
+            final artwork1000 = artwork100?.replaceAll(
+              '100x100bb',
+              '1000x1000bb',
+            );
             final itemTitle = item['trackName'] ?? title;
             final itemArtist = item['artistName'] ?? artist;
             final durationMs = (item['trackTimeMillis'] as num?)?.toInt() ?? 0;
@@ -524,15 +585,17 @@ class OnlineMetadataService {
               source: 'Apple Music',
             );
 
-            list.add(OnlineSearchResult(
-              source: 'Apple Music',
-              title: itemTitle,
-              artist: itemArtist,
-              album: item['collectionName'] ?? '',
-              coverUrl: artwork1000 ?? artwork100,
-              durationMs: durationMs,
-              matchScore: score,
-            ));
+            list.add(
+              OnlineSearchResult(
+                source: 'Apple Music',
+                title: itemTitle,
+                artist: itemArtist,
+                album: item['collectionName'] ?? '',
+                coverUrl: artwork1000 ?? artwork100,
+                durationMs: durationMs,
+                matchScore: score,
+              ),
+            );
           }
         }
       }
@@ -554,14 +617,19 @@ class OnlineMetadataService {
         'q': artist.isNotEmpty ? '$title $artist' : title,
       });
 
-      final searchResp = await _client.get(searchUri).timeout(const Duration(seconds: 4));
+      final searchResp = await _client
+          .get(searchUri)
+          .timeout(const Duration(seconds: 4));
       if (searchResp.statusCode == 200) {
-        final List<dynamic> jsonList = json.decode(utf8.decode(searchResp.bodyBytes));
+        final List<dynamic> jsonList = json.decode(
+          utf8.decode(searchResp.bodyBytes),
+        );
         for (final item in jsonList.take(limit)) {
           final itemTitle = item['trackName'] ?? title;
           final itemArtist = item['artistName'] ?? artist;
           final itemAlbum = item['albumName'] ?? (album ?? '');
-          final durationMs = ((item['duration'] as num?)?.toDouble() ?? 0 * 1000).toInt();
+          final durationMs =
+              ((item['duration'] as num?)?.toDouble() ?? 0 * 1000).toInt();
 
           final score = _calculateMatchScore(
             targetTitle: title,
@@ -573,17 +641,19 @@ class OnlineMetadataService {
             source: 'LRCLIB',
           );
 
-          list.add(OnlineSearchResult(
-            source: 'LRCLIB',
-            title: itemTitle,
-            artist: itemArtist,
-            album: itemAlbum,
-            syncedLyrics: item['syncedLyrics'] as String?,
-            plainLyrics: item['plainLyrics'] as String?,
-            durationMs: durationMs,
-            isInstrumental: item['instrumental'] == true,
-            matchScore: score,
-          ));
+          list.add(
+            OnlineSearchResult(
+              source: 'LRCLIB',
+              title: itemTitle,
+              artist: itemArtist,
+              album: itemAlbum,
+              syncedLyrics: item['syncedLyrics'] as String?,
+              plainLyrics: item['plainLyrics'] as String?,
+              durationMs: durationMs,
+              isInstrumental: item['instrumental'] == true,
+              matchScore: score,
+            ),
+          );
         }
       }
     } catch (_) {}
@@ -614,7 +684,8 @@ class OnlineMetadataService {
     if (normTargetTitle.isNotEmpty && normCandidateTitle.isNotEmpty) {
       if (normTargetTitle == normCandidateTitle) {
         score += 45.0;
-      } else if (normTargetTitle.contains(normCandidateTitle) || normCandidateTitle.contains(normTargetTitle)) {
+      } else if (normTargetTitle.contains(normCandidateTitle) ||
+          normCandidateTitle.contains(normTargetTitle)) {
         score += 38.0;
       } else {
         final sim = _stringSimilarity(normTargetTitle, normCandidateTitle);
@@ -628,7 +699,8 @@ class OnlineMetadataService {
     } else if (normCandidateArtist.isNotEmpty) {
       if (normTargetArtist == normCandidateArtist) {
         score += 30.0;
-      } else if (normCandidateArtist.contains(normTargetArtist) || normTargetArtist.contains(normCandidateArtist)) {
+      } else if (normCandidateArtist.contains(normTargetArtist) ||
+          normTargetArtist.contains(normCandidateArtist)) {
         score += 24.0;
       } else {
         final sim = _stringSimilarity(normTargetArtist, normCandidateArtist);
@@ -637,14 +709,17 @@ class OnlineMetadataService {
     }
 
     // 3. Audio Duration Validation (0 ~ 20 pts with strict penalties)
-    if (targetDuration != null && targetDuration.inSeconds > 0 && candidateDurationMs > 0) {
-      final diffMs = (targetDuration.inMilliseconds - candidateDurationMs).abs();
+    if (targetDuration != null &&
+        targetDuration.inSeconds > 0 &&
+        candidateDurationMs > 0) {
+      final diffMs = (targetDuration.inMilliseconds - candidateDurationMs)
+          .abs();
       if (diffMs <= 2000) {
         score += 20.0; // Within 2 seconds: perfect duration match!
       } else if (diffMs <= 5000) {
         score += 15.0; // Within 5 seconds: great match
       } else if (diffMs <= 10000) {
-        score += 5.0;  // Within 10 seconds: acceptable
+        score += 5.0; // Within 10 seconds: acceptable
       } else if (diffMs <= 20000) {
         score -= 10.0; // 10-20 seconds diff: slight penalty
       } else if (diffMs <= 45000) {
@@ -664,13 +739,13 @@ class OnlineMetadataService {
     return score.clamp(0.0, 100.0);
   }
 
-  static final RegExp _punctAndSpacesRegex = RegExp(r'[\s\p{P}\p{S}]+', unicode: true);
+  static final RegExp _punctAndSpacesRegex = RegExp(
+    r'[\s\p{P}\p{S}]+',
+    unicode: true,
+  );
 
   static String _normalizeString(String input) {
-    return input
-        .toLowerCase()
-        .replaceAll(_punctAndSpacesRegex, '')
-        .trim();
+    return input.toLowerCase().replaceAll(_punctAndSpacesRegex, '').trim();
   }
 
   static double _stringSimilarity(String s1, String s2) {
@@ -715,10 +790,9 @@ class OnlineMetadataService {
         return cacheFile.uri.toString();
       }
 
-      final response = await _client.get(
-        Uri.parse(imageUrl),
-        headers: {'Referer': 'https://y.qq.com/'},
-      ).timeout(const Duration(seconds: 6));
+      final response = await _client
+          .get(Uri.parse(imageUrl), headers: {'Referer': 'https://y.qq.com/'})
+          .timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         await cacheFile.writeAsBytes(response.bodyBytes);
@@ -771,7 +845,10 @@ class OnlineMetadataService {
     r'\(.*?(kuwo|kugou|qqmusic|网易云|酷我|酷狗|flac|320k).*?\)',
     caseSensitive: false,
   );
-  static final RegExp _artistPrefixNoiseRegex = RegExp(r'^\s*(kw|kuwo|kg)[\s\-_]+', caseSensitive: false);
+  static final RegExp _artistPrefixNoiseRegex = RegExp(
+    r'^\s*(kw|kuwo|kg)[\s\-_]+',
+    caseSensitive: false,
+  );
 
   /// Clean noise from artist name
   static String cleanArtistName(String rawArtist) {

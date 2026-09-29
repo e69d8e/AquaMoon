@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/utils/app_toast.dart';
 import '../../models/playlist.dart';
 import '../../models/song.dart';
@@ -24,7 +25,9 @@ class PlaylistDetailPage extends ConsumerWidget {
       orElse: () => playlist,
     );
 
-    final songsInLibrary = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+    final songsInLibrary = ref.watch(
+      libraryNotifierProvider.select((s) => s.songs),
+    );
     final songMap = {for (final s in songsInLibrary) s.id: s};
 
     final songs = currentPlaylist.songIds
@@ -32,8 +35,11 @@ class PlaylistDetailPage extends ConsumerWidget {
         .whereType<Song>()
         .toList();
 
-    final firstSongWithArt = songs.where((s) => s.albumArtUri != null && s.albumArtUri!.isNotEmpty).firstOrNull;
-    final effectiveCoverArtUri = currentPlaylist.coverArtUri ?? firstSongWithArt?.albumArtUri;
+    final firstSongWithArt = songs
+        .where((s) => s.albumArtUri != null && s.albumArtUri!.isNotEmpty)
+        .firstOrNull;
+    final effectiveCoverArtUri =
+        currentPlaylist.coverArtUri ?? firstSongWithArt?.albumArtUri;
 
     final theme = Theme.of(context);
 
@@ -44,15 +50,20 @@ class PlaylistDetailPage extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.photo_library_outlined, size: 22),
             tooltip: '更换歌单封面',
-            onPressed: () => SelectPlaylistCoverDialog.show(context, currentPlaylist),
+            onPressed: () =>
+                SelectPlaylistCoverDialog.show(context, currentPlaylist),
           ),
           IconButton(
             icon: const Icon(Icons.playlist_add_rounded, size: 24),
             tooltip: '添加歌曲',
-            onPressed: () => AddSongsToPlaylistDialog.show(context, currentPlaylist),
+            onPressed: () =>
+                AddSongsToPlaylistDialog.show(context, currentPlaylist),
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+            icon: const Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.redAccent,
+            ),
             tooltip: '删除歌单',
             onPressed: () => _confirmDelete(context, ref),
           ),
@@ -85,7 +96,10 @@ class PlaylistDetailPage extends ConsumerWidget {
                 Tooltip(
                   message: '点击更换歌单封面',
                   child: InkWell(
-                    onTap: () => SelectPlaylistCoverDialog.show(context, currentPlaylist),
+                    onTap: () => SelectPlaylistCoverDialog.show(
+                      context,
+                      currentPlaylist,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                     child: Stack(
                       children: [
@@ -121,14 +135,20 @@ class PlaylistDetailPage extends ConsumerWidget {
                     children: [
                       Text(
                         currentPlaylist.name,
-                        style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 3),
                       Text(
                         currentPlaylist.description.isNotEmpty
                             ? currentPlaylist.description
                             : '共 ${songs.length} 首歌曲',
-                        style: TextStyle(fontSize: 12.5, color: theme.colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Wrap(
@@ -139,36 +159,59 @@ class PlaylistDetailPage extends ConsumerWidget {
                             onPressed: songs.isEmpty
                                 ? null
                                 : () {
-                                    ref.read(audioControllerProvider).playSong(songs.first, queue: songs);
+                                    ref
+                                        .read(audioControllerProvider)
+                                        .playSong(songs.first, queue: songs);
                                   },
-                            icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                            icon: const Icon(
+                              Icons.play_arrow_rounded,
+                              size: 18,
+                            ),
                             label: const Text('播放全部'),
                             style: FilledButton.styleFrom(
                               visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
                             ),
                           ),
                           OutlinedButton.icon(
                             onPressed: songs.isEmpty
                                 ? null
                                 : () {
-                                    final shuffled = List<Song>.from(songs)..shuffle();
-                                    ref.read(audioControllerProvider).playSong(shuffled.first, queue: shuffled);
+                                    final shuffled = List<Song>.from(songs)
+                                      ..shuffle();
+                                    ref
+                                        .read(audioControllerProvider)
+                                        .playSong(
+                                          shuffled.first,
+                                          queue: shuffled,
+                                        );
                                   },
                             icon: const Icon(Icons.shuffle_rounded, size: 17),
                             label: const Text('随机'),
                             style: OutlinedButton.styleFrom(
                               visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
                             ),
                           ),
                           FilledButton.tonalIcon(
-                            onPressed: () => AddSongsToPlaylistDialog.show(context, currentPlaylist),
+                            onPressed: () => AddSongsToPlaylistDialog.show(
+                              context,
+                              currentPlaylist,
+                            ),
                             icon: const Icon(Icons.add_rounded, size: 17),
                             label: const Text('添加歌曲'),
                             style: FilledButton.styleFrom(
                               visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
                             ),
                           ),
                         ],
@@ -192,27 +235,42 @@ class PlaylistDetailPage extends ConsumerWidget {
                           Icon(
                             Icons.library_music_outlined,
                             size: 56,
-                            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.5),
                           ),
                           const SizedBox(height: 12),
                           const Text(
                             '歌单暂无歌曲',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           Text(
                             '您可以直接点击下方按钮从本地曲库添加歌曲',
-                            style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 16),
                           FilledButton.icon(
-                            onPressed: () => AddSongsToPlaylistDialog.show(context, currentPlaylist),
+                            onPressed: () => AddSongsToPlaylistDialog.show(
+                              context,
+                              currentPlaylist,
+                            ),
                             icon: const Icon(Icons.add_rounded, size: 18),
                             label: const Text('添加歌曲'),
                             style: FilledButton.styleFrom(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 11,
+                              ),
                             ),
                           ),
                         ],
@@ -232,7 +290,10 @@ class PlaylistDetailPage extends ConsumerWidget {
                         onSetAsPlaylistCover: () async {
                           await ref
                               .read(playlistNotifierProvider.notifier)
-                              .setPlaylistCover(currentPlaylist.id, song.albumArtUri);
+                              .setPlaylistCover(
+                                currentPlaylist.id,
+                                song.albumArtUri,
+                              );
                           if (context.mounted) {
                             AppToast.show(
                               context,
@@ -242,7 +303,42 @@ class PlaylistDetailPage extends ConsumerWidget {
                           }
                         },
                         onDelete: () {
-                          ref.read(playlistNotifierProvider.notifier).removeSongFromPlaylist(currentPlaylist.id, song.id);
+                          showDialog<void>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('从歌单移除'),
+                              content: Text(
+                                '确定将《${song.title}》从歌单《${currentPlaylist.name}》中移除吗？\n\n提示：歌曲仍保留在本地曲库中。',
+                                style: const TextStyle(height: 1.4),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(),
+                                  child: const Text('取消'),
+                                ),
+                                FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.redAccent,
+                                  ),
+                                  onPressed: () {
+                                    Navigator.of(ctx).pop();
+                                    ref
+                                        .read(playlistNotifierProvider.notifier)
+                                        .removeSongFromPlaylist(
+                                          currentPlaylist.id,
+                                          song.id,
+                                        );
+                                    AppToast.show(
+                                      context,
+                                      '已从歌单移除《${song.title}》',
+                                      icon: Icons.delete_sweep_rounded,
+                                    );
+                                  },
+                                  child: const Text('移除'),
+                                ),
+                              ],
+                            ),
+                          );
                         },
                       );
                     },
@@ -260,10 +356,15 @@ class PlaylistDetailPage extends ConsumerWidget {
         title: const Text('删除歌单'),
         content: Text('确定要删除歌单《${playlist.name}》吗？歌单内的本地歌曲不会被删除。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () {
-              ref.read(playlistNotifierProvider.notifier).deletePlaylist(playlist.id);
+              ref
+                  .read(playlistNotifierProvider.notifier)
+                  .deletePlaylist(playlist.id);
               Navigator.pop(ctx);
               Navigator.pop(context);
             },

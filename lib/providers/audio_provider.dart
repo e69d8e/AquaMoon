@@ -1,5 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../core/audio/audio_player_handler.dart';
 import '../models/playback_mode.dart';
 import '../models/playback_progress.dart';
@@ -7,7 +8,9 @@ import '../models/song.dart';
 import '../services/storage_service.dart';
 
 final storageServiceProvider = Provider<StorageService>((ref) {
-  throw UnimplementedError('StorageService must be overridden in ProviderScope');
+  throw UnimplementedError(
+    'StorageService must be overridden in ProviderScope',
+  );
 });
 
 final audioHandlerProvider = Provider<SoundCraftAudioHandler>((ref) {
@@ -37,6 +40,11 @@ final playlistQueueStreamProvider = StreamProvider<List<Song>>((ref) {
 final playbackProgressStreamProvider = StreamProvider<PlaybackProgress>((ref) {
   final handler = ref.watch(audioHandlerProvider);
   return handler.progressStream;
+});
+
+final playbackErrorStreamProvider = StreamProvider<String>((ref) {
+  final handler = ref.watch(audioHandlerProvider);
+  return handler.playbackErrorStream;
 });
 
 class AudioPlayerController {
@@ -70,7 +78,8 @@ class AudioPlayerController {
   Future<void> setSpeed(double speed) => _handler.setSpeed(speed);
 
   void removeQueueItem(int index) => _handler.removeSongFromQueue(index);
-  void reorderQueue(int oldIndex, int newIndex) => _handler.reorderQueue(oldIndex, newIndex);
+  void reorderQueue(int oldIndex, int newIndex) =>
+      _handler.reorderQueue(oldIndex, newIndex);
   void clearQueue() => _handler.clearQueue();
 }
 

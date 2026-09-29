@@ -50,5 +50,61 @@ void main() {
 
       await tempDir.delete(recursive: true);
     });
+
+    test('parses ID3v2 tag with embedded APIC artwork through the background isolate', () async {
+      // Minimal ID3v2.3 tag: TIT2 + APIC frame with fake JPEG payload.
+      const title = 'Isolate Song';
+      final titleBytes = utf8.encode(title);
+      final jpegBytes = <int>[0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x01, 0xFF, 0xD9];
+
+      final tit2Frame = <int>[
+        ...utf8.encode('TIT2'),
+        (titleBytes.length + 1) >> 24 & 0xFF,
+        (titleBytes.length + 1) >> 16 & 0xFF,
+        (titleBytes.length + 1) >> 8 & 0xFF,
+        (titleBytes.length + 1) & 0xFF,
+        0x00, 0x00, // flags
+        0x00, // encoding: ISO-8859-1
+        ...titleBytes,
+      ];
+
+      final mime = utf8.encode('image/jpeg');
+      final apicBody = <int>[0x00, ...mime, 0x00, 0x03, ...utf8.encode(''), 0x00, ...jpegBytes];
+      final apicFrame = <int>[
+        ...utf8.encode('APIC'),
+        apicBody.length >> 24 & 0xFF,
+        apicBody.length >> 16 & 0xFF,
+        apicBody.length >> 8 & 0xFF,
+        apicBody.length & 0xFF,
+        0x00, 0x00, // flags
+        ...apicBody,
+      ];
+
+      final tagSize = tit2Frame.length + apicFrame.length;
+      final tag = <int>[
+        ...utf8.encode('ID3'),
+        0x03, 0x00, // version 2.3
+        0x00, // flags
+        (tagSize >> 21) & 0x7F,
+        (tagSize >> 14) & 0x7F,
+        (tagSize >> 7) & 0x7F,
+        tagSize & 0x7F,
+        ...tit2Frame,
+        ...apicFrame,
+      ];
+
+      final tempDir = await Directory.systemTemp.createTemp('id3_test');
+      final tempFile = File('${tempDir.path}/test_audio.mp3');
+      await tempFile.writeAsBytes(tag);
+
+      final result = await MetadataExtractor.extractFromFile(tempFile.path);
+      expect(result.title, equals(title));
+      // Cover cache is skipped when the platform temp dir is unavailable, but
+      // the raw artwork bytes must still be returned.
+      expect(result.albumArtBytes, isNotNull);
+      expect(result.albumArtBytes, jpegBytes);
+
+      await tempDir.delete(recursive: true);
+    });
   });
 }

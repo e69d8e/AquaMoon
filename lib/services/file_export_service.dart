@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -33,10 +34,17 @@ class FileExportService {
         if (await publicDownload.exists()) {
           baseDir = publicDownload;
         } else {
-          baseDir = await getDownloadsDirectory() ?? await getExternalStorageDirectory();
+          baseDir =
+              await getDownloadsDirectory() ??
+              await getExternalStorageDirectory();
         }
-      } else if (Platform.isIOS || Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
-        baseDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      } else if (Platform.isIOS ||
+          Platform.isMacOS ||
+          Platform.isWindows ||
+          Platform.isLinux) {
+        baseDir =
+            await getDownloadsDirectory() ??
+            await getApplicationDocumentsDirectory();
       } else {
         baseDir = await getApplicationDocumentsDirectory();
       }
@@ -76,25 +84,37 @@ class FileExportService {
 
       final exportDir = await getExportDirectory();
       final cleanTitle = sanitizeFileName(title.isNotEmpty ? title : '未知曲目');
-      final cleanArtist = sanitizeFileName(artist.isNotEmpty && artist != '未知歌手' ? artist : '');
-      final filePrefix = cleanArtist.isNotEmpty ? '$cleanTitle - $cleanArtist' : cleanTitle;
+      final cleanArtist = sanitizeFileName(
+        artist.isNotEmpty && artist != '未知歌手' ? artist : '',
+      );
+      final filePrefix = cleanArtist.isNotEmpty
+          ? '$cleanTitle - $cleanArtist'
+          : cleanTitle;
 
-      final targetFile = File(p.join(exportDir.path, '${filePrefix}_cover.jpg'));
+      final targetFile = File(
+        p.join(exportDir.path, '${filePrefix}_cover.jpg'),
+      );
 
       List<int> imageBytes = [];
 
-      if (coverUrlOrPath.startsWith('http://') || coverUrlOrPath.startsWith('https://')) {
+      if (coverUrlOrPath.startsWith('http://') ||
+          coverUrlOrPath.startsWith('https://')) {
         // Online network image
-        final response = await _client.get(
-          Uri.parse(coverUrlOrPath),
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Referer': 'https://y.qq.com/',
-          },
-        ).timeout(const Duration(seconds: 10));
+        final response = await _client
+            .get(
+              Uri.parse(coverUrlOrPath),
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Referer': 'https://y.qq.com/',
+              },
+            )
+            .timeout(const Duration(seconds: 10));
 
         if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
-          return ExportResult(success: false, message: '封面下载失败 (HTTP ${response.statusCode})');
+          return ExportResult(
+            success: false,
+            message: '封面下载失败 (HTTP ${response.statusCode})',
+          );
         }
         imageBytes = response.bodyBytes;
       } else {
@@ -116,10 +136,10 @@ class FileExportService {
         success: true,
         filePath: targetFile.path,
         fileSizeBytes: imageBytes.length,
-        message: '封面已成功保存至:\n${targetFile.path}',
+        message: '封面已保存: SoundCraft/${p.basename(targetFile.path)}',
       );
-    } catch (e) {
-      return ExportResult(success: false, message: '保存封面异常: $e');
+    } catch (_) {
+      return const ExportResult(success: false, message: '保存封面失败，请检查存储空间与权限');
     }
   }
 
@@ -136,8 +156,12 @@ class FileExportService {
 
       final exportDir = await getExportDirectory();
       final cleanTitle = sanitizeFileName(title.isNotEmpty ? title : '未知曲目');
-      final cleanArtist = sanitizeFileName(artist.isNotEmpty && artist != '未知歌手' ? artist : '');
-      final filePrefix = cleanArtist.isNotEmpty ? '$cleanTitle - $cleanArtist' : cleanTitle;
+      final cleanArtist = sanitizeFileName(
+        artist.isNotEmpty && artist != '未知歌手' ? artist : '',
+      );
+      final filePrefix = cleanArtist.isNotEmpty
+          ? '$cleanTitle - $cleanArtist'
+          : cleanTitle;
 
       final targetFile = File(p.join(exportDir.path, '$filePrefix.lrc'));
 
@@ -148,10 +172,10 @@ class FileExportService {
         success: true,
         filePath: targetFile.path,
         fileSizeBytes: size,
-        message: '歌词已成功保存至:\n${targetFile.path}',
+        message: '歌词已保存: SoundCraft/${p.basename(targetFile.path)}',
       );
-    } catch (e) {
-      return ExportResult(success: false, message: '保存歌词异常: $e');
+    } catch (_) {
+      return const ExportResult(success: false, message: '保存歌词失败，请检查存储空间与权限');
     }
   }
 

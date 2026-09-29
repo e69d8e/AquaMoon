@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../core/utils/lrc_parser.dart';
 import '../models/lyric_line.dart';
 import '../models/song.dart';
@@ -67,7 +68,9 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
     state = state.copyWith(isLoading: true, songId: song.id, error: null);
 
     // 1. If song already has cached LRC content and not forcing online refresh
-    if (!forceOnline && song.lrcContent != null && song.lrcContent!.trim().isNotEmpty) {
+    if (!forceOnline &&
+        song.lrcContent != null &&
+        song.lrcContent!.trim().isNotEmpty) {
       final parsed = LrcParser.parse(song.lrcContent);
       if (parsed.isNotEmpty) {
         state = LyricsState(
@@ -106,7 +109,8 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       if (result != null) {
         // Cache online cover art if local song lacks cover
         String? newArtUri = song.albumArtUri;
-        if ((newArtUri == null || newArtUri.isEmpty) && result.coverUrl != null) {
+        if ((newArtUri == null || newArtUri.isEmpty) &&
+            result.coverUrl != null) {
           newArtUri = await _onlineService.cacheOnlineImage(result.coverUrl!);
         }
 
@@ -128,7 +132,9 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         // Only update handler if this song is still the current active one
         final currentActive = _ref.read(currentSongProvider).valueOrNull;
         if (currentActive?.id == song.id) {
-          _ref.read(audioHandlerProvider).updateCurrentSongMetadata(
+          _ref
+              .read(audioHandlerProvider)
+              .updateCurrentSongMetadata(
                 albumArtUri: newArtUri,
                 lrcContent: lrcContent,
               );
@@ -160,12 +166,12 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         error: '暂无歌词',
         songId: song.id,
       );
-    } catch (e) {
+    } catch (_) {
       if (state.songId == song.id) {
         state = LyricsState(
           lines: const [],
           isLoading: false,
-          error: '获取歌词失败: $e',
+          error: '网络异常，获取歌词失败',
           songId: song.id,
         );
       }
@@ -173,10 +179,11 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
   }
 }
 
-final lyricsNotifierProvider = StateNotifierProvider<LyricsNotifier, LyricsState>((ref) {
-  final onlineService = ref.watch(onlineMetadataServiceProvider);
-  return LyricsNotifier(onlineService, ref);
-});
+final lyricsNotifierProvider =
+    StateNotifierProvider<LyricsNotifier, LyricsState>((ref) {
+      final onlineService = ref.watch(onlineMetadataServiceProvider);
+      return LyricsNotifier(onlineService, ref);
+    });
 
 final currentLyricIndexProvider = Provider<int>((ref) {
   final lyricsState = ref.watch(lyricsNotifierProvider);

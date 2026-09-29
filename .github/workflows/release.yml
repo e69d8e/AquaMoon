@@ -38,11 +38,59 @@ jobs:
       - name: Run unit tests
         run: flutter test
 
+      # Restores the release keystore from repository secrets and writes the
+      # android/key.properties that android/app/build.gradle.kts consumes.
+      # Without these the Gradle build silently falls back to DEBUG signing,
+      # so this step fails loudly when a secret is missing.
+      - name: Configure Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is not configured; refusing to publish an unsigned release."
+              exit 1
+            fi
+          done
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/aquamoon-release.jks
+          test -s android/app/aquamoon-release.jks
+
+          # storeFile is resolved relative to the android/ directory.
+          cat > android/key.properties <<EOF
+          storeFile=app/aquamoon-release.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+
+          chmod 600 android/app/aquamoon-release.jks android/key.properties
+          echo "Release signing material prepared."
+
       - name: Build APK (Split ABI & Universal) & AppBundle
         run: |
           flutter build apk --release --split-per-abi
           flutter build apk --release
           flutter build appbundle --release
+
+      # Guards against the debug-signing fallback silently reaching users.
+      - name: Verify APK is signed with the AquaMoon release certificate
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          echo "Using: $APKSIGNER"
+          CERT_INFO="$("$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk)"
+          echo "$CERT_INFO"
+          EXPECTED_FINGERPRINT="5346d1f673b61d25a6431e26bc8f41dd5066ff83a1a363c692ad79abcf55c13d"
+          if ! printf '%s' "$CERT_INFO" | tr 'A-F' 'a-f' | grep -q "$EXPECTED_FINGERPRINT"; then
+            echo "::error::APK is NOT signed with the AquaMoon release certificate."
+            exit 1
+          fi
+          echo "APK signature verified against the AquaMoon release certificate."
 
       - name: Collect Android Artifacts
         run: |
@@ -241,7 +289,11 @@ jobs:
           printf "#!/bin/bash\nexec /opt/aquamoon/aquamoon \"\$@\"\n" > deb_root/usr/bin/aquamoon
           chmod +x deb_root/usr/bin/aquamoon
 
-          printf "Package: aquamoon\nVersion: 1.0.0\nSection: sound\nPriority: optional\nArchitecture: amd64\nMaintainer: AquaMoon Authors <https://github.com/e69d8e/AquaMoon>\nDescription: AquaMoon - Zen ink modern music player\n A modern, cross-platform music player blending Zen ink aesthetics with an industrial-grade audio core.\n" > deb_root/DEBIAN/control
+          # Keep the Debian package version in sync with pubspec.yaml
+          APP_VERSION="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml | head -n1)"
+          echo "Packaging aquamoon version ${APP_VERSION}"
+
+          printf "Package: aquamoon\nVersion: ${APP_VERSION}\nSection: sound\nPriority: optional\nArchitecture: amd64\nMaintainer: AquaMoon Authors <https://github.com/e69d8e/AquaMoon>\nDescription: AquaMoon - Zen ink modern music player\n A modern, cross-platform music player blending Zen ink aesthetics with an industrial-grade audio core.\n" > deb_root/DEBIAN/control
 
           dpkg-deb --build deb_root release-linux/AquaMoon-Linux-x64.deb
           rm -rf deb_root
