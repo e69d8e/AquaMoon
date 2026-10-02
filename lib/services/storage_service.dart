@@ -206,6 +206,24 @@ class StorageService {
     await _settingsBox.put('volume', volume);
   }
 
+  bool getAutoCheckUpdates() {
+    return _settingsBox.get('auto_check_updates', defaultValue: true) as bool;
+  }
+
+  Future<void> saveAutoCheckUpdates(bool enabled) async {
+    await _settingsBox.put('auto_check_updates', enabled);
+  }
+
+  DateTime? getLastUpdateCheckTime() {
+    final ms = _settingsBox.get('last_update_check_ms') as int?;
+    if (ms == null) return null;
+    return DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  Future<void> saveLastUpdateCheckTime(DateTime time) async {
+    await _settingsBox.put('last_update_check_ms', time.millisecondsSinceEpoch);
+  }
+
   // --- Listening Statistics Operations ---
 
   DailyListeningRecord getDailyListeningRecord(String dateStr) {

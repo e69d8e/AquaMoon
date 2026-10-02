@@ -4,11 +4,14 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/utils/app_toast.dart';
 import '../../core/utils/formatters.dart';
+import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/update_provider.dart';
 import '../stats/listening_stats_page.dart';
+import '../widgets/update_dialog.dart';
 import 'notification_player_settings_page.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -528,6 +531,11 @@ class SettingsPage extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
+          // Section 4: 关于应用 — 更新检查
+          const _UpdateSettingsCard(),
+
+          const SizedBox(height: 20),
+
           // Section 4: 关于应用
           Center(
             child: Column(
@@ -554,10 +562,142 @@ class SettingsPage extends ConsumerWidget {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  ref
+                      .watch(appVersionProvider)
+                      .when(
+                        data: (version) => 'v$version',
+                        loading: () => '',
+                        error: (_, _) => '',
+                      ),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+}
+
+/// 「检查更新」入口 + 自动检查开关（设置 → 关于应用）。
+class _UpdateSettingsCard extends ConsumerStatefulWidget {
+  const _UpdateSettingsCard();
+
+  @override
+  ConsumerState<_UpdateSettingsCard> createState() =>
+      _UpdateSettingsCardState();
+}
+
+class _UpdateSettingsCardState extends ConsumerState<_UpdateSettingsCard> {
+  bool _checking = false;
+
+  Future<void> _checkForUpdate() async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      final currentVersion = await ref.read(appVersionProvider.future);
+      final info = await ref
+          .read(updateServiceProvider)
+          .checkForUpdate(currentVersion: currentVersion);
+      // 手动检查同样计入节流，避免随后启动又自动弹窗。
+      await ref
+          .read(storageServiceProvider)
+          .saveLastUpdateCheckTime(DateTime.now());
+      if (!mounted) return;
+      if (info != null) {
+        await showUpdateDialog(context, info);
+      } else {
+        AppToast.show(
+          context,
+          '当前已是最新版本 v$currentVersion！',
+          icon: Icons.check_circle_outline_rounded,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        AppToast.show(
+          context,
+          '检查更新失败，请检查网络后重试',
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final autoCheck = ref.watch(autoCheckUpdatesProvider);
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.system_update_alt_rounded),
+            title: const Text(
+              '检查更新',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              ref
+                  .watch(appVersionProvider)
+                  .when(
+                    data: (version) => '当前版本 v$version',
+                    loading: () => '正在读取版本信息…',
+                    error: (_, _) => '无法读取版本信息',
+                  ),
+              style: const TextStyle(fontSize: 12),
+            ),
+            trailing: _checking
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right_rounded),
+            onTap: _checking ? null : _checkForUpdate,
+          ),
+          const Divider(height: 1, indent: 56),
+          ListTile(
+            leading: const Icon(Icons.autorenew_rounded),
+            title: const Text(
+              '自动检查更新',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              '启动时自动检查，每 24 小时最多一次',
+              style: TextStyle(fontSize: 12),
+            ),
+            trailing: Switch(
+              value: autoCheck,
+              onChanged: (enabled) {
+                ref
+                    .read(autoCheckUpdatesProvider.notifier)
+                    .setAutoCheckUpdates(enabled);
+              },
+            ),
+            onTap: () {
+              ref
+                  .read(autoCheckUpdatesProvider.notifier)
+                  .setAutoCheckUpdates(!autoCheck);
+            },
+          ),
         ],
       ),
     );

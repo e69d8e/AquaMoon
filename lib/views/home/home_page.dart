@@ -7,10 +7,12 @@ import 'package:flutter/services.dart';
 
 import '../../core/utils/app_toast.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/update_provider.dart';
 import '../online_search/online_search_page.dart';
 import '../player/mini_player.dart';
 import '../settings/settings_page.dart';
 import '../stats/listening_stats_page.dart';
+import '../widgets/update_dialog.dart';
 import 'tabs/all_songs_tab.dart';
 import 'tabs/favorites_tab.dart';
 import 'tabs/playlists_tab.dart';
@@ -52,6 +54,7 @@ class _HomePageState extends ConsumerState<HomePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _requestAppPermissions();
+    _checkForUpdateOnStartup();
   }
 
   @override
@@ -94,6 +97,33 @@ class _HomePageState extends ConsumerState<HomePage>
       } catch (_) {
         // Never let permission checks crash the home page.
       }
+    }
+  }
+
+  /// 启动后延迟静默检查 GitHub 新版本（每 24 小时最多一次），
+  /// 仅在发现新版本时弹窗提示；失败或已是最新保持静默。
+  Future<void> _checkForUpdateOnStartup() async {
+    // 等启动加载与权限弹窗稳定后再检查，避免开场争抢网络与注意力。
+    await Future<void>.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    try {
+      if (!ref.read(autoCheckUpdatesProvider)) return;
+      final storage = ref.read(storageServiceProvider);
+      final lastCheck = storage.getLastUpdateCheckTime();
+      final now = DateTime.now();
+      if (lastCheck != null &&
+          now.difference(lastCheck) < const Duration(hours: 24)) {
+        return;
+      }
+      final currentVersion = await ref.read(appVersionProvider.future);
+      final info = await ref
+          .read(updateServiceProvider)
+          .checkForUpdate(currentVersion: currentVersion);
+      await storage.saveLastUpdateCheckTime(now);
+      if (!mounted || info == null) return;
+      await showUpdateDialog(context, info);
+    } catch (_) {
+      // 自动检查失败不打扰用户。
     }
   }
 
