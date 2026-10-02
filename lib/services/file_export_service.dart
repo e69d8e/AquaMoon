@@ -54,13 +54,13 @@ class FileExportService {
 
     baseDir ??= Directory.systemTemp;
 
-    // Create a subfolder dedicated to SoundCraft downloads
-    final soundCraftDir = Directory(p.join(baseDir.path, 'SoundCraft'));
-    if (!await soundCraftDir.exists()) {
-      await soundCraftDir.create(recursive: true);
+    // Create a subfolder dedicated to AquaMoon downloads
+    final aquaMoonDir = Directory(p.join(baseDir.path, 'AquaMoon'));
+    if (!await aquaMoonDir.exists()) {
+      await aquaMoonDir.create(recursive: true);
     }
 
-    return soundCraftDir;
+    return aquaMoonDir;
   }
 
   /// Clean filename to remove invalid characters across Windows, Android, macOS, and Linux
@@ -136,7 +136,7 @@ class FileExportService {
         success: true,
         filePath: targetFile.path,
         fileSizeBytes: imageBytes.length,
-        message: '封面已保存: SoundCraft/${p.basename(targetFile.path)}',
+        message: '封面已保存: AquaMoon/${p.basename(targetFile.path)}',
       );
     } catch (_) {
       return const ExportResult(success: false, message: '保存封面失败，请检查存储空间与权限');
@@ -172,7 +172,7 @@ class FileExportService {
         success: true,
         filePath: targetFile.path,
         fileSizeBytes: size,
-        message: '歌词已保存: SoundCraft/${p.basename(targetFile.path)}',
+        message: '歌词已保存: AquaMoon/${p.basename(targetFile.path)}',
       );
     } catch (_) {
       return const ExportResult(success: false, message: '保存歌词失败，请检查存储空间与权限');

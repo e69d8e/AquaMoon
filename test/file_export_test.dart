@@ -15,8 +15,8 @@ void main() {
     });
 
     test('saveLyricFile generates valid lrc file', () async {
-      final tempDir = Directory.systemTemp.createTempSync('soundcraft_test');
-      final content = '[00:01.00]Hello world\n[00:05.00]SoundCraft Music';
+      final tempDir = Directory.systemTemp.createTempSync('aquamoon_test');
+      final content = '[00:01.00]Hello world\n[00:05.00]AquaMoon Music';
       final res = await FileExportService.saveLyricFile(
         lyricContent: content,
         title: 'Test Song',
@@ -28,7 +28,7 @@ void main() {
       expect(File(res.filePath!).existsSync(), isTrue);
 
       final readContent = await File(res.filePath!).readAsString();
-      expect(readContent, contains('SoundCraft Music'));
+      expect(readContent, contains('AquaMoon Music'));
 
       // Cleanup
       try {

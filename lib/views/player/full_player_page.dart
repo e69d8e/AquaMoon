@@ -55,7 +55,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     if (mounted) {
       AppToast.show(
         context,
-        res.success ? '封面已成功保存至 SoundCraft 文件夹！' : res.message,
+        res.success ? '封面已成功保存至 AquaMoon 文件夹！' : res.message,
         icon: res.success
             ? Icons.check_circle_outline_rounded
             : Icons.error_outline_rounded,
@@ -104,7 +104,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     if (mounted) {
       AppToast.show(
         context,
-        res.success ? '歌词文件已保存至 SoundCraft 文件夹！' : res.message,
+        res.success ? '歌词文件已保存至 AquaMoon 文件夹！' : res.message,
         icon: res.success
             ? Icons.check_circle_outline_rounded
             : Icons.error_outline_rounded,

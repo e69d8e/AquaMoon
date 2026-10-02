@@ -547,7 +547,7 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  '水月音 SoundCraft',
+                  '水月音 AquaMoon',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,

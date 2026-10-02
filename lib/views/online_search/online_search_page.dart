@@ -141,7 +141,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     if (mounted) {
       AppToast.show(
         context,
-        res.success ? '封面已下载保存到 SoundCraft 文件夹！' : res.message,
+        res.success ? '封面已下载保存到 AquaMoon 文件夹！' : res.message,
         icon: res.success
             ? Icons.check_circle_outline_rounded
             : Icons.error_outline_rounded,
@@ -187,7 +187,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     if (mounted) {
       AppToast.show(
         context,
-        res.success ? 'LRC 歌词文件已保存到 SoundCraft 文件夹！' : res.message,
+        res.success ? 'LRC 歌词文件已保存到 AquaMoon 文件夹！' : res.message,
         icon: res.success
             ? Icons.check_circle_outline_rounded
             : Icons.error_outline_rounded,
