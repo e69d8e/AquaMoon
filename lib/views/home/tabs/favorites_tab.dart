@@ -47,11 +47,15 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab> {
   @override
   Widget build(BuildContext context) {
     final favorites = ref.watch(favoritesSongsProvider);
-    final currentSongAsync = ref.watch(currentSongProvider);
-    final currentSong = currentSongAsync.valueOrNull;
+    // Only depend on the current song's id: full-object updates (e.g. the
+    // syncSong broadcast after a favorite toggle) must not rebuild this page.
+    final currentSongId = ref.watch(
+      currentSongProvider.select((a) => a.valueOrNull?.id),
+    );
 
     final theme = Theme.of(context);
-    final isCurrentSongInList = currentSong != null && favorites.any((s) => s.id == currentSong.id);
+    final isCurrentSongInList =
+        currentSongId != null && favorites.any((s) => s.id == currentSongId);
 
     if (favorites.isEmpty) {
       return Center(
@@ -70,7 +74,7 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab> {
             ),
             const SizedBox(height: 4),
             Text(
-              '在曲目列表中点击红心图标即可收藏',
+              '在播放页或歌曲菜单中点击红心即可收藏',
               style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
@@ -100,39 +104,72 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab> {
                 ),
               ),
               const Spacer(),
-              if (isCurrentSongInList)
-                IconButton(
-                  icon: const Icon(Icons.my_location_rounded, size: 18),
-                  tooltip: '定位当前播放',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  onPressed: () => _scrollToCurrentPlaying(currentSong.id, favorites),
-                ),
-              IconButton(
-                icon: const Icon(Icons.shuffle_rounded, size: 19),
-                tooltip: '随机播放',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                onPressed: () {
-                  final shuffled = List<Song>.from(favorites)..shuffle();
-                  ref.read(audioControllerProvider).playSong(shuffled.first, queue: shuffled);
-                },
-              ),
-              IconButton(
+              // Playback actions live in one overflow menu to keep the
+              // toolbar minimal.
+              PopupMenuButton<String>(
                 icon: Icon(
-                  Icons.play_arrow_rounded,
-                  size: 22,
-                  color: theme.colorScheme.primary,
+                  Icons.more_vert_rounded,
+                  size: 19,
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.7,
+                  ),
                 ),
-                tooltip: '播放全部',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                onPressed: () {
-                  ref.read(audioControllerProvider).playSong(favorites.first, queue: favorites);
+                tooltip: '播放操作',
+                position: PopupMenuPosition.under,
+                onSelected: (value) {
+                  switch (value) {
+                    case 'play_all':
+                      ref
+                          .read(audioControllerProvider)
+                          .playSong(favorites.first, queue: favorites);
+                      break;
+                    case 'play_shuffled':
+                      final shuffled = List<Song>.from(favorites)..shuffle();
+                      ref
+                          .read(audioControllerProvider)
+                          .playSong(shuffled.first, queue: shuffled);
+                      break;
+                    case 'locate':
+                      final id = currentSongId;
+                      if (id != null) {
+                        _scrollToCurrentPlaying(id, favorites);
+                      }
+                      break;
+                  }
                 },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'play_all',
+                    child: Row(
+                      children: [
+                        Icon(Icons.play_arrow_rounded, size: 18),
+                        SizedBox(width: 10),
+                        Text('播放全部'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'play_shuffled',
+                    child: Row(
+                      children: [
+                        Icon(Icons.shuffle_rounded, size: 18),
+                        SizedBox(width: 10),
+                        Text('随机播放'),
+                      ],
+                    ),
+                  ),
+                  if (isCurrentSongInList)
+                    const PopupMenuItem(
+                      value: 'locate',
+                      child: Row(
+                        children: [
+                          Icon(Icons.my_location_rounded, size: 18),
+                          SizedBox(width: 10),
+                          Text('定位当前播放'),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ],
           ),

@@ -149,28 +149,8 @@ class SongTile extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 2),
-              IconButton(
-                icon: Icon(
-                  song.isFavorite
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  size: 18,
-                  color: song.isFavorite
-                      ? Colors.redAccent
-                      : theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.45,
-                        ),
-                ),
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                tooltip: song.isFavorite ? '取消收藏' : '收藏',
-                onPressed: () {
-                  ref
-                      .read(libraryNotifierProvider.notifier)
-                      .toggleFavorite(song);
-                },
-              ),
+              // Favorite toggle and all other per-song operations live in the
+              // overflow menu so each row carries a single trailing control.
               PopupMenuButton<String>(
                 icon: Icon(
                   Icons.more_vert_rounded,
@@ -183,6 +163,32 @@ class SongTile extends ConsumerWidget {
                 constraints: const BoxConstraints(minWidth: 28, minHeight: 32),
                 onSelected: (action) => _handleAction(context, ref, action),
                 itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'toggle_favorite',
+                    child: Row(
+                      children: [
+                        Icon(
+                          song.isFavorite
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          size: 18,
+                          color: song.isFavorite ? Colors.redAccent : null,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(song.isFavorite ? '取消收藏' : '收藏'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'add_to_playlist',
+                    child: Row(
+                      children: [
+                        Icon(Icons.playlist_add_rounded, size: 18),
+                        SizedBox(width: 8),
+                        Text('添加到歌单'),
+                      ],
+                    ),
+                  ),
                   if (onSetAsPlaylistCover != null)
                     const PopupMenuItem(
                       value: 'set_as_cover',
@@ -200,17 +206,7 @@ class SongTile extends ConsumerWidget {
                       children: [
                         Icon(Icons.edit_note_rounded, size: 18),
                         SizedBox(width: 8),
-                        Text('编辑信息 / 修改封面与歌词'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'add_to_playlist',
-                    child: Row(
-                      children: [
-                        Icon(Icons.playlist_add_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('添加到歌单'),
+                        Text('编辑歌曲信息'),
                       ],
                     ),
                   ),
@@ -220,7 +216,7 @@ class SongTile extends ConsumerWidget {
                       children: [
                         Icon(Icons.saved_search_rounded, size: 18),
                         SizedBox(width: 8),
-                        Text('在线检索与更换数据'),
+                        Text('在线检索歌曲信息'),
                       ],
                     ),
                   ),
@@ -230,7 +226,7 @@ class SongTile extends ConsumerWidget {
                       children: [
                         Icon(Icons.cloud_download_rounded, size: 18),
                         SizedBox(width: 8),
-                        Text('智能匹配在线歌词与封面'),
+                        Text('智能补齐歌词与封面'),
                       ],
                     ),
                   ),
@@ -262,6 +258,9 @@ class SongTile extends ConsumerWidget {
 
   void _handleAction(BuildContext context, WidgetRef ref, String action) async {
     switch (action) {
+      case 'toggle_favorite':
+        ref.read(libraryNotifierProvider.notifier).toggleFavorite(song);
+        break;
       case 'set_as_cover':
         onSetAsPlaylistCover?.call();
         break;

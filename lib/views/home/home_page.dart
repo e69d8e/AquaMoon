@@ -305,15 +305,41 @@ class _HomePageState extends ConsumerState<HomePage>
             ],
           ),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.insights_rounded, size: 22),
-              tooltip: '听歌统计',
-              onPressed: () => _pushPage(() => const ListeningStatsPage()),
-            ),
-            IconButton(
-              icon: const Icon(Icons.cloud_download_outlined, size: 22),
-              tooltip: '全网检索与下载',
-              onPressed: () => _pushPage(() => const OnlineSearchPage()),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded, size: 22),
+              tooltip: '更多功能',
+              onSelected: (value) {
+                switch (value) {
+                  case 'stats':
+                    _pushPage(() => const ListeningStatsPage());
+                    break;
+                  case 'online':
+                    _pushPage(() => const OnlineSearchPage());
+                    break;
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'stats',
+                  child: Row(
+                    children: [
+                      Icon(Icons.insights_rounded, size: 20),
+                      SizedBox(width: 10),
+                      Text('听歌统计'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'online',
+                  child: Row(
+                    children: [
+                      Icon(Icons.cloud_download_outlined, size: 20),
+                      SizedBox(width: 10),
+                      Text('全网检索与下载'),
+                    ],
+                  ),
+                ),
+              ],
             ),
             IconButton(
               icon: const Icon(Icons.settings_outlined, size: 22),

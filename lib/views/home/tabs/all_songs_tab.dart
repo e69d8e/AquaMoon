@@ -57,6 +57,103 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
     }
   }
 
+  PopupMenuItem<String> _buildSortItem(
+    SongSortType type,
+    String label,
+    SongSortType currentType,
+    bool ascending,
+  ) {
+    final theme = Theme.of(context);
+    final isActive = currentType == type;
+    return PopupMenuItem<String>(
+      value: 'sort_${type.name}',
+      child: Row(
+        children: [
+          SizedBox(
+            width: 22,
+            child: isActive
+                ? Icon(
+                    Icons.check_rounded,
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  )
+                : null,
+          ),
+          Text(label),
+          const Spacer(),
+          if (isActive)
+            Icon(
+              ascending
+                  ? Icons.arrow_upward_rounded
+                  : Icons.arrow_downward_rounded,
+              size: 14,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Single dispatcher for the unified library menu: 'sort_*' values toggle
+  /// the sort field (tap again to flip direction), the rest are actions.
+  void _handleMenuSelection(String value, List<Song> songs) {
+    if (value.startsWith('sort_')) {
+      final type = SongSortType.values.firstWhere(
+        (t) => 'sort_${t.name}' == value,
+      );
+      if (ref.read(sortTypeProvider) == type) {
+        ref.read(sortAscendingProvider.notifier).state =
+            !ref.read(sortAscendingProvider);
+      } else {
+        ref.read(sortTypeProvider.notifier).state = type;
+      }
+      return;
+    }
+
+    switch (value) {
+      case 'play_all':
+        ref.read(audioControllerProvider).playSong(songs.first, queue: songs);
+        break;
+      case 'play_shuffled':
+        final shuffled = List<Song>.from(songs)..shuffle();
+        ref
+            .read(audioControllerProvider)
+            .playSong(shuffled.first, queue: shuffled);
+        break;
+      case 'locate':
+        final currentSongId = ref
+            .read(currentSongProvider)
+            .valueOrNull
+            ?.id;
+        if (currentSongId != null) {
+          _scrollToCurrentPlaying(currentSongId, songs);
+        }
+        break;
+      case 'rescan':
+        _rescanLibrary();
+        break;
+    }
+  }
+
+  Future<void> _rescanLibrary() async {
+    try {
+      final count = await ref
+          .read(libraryNotifierProvider.notifier)
+          .scanSystemMusicDirectory();
+      if (mounted && count == 0) {
+        AppToast.show(context, '未发现新歌曲', icon: Icons.done_all_rounded);
+      }
+    } on StoragePermissionDeniedException {
+      if (mounted) {
+        AppToast.show(
+          context,
+          '存储权限未授予，无法扫描',
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Select individual scan fields instead of watching the whole LibraryState
@@ -139,110 +236,109 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
               ),
               const SizedBox(width: 4),
 
-              // Sort Menu Button
-              PopupMenuButton<SongSortType>(
+              // Unified overflow menu: count header, playback actions, rescan
+              // and sorting — keeps the toolbar to search + one button.
+              PopupMenuButton<String>(
                 icon: Icon(
-                  Icons.sort_rounded,
+                  Icons.more_vert_rounded,
                   size: 20,
                   color: theme.colorScheme.onSurfaceVariant.withValues(
                     alpha: 0.8,
                   ),
                 ),
-                tooltip: '排序方式',
-                initialValue: sortType,
-                onSelected: (type) {
-                  if (sortType == type) {
-                    ref.read(sortAscendingProvider.notifier).state =
-                        !sortAscending;
-                  } else {
-                    ref.read(sortTypeProvider.notifier).state = type;
-                  }
-                },
+                tooltip: '排序与更多操作',
+                position: PopupMenuPosition.under,
+                onSelected: (value) => _handleMenuSelection(value, songs),
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: SongSortType.dateAdded,
-                    child: Text('按添加时间'),
+                  PopupMenuItem<String>(
+                    enabled: false,
+                    child: Text(
+                      searchQuery.isNotEmpty
+                          ? '匹配到 ${songs.length} 首'
+                          : '曲库共 ${songs.length} 首',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ),
+                  const PopupMenuDivider(),
+                  if (songs.isNotEmpty) ...[
+                    const PopupMenuItem(
+                      value: 'play_all',
+                      child: Row(
+                        children: [
+                          Icon(Icons.play_arrow_rounded, size: 18),
+                          SizedBox(width: 10),
+                          Text('播放全部'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'play_shuffled',
+                      child: Row(
+                        children: [
+                          Icon(Icons.shuffle_rounded, size: 18),
+                          SizedBox(width: 10),
+                          Text('随机播放'),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (isCurrentSongInList)
+                    const PopupMenuItem(
+                      value: 'locate',
+                      child: Row(
+                        children: [
+                          Icon(Icons.my_location_rounded, size: 18),
+                          SizedBox(width: 10),
+                          Text('定位当前播放'),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
-                    value: SongSortType.playCount,
-                    child: Text('按播放次数'),
+                    value: 'rescan',
+                    child: Row(
+                      children: [
+                        Icon(Icons.refresh_rounded, size: 18),
+                        SizedBox(width: 10),
+                        Text('重新扫描曲库'),
+                      ],
+                    ),
                   ),
-                  const PopupMenuItem(
-                    value: SongSortType.title,
-                    child: Text('按歌曲名称'),
+                  const PopupMenuDivider(),
+                  _buildSortItem(
+                    SongSortType.dateAdded,
+                    '按添加时间',
+                    sortType,
+                    sortAscending,
                   ),
-                  const PopupMenuItem(
-                    value: SongSortType.artist,
-                    child: Text('按歌手名字'),
+                  _buildSortItem(
+                    SongSortType.playCount,
+                    '按播放次数',
+                    sortType,
+                    sortAscending,
                   ),
-                  const PopupMenuItem(
-                    value: SongSortType.duration,
-                    child: Text('按歌曲时长'),
+                  _buildSortItem(
+                    SongSortType.title,
+                    '按歌曲名称',
+                    sortType,
+                    sortAscending,
+                  ),
+                  _buildSortItem(
+                    SongSortType.artist,
+                    '按歌手名字',
+                    sortType,
+                    sortAscending,
+                  ),
+                  _buildSortItem(
+                    SongSortType.duration,
+                    '按歌曲时长',
+                    sortType,
+                    sortAscending,
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-
-        // Subheader Action Row: Icon count on left, locate & play all on right (clean & icon-driven)
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
-          child: Row(
-            children: [
-              // Icon + Count (replacing '全部歌曲' text with icon)
-              Icon(
-                Icons.music_note_rounded,
-                size: 16,
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.7,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '${songs.length}',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.75,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              if (isCurrentSongInList)
-                IconButton(
-                  icon: const Icon(Icons.my_location_rounded, size: 18),
-                  tooltip: '定位当前播放',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
-                  ),
-                  onPressed: () =>
-                      _scrollToCurrentPlaying(currentSongId, songs),
-                ),
-              if (songs.isNotEmpty)
-                IconButton(
-                  icon: Icon(
-                    Icons.play_arrow_rounded,
-                    size: 22,
-                    color: theme.colorScheme.primary,
-                  ),
-                  tooltip: '播放全部',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
-                  ),
-                  onPressed: () {
-                    ref
-                        .read(audioControllerProvider)
-                        .playSong(songs.first, queue: songs);
-                  },
-                ),
             ],
           ),
         ),
@@ -296,28 +392,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
           child: songs.isEmpty
               ? _buildEmptyState(context, ref, searchQuery.isNotEmpty)
               : RefreshIndicator(
-                  onRefresh: () async {
-                    try {
-                      final count = await ref
-                          .read(libraryNotifierProvider.notifier)
-                          .scanSystemMusicDirectory();
-                      if (context.mounted && count == 0) {
-                        AppToast.show(
-                          context,
-                          '未发现新歌曲',
-                          icon: Icons.done_all_rounded,
-                        );
-                      }
-                    } on StoragePermissionDeniedException {
-                      if (context.mounted) {
-                        AppToast.show(
-                          context,
-                          '存储权限未授予，无法扫描',
-                          icon: Icons.error_outline_rounded,
-                        );
-                      }
-                    }
-                  },
+                  onRefresh: _rescanLibrary,
                   child: ListView.builder(
                     controller: _scrollController,
                     itemExtent: 58.0,
