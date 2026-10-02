@@ -21,14 +21,35 @@ class AllSongsTab extends ConsumerStatefulWidget {
 class _AllSongsTabState extends ConsumerState<AllSongsTab> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    // searchQueryProvider outlives this State (tab switches, desktop layout
+    // toggle): restore it into the fresh field, otherwise a cancelled-look
+    // empty search box would keep filtering with no visible way to reset it.
+    _searchController.text = ref.read(searchQueryProvider);
+  }
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Cancels the active search: text, filter and IME session all at once.
+  /// Unfocusing first closes the input connection, so an in-flight IME
+  /// composition commit cannot re-insert the just-cleared query afterwards.
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchFocusNode.unfocus();
+    _searchController.clear();
+    ref.read(searchQueryProvider.notifier).state = '';
   }
 
   void _scrollToCurrentPlaying(String currentSongId, List<Song> songs) {
@@ -187,49 +208,62 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
           child: Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: '搜索音乐、歌手、专辑...',
-                    hintStyle: TextStyle(
-                      fontSize: 13,
-                      color: theme.colorScheme.onSurfaceVariant.withValues(
-                        alpha: 0.65,
+                // Listen to the controller locally so keystrokes only rebuild
+                // the field (suffix icon visibility), not the whole tab — the
+                // clear button must be tappable the moment text exists, not
+                // only after the debounce has settled.
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _searchController,
+                  builder: (context, value, _) {
+                    return TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocusNode,
+                      decoration: InputDecoration(
+                        hintText: '搜索音乐、歌手、专辑...',
+                        hintStyle: TextStyle(
+                          fontSize: 13,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.65,
+                          ),
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                        suffixIcon: value.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear_rounded, size: 16),
+                                onPressed: _clearSearch,
+                              )
+                            : null,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 8,
+                          horizontal: 12,
+                        ),
+                        filled: true,
+                        fillColor: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.5),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
-                    ),
-                    prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                    suffixIcon: searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded, size: 16),
-                            onPressed: () {
-                              _searchDebounce?.cancel();
-                              _searchController.clear();
-                              ref.read(searchQueryProvider.notifier).state = '';
-                            },
-                          )
-                        : null,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      vertical: 8,
-                      horizontal: 12,
-                    ),
-                    filled: true,
-                    fillColor: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.5),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  onChanged: (val) {
-                    _searchDebounce?.cancel();
-                    _searchDebounce = Timer(
-                      const Duration(milliseconds: 300),
-                      () {
-                        if (mounted) {
-                          ref.read(searchQueryProvider.notifier).state = val;
-                        }
+                      onChanged: (val) {
+                        _searchDebounce?.cancel();
+                        _searchDebounce = Timer(
+                          const Duration(milliseconds: 300),
+                          () {
+                            if (mounted) {
+                              ref.read(searchQueryProvider.notifier).state =
+                                  val;
+                            }
+                          },
+                        );
                       },
+                      // Flutter's default leaves touch taps outside the field
+                      // focused on mobile, so the IME stays attached and gets
+                      // re-summoned every time a menu or page hands focus
+                      // back. Any other operation should end input mode for
+                      // good — unfocus on every outside tap, all platforms.
+                      onTapOutside: (_) => _searchFocusNode.unfocus(),
                     );
                   },
                 ),
