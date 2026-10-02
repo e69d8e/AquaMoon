@@ -21,12 +21,20 @@ class LyricsView extends ConsumerStatefulWidget {
   ConsumerState<LyricsView> createState() => _LyricsViewState();
 }
 
-class _LyricsViewState extends ConsumerState<LyricsView> {
+class _LyricsViewState extends ConsumerState<LyricsView>
+    with AutomaticKeepAliveClientMixin {
+  static const _estimatedLineHeight = 56.0;
+
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _itemKeys = {};
   bool _userScrolling = false;
   int _lastActiveIndex = -1;
   Timer? _userScrollResumeTimer;
+
+  // Keeps the scroll position alive inside the player PageView, so swiping
+  // back to the cover and returning does not rebuild from the top.
+  @override
+  bool get wantKeepAlive => true;
 
   Future<void> _calibrateOnline() async {
     final selected = await OnlineCandidateSelectDialog.show(
@@ -98,35 +106,45 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     }
 
     if (index == _lastActiveIndex) return;
+    final isFirstPositioning = _lastActiveIndex == -1;
     _lastActiveIndex = index;
 
-    final key = _itemKeys[index];
-    if (key?.currentContext != null) {
-      Scrollable.ensureVisible(
-        key!.currentContext!,
-        alignment: 0.34, // 居中偏上 (34% from top)
+    // Resolve the target offset within the lyrics list only. Do NOT use
+    // Scrollable.ensureVisible here: it reveals the target in every ancestor
+    // Scrollable, including the player's horizontal PageView, which yanks the
+    // page mid-swipe while the user is dragging between cover and lyrics.
+    double? targetOffset;
+    final itemContext = _itemKeys[index]?.currentContext;
+    final itemRenderObject = itemContext?.findRenderObject();
+    if (itemRenderObject != null) {
+      final viewport = RenderAbstractViewport.maybeOf(itemRenderObject);
+      if (viewport != null) {
+        targetOffset = viewport.getOffsetToReveal(itemRenderObject, 0.34).offset;
+      }
+    }
+    targetOffset ??= index * _estimatedLineHeight;
+
+    final clampedOffset = targetOffset.clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
+
+    // Snap on first positioning (page just opened or song changed) so the
+    // list never visibly "flies" from the top; glide as lines advance.
+    if (isFirstPositioning) {
+      _scrollController.jumpTo(clampedOffset);
+    } else {
+      _scrollController.animateTo(
+        clampedOffset,
         duration: const Duration(milliseconds: 700),
         curve: Curves.easeInOutCubic,
       );
-    } else {
-      const estimatedLineHeight = 56.0;
-      final targetOffset = index * estimatedLineHeight;
-      if (_scrollController.hasClients) {
-        final clampedOffset = targetOffset.clamp(
-          0.0,
-          _scrollController.position.maxScrollExtent,
-        );
-        _scrollController.animateTo(
-          clampedOffset,
-          duration: const Duration(milliseconds: 700),
-          curve: Curves.easeInOutCubic,
-        );
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final lyricsState = ref.watch(lyricsNotifierProvider);
     final activeIndex = ref.watch(currentLyricIndexProvider);
     final theme = Theme.of(context);
