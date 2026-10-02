@@ -44,7 +44,9 @@ class ListeningStatsPage extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.calendar_month_outlined),
             tooltip: '选择日期',
-            onPressed: () => _selectDate(context, ref, selectedDate),
+            onPressed: periodType == PeriodType.all
+                ? null
+                : () => _selectDate(context, ref, selectedDate),
           ),
           const SizedBox(width: 4),
         ],
@@ -52,21 +54,23 @@ class ListeningStatsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
-          // 1. Period Selector Tabs (Day, Week, Month, Year)
+          // 1. Period Selector Tabs (Day, Week, Month, Year, All-time)
           _buildPeriodSelector(context, ref, periodType),
 
           const SizedBox(height: 16),
 
-          // 2. Date Navigation Bar (< Date Title >)
-          _buildDateNavigator(
-            context,
-            ref,
-            periodType,
-            selectedDate,
-            isCurrentPeriod,
-          ),
-
-          const SizedBox(height: 16),
+          // 2. Date Navigation Bar (< Date Title >) — not applicable to the
+          // all-time view.
+          if (periodType != PeriodType.all) ...[
+            _buildDateNavigator(
+              context,
+              ref,
+              periodType,
+              selectedDate,
+              isCurrentPeriod,
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // 3. Hero Summary Card
           StatsSummaryCard(stats: stats),
@@ -79,7 +83,12 @@ class ListeningStatsPage extends ConsumerWidget {
           const SizedBox(height: 24),
 
           // 5. Top Songs Section
-          _buildTopSongsSection(context, ref, stats.topSongs),
+          _buildTopSongsSection(
+            context,
+            ref,
+            stats.topSongs,
+            title: periodType == PeriodType.all ? '播放次数总榜' : null,
+          ),
 
           const SizedBox(height: 24),
 
@@ -247,8 +256,9 @@ class ListeningStatsPage extends ConsumerWidget {
   Widget _buildTopSongsSection(
     BuildContext context,
     WidgetRef ref,
-    List<SongStatItem> topSongs,
-  ) {
+    List<SongStatItem> topSongs, {
+    String? title,
+  }) {
     final theme = Theme.of(context);
     // Cap the rendered list like the artist leaderboard; header shows the total.
     final displaySongs = topSongs.take(10).toList();
@@ -267,9 +277,12 @@ class ListeningStatsPage extends ConsumerWidget {
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                const Text(
-                  '常听歌曲榜',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                Text(
+                  title ?? '常听歌曲榜',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -615,6 +628,8 @@ class ListeningStatsPage extends ConsumerWidget {
         return selected.year == now.year && selected.month == now.month;
       case PeriodType.year:
         return selected.year == now.year;
+      case PeriodType.all:
+        return true;
     }
   }
 
@@ -628,6 +643,8 @@ class ListeningStatsPage extends ConsumerWidget {
         return DateTime(date.year, date.month + step, date.day.clamp(1, 28));
       case PeriodType.year:
         return DateTime(date.year + step, date.month, date.day.clamp(1, 28));
+      case PeriodType.all:
+        return date;
     }
   }
 
@@ -643,6 +660,8 @@ class ListeningStatsPage extends ConsumerWidget {
         return '${date.year}年${date.month}月';
       case PeriodType.year:
         return '${date.year}年度';
+      case PeriodType.all:
+        return '全部时间';
     }
   }
 

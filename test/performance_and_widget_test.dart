@@ -123,5 +123,33 @@ void main() {
       await tester.tap(find.byType(InkWell).first);
       expect(tapped, isTrue);
     });
+
+    testWidgets('SongTile shows play count when > 0 and hides it when 0', (
+      tester,
+    ) async {
+      final playedSong = testSong.copyWith(playCount: 42);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(body: SongTile(song: playedSong, onTap: () {})),
+          ),
+        ),
+      );
+
+      expect(find.text('42'), findsOneWidget);
+      expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+
+      // Unplayed song (playCount defaults to 0): no count UI.
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(home: Scaffold(body: SongTile(song: testSong))),
+        ),
+      );
+
+      expect(find.text('42'), findsNothing);
+      expect(find.byIcon(Icons.play_arrow_rounded), findsNothing);
+      expect(find.text('03:05'), findsOneWidget);
+    });
   });
 }

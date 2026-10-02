@@ -274,6 +274,8 @@ class StatsSummaryCard extends StatelessWidget {
         return '本月累计听歌';
       case PeriodType.year:
         return '年度累计听歌';
+      case PeriodType.all:
+        return '累计收听时长';
     }
   }
 }

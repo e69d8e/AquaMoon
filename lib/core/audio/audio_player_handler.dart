@@ -405,16 +405,19 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
     _currentIndex = index;
     final song = _playlist[index];
-    _currentSongSubject.add(song);
     _shuffleHistory.add(index);
+
+    // Persist play history & count BEFORE announcing the current song, so
+    // listeners that read the songs box on song change see the incremented
+    // play count.
+    await _storageService.addToHistory(song.id);
+    await _storageService.saveLastPlayedSongId(song.id);
+
+    _currentSongSubject.add(song);
 
     // Update audio_service MediaItem (Notification, lockscreen info)
     final mediaItem = _songToMediaItem(song);
     this.mediaItem.add(mediaItem);
-
-    // Save to history & persistence
-    await _storageService.addToHistory(song.id);
-    await _storageService.saveLastPlayedSongId(song.id);
 
     try {
       if (song.source == SongSource.local) {

@@ -201,7 +201,7 @@ void main() {
       tracker.dispose();
     });
 
-    test('listeningPeriodStatsProvider computes Day, Week, Month, and Year statistics', () async {
+    test('listeningPeriodStatsProvider computes Day, Week, Month, Year, and All-Time statistics', () async {
       final songA = Song(
         id: 'sa',
         title: '阳春白雪',
@@ -290,7 +290,84 @@ void main() {
       expect(yearStats.chartBars[7].durationSeconds, 1800); // August (index 7)
       expect(yearStats.chartBars[7].isHighlighted, isTrue);
 
+      // 5. Test All-Time stats (lifetime per-song play counts)
+      container.read(statsPeriodTypeProvider.notifier).state = PeriodType.all;
+      final allStats = container.read(listeningPeriodStatsProvider);
+      expect(allStats.periodType, PeriodType.all);
+      expect(allStats.displayTitle, '全部时间');
+      expect(allStats.totalDurationSeconds, 1800);
+      expect(allStats.totalPlayCount, 2);
+      expect(allStats.topSongs.length, 2);
+      expect(allStats.topArtists.length, 2);
+      expect(allStats.chartBars.length, 24);
+      expect(allStats.chartBars[15].durationSeconds, 1200); // 15:00 (song A)
+      expect(allStats.chartBars[20].durationSeconds, 600); // 20:00 (song B)
+      // Tie on play count (1 vs 1) is broken by duration: 1200s > 600s.
+      expect(allStats.topSongs.first.title, '阳春白雪');
+      expect(allStats.topSongs.first.playCount, 1);
+
       container.dispose();
+    });
+
+    test('all-time stats rank by play count and include count-only songs', () async {
+      final oftenPlayed = Song(
+        id: 's-freq',
+        title: '天天听',
+        artist: '常驻歌手',
+        album: '循环专辑',
+        durationMs: 200000,
+        filePath: '/music/freq.mp3',
+        dateAdded: DateTime(2026, 1, 1),
+      );
+
+      final oncePlayed = Song(
+        id: 's-once',
+        title: '偶尔听',
+        artist: '客串歌手',
+        album: '单曲专辑',
+        durationMs: 300000,
+        filePath: '/music/once.mp3',
+        dateAdded: DateTime(2026, 1, 1),
+      );
+
+      // 天天听: 5 plays, never any flushed listening seconds (count-only).
+      for (var i = 0; i < 5; i++) {
+        await storageService.recordSongPlayCount(
+          song: oftenPlayed,
+          timestamp: DateTime(2026, 8, 25, 12),
+        );
+      }
+      // 偶尔听: 1 play with 3000 flushed seconds (longer duration).
+      await storageService.recordListeningDuration(
+        song: oncePlayed,
+        seconds: 3000,
+        timestamp: DateTime(2026, 8, 25, 13),
+      );
+      await storageService.recordSongPlayCount(
+        song: oncePlayed,
+        timestamp: DateTime(2026, 8, 25, 13),
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storageService),
+          statsLiveTickStreamProvider.overrideWith((ref) => Stream.value(0)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(statsPeriodTypeProvider.notifier).state = PeriodType.all;
+      final allStats = container.read(listeningPeriodStatsProvider);
+
+      // Ranked by play count, not by duration.
+      expect(allStats.topSongs.first.title, '天天听');
+      expect(allStats.topSongs.first.playCount, 5);
+      expect(allStats.topSongs.last.title, '偶尔听');
+      expect(allStats.topSongs.last.playCount, 1);
+
+      // The count-only song (no flushed seconds) is not dropped.
+      expect(allStats.topSongs.length, 2);
+      expect(allStats.totalPlayCount, 6);
     });
   });
 }

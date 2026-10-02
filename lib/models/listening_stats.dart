@@ -5,7 +5,8 @@ enum PeriodType {
   day,
   week,
   month,
-  year;
+  year,
+  all;
 
   String get label {
     switch (this) {
@@ -17,6 +18,8 @@ enum PeriodType {
         return '月';
       case PeriodType.year:
         return '年';
+      case PeriodType.all:
+        return '总';
     }
   }
 }

@@ -58,7 +58,87 @@ ListeningPeriodStats _calculatePeriodStats(
       return _computeMonthStats(storage, targetDate);
     case PeriodType.year:
       return _computeYearStats(storage, targetDate);
+    case PeriodType.all:
+      return _computeAllStats(storage);
   }
+}
+
+/// Aggregates the whole listening history into a lifetime per-song play
+/// count ranking plus an hour-of-day distribution.
+ListeningPeriodStats _computeAllStats(StorageService storage) {
+  final records = storage.getAllDailyRecords();
+
+  final hourly = List<int>.filled(24, 0);
+  int totalSeconds = 0;
+  for (final r in records) {
+    r.hourlyDurationSeconds.forEach((hour, sec) {
+      if (hour >= 0 && hour < 24) {
+        hourly[hour] += sec;
+      }
+    });
+    totalSeconds += r.totalDurationSeconds;
+  }
+
+  final chartBars = <ChartBarData>[];
+  int maxHourDuration = 0;
+  int peakHour = -1;
+  for (int h = 0; h < 24; h++) {
+    final dur = hourly[h];
+    if (dur > maxHourDuration) {
+      maxHourDuration = dur;
+      peakHour = h;
+    }
+    chartBars.add(
+      ChartBarData(
+        label: '${h.toString().padLeft(2, '0')}:00',
+        sublabel: '${h.toString().padLeft(2, '0')}:00',
+        durationSeconds: dur,
+        isHighlighted: false,
+      ),
+    );
+  }
+  if (peakHour >= 0 && maxHourDuration > 0) {
+    chartBars[peakHour] = ChartBarData(
+      label: chartBars[peakHour].label,
+      sublabel: chartBars[peakHour].sublabel,
+      durationSeconds: chartBars[peakHour].durationSeconds,
+      isHighlighted: true,
+    );
+  }
+
+  final topSongs = _extractTopSongs(records, sortByPlayCount: true);
+  final topArtists = _extractTopArtists(records);
+  final totalPlayCount = topSongs.fold(0, (sum, item) => sum + item.playCount);
+
+  final startDate = records.isEmpty
+      ? DateTime.now()
+      : (DateTime.tryParse(records.first.dateStr) ?? DateTime.now());
+  final endDate = DateTime.now();
+
+  String peakSummary = '暂无明显时段偏好';
+  if (peakHour >= 0 && maxHourDuration > 0) {
+    final nextHour = (peakHour + 1) % 24;
+    peakSummary =
+        '最常在 ${peakHour.toString().padLeft(2, '0')}:00 - ${nextHour.toString().padLeft(2, '0')}:00 听歌';
+  }
+
+  return ListeningPeriodStats(
+    periodType: PeriodType.all,
+    startDate: startDate,
+    endDate: endDate,
+    displayTitle: '全部时间',
+    totalDurationSeconds: totalSeconds,
+    totalPlayCount: totalPlayCount,
+    distinctSongsCount: topSongs.length,
+    distinctArtistsCount: topArtists.length,
+    topSongs: topSongs,
+    topArtists: topArtists,
+    chartBars: chartBars,
+    averageDailySeconds: records.isEmpty
+        ? 0
+        : totalSeconds / records.length.toDouble(),
+    peakTimeSummary: peakSummary,
+  );
 }
 
 ListeningPeriodStats _computeDayStats(StorageService storage, DateTime date) {
@@ -382,7 +462,10 @@ ListeningPeriodStats _computeYearStats(StorageService storage, DateTime date) {
   );
 }
 
-List<SongStatItem> _extractTopSongs(List<DailyListeningRecord> records) {
+List<SongStatItem> _extractTopSongs(
+  List<DailyListeningRecord> records, {
+  bool sortByPlayCount = false,
+}) {
   final durationMap = <String, int>{};
   final playCountMap = <String, int>{};
   final metaMap = <String, SongMetaSnapshot>{};
@@ -399,8 +482,12 @@ List<SongStatItem> _extractTopSongs(List<DailyListeningRecord> records) {
     });
   }
 
+  // A song can have a play count without flushed listening seconds yet
+  // (seconds are buffered and written in minute batches), so union the keys.
+  final songIds = <String>{...durationMap.keys, ...playCountMap.keys};
+
   final items = <SongStatItem>[];
-  for (final songId in durationMap.keys) {
+  for (final songId in songIds) {
     final dur = durationMap[songId] ?? 0;
     final count = playCountMap[songId] ?? 0;
     final meta = metaMap[songId];
@@ -418,7 +505,15 @@ List<SongStatItem> _extractTopSongs(List<DailyListeningRecord> records) {
     );
   }
 
-  items.sort((a, b) => b.durationSeconds.compareTo(a.durationSeconds));
+  if (sortByPlayCount) {
+    items.sort((a, b) {
+      final byCount = b.playCount.compareTo(a.playCount);
+      if (byCount != 0) return byCount;
+      return b.durationSeconds.compareTo(a.durationSeconds);
+    });
+  } else {
+    items.sort((a, b) => b.durationSeconds.compareTo(a.durationSeconds));
+  }
   return items;
 }
 

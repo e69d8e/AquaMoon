@@ -336,6 +336,8 @@ class _ListeningChartState extends State<ListeningChart> {
         return '本月每日听歌时长走势';
       case PeriodType.year:
         return '年度各月听歌时长走势';
+      case PeriodType.all:
+        return '历史各时段听歌分布';
     }
   }
 
@@ -350,6 +352,8 @@ class _ListeningChartState extends State<ListeningChart> {
         return index == 0 || (index + 1) % 5 == 0 || index == total - 1;
       case PeriodType.year:
         return true;
+      case PeriodType.all:
+        return index % 4 == 0;
     }
   }
 }

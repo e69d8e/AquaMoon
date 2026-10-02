@@ -522,6 +522,21 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     );
     _audioHandler?.syncSong(song);
   }
+
+  /// Re-reads [songId] from storage and patches the in-memory copy when the
+  /// persisted play count moved ahead of it. The audio handler increments the
+  /// count directly in the songs box as each song starts, and playCount is
+  /// the only field it mutates behind this notifier's back, so replacing the
+  /// whole entry with the box copy is safe.
+  void refreshPlayCountFromStorage(String songId) {
+    final fresh = _storageService.getSong(songId);
+    if (fresh == null) return;
+    final index = state.songs.indexWhere((s) => s.id == songId);
+    if (index == -1 || state.songs[index].playCount == fresh.playCount) return;
+    final songs = [...state.songs];
+    songs[index] = fresh;
+    state = state.copyWith(songs: songs);
+  }
 }
 
 final libraryNotifierProvider =
@@ -531,7 +546,18 @@ final libraryNotifierProvider =
       try {
         handler = ref.watch(audioHandlerProvider);
       } catch (_) {}
-      return LibraryNotifier(storage, handler);
+      final notifier = LibraryNotifier(storage, handler);
+
+      // Mirror the handler-side play count increments into the in-memory
+      // library so list UIs and play-count sorting stay current in-session.
+      final sub = handler?.currentSongStream.listen((song) {
+        if (song != null) notifier.refreshPlayCountFromStorage(song.id);
+      });
+      if (sub != null) {
+        ref.onDispose(sub.cancel);
+      }
+
+      return notifier;
     });
 
 final filteredSongsProvider = Provider<List<Song>>((ref) {

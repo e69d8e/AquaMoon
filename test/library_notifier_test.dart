@@ -77,6 +77,52 @@ void main() {
       expect(state.isScanning, isFalse);
     });
 
+    test('refreshPlayCountFromStorage syncs handler-side count bumps into state', () {
+      final container = ProviderContainer(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storageService),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(libraryNotifierProvider.notifier);
+      expect(
+        container
+            .read(libraryNotifierProvider)
+            .songs
+            .firstWhere((s) => s.id == 's-a')
+            .playCount,
+        10,
+      );
+
+      // Simulate the audio handler bumping the persisted count as the song
+      // starts playing (StorageService.addToHistory).
+      final stored = storageService.getSong('s-a')!;
+      storageService.saveSong(stored.copyWith(playCount: 11));
+
+      notifier.refreshPlayCountFromStorage('s-a');
+
+      expect(
+        container
+            .read(libraryNotifierProvider)
+            .songs
+            .firstWhere((s) => s.id == 's-a')
+            .playCount,
+        11,
+      );
+
+      // No-op when storage agrees with state (e.g. duplicate events).
+      notifier.refreshPlayCountFromStorage('s-a');
+      expect(
+        container
+            .read(libraryNotifierProvider)
+            .songs
+            .firstWhere((s) => s.id == 's-a')
+            .playCount,
+        11,
+      );
+    });
+
     test('toggleFavorite updates state in-memory and in storage', () async {
       final container = ProviderContainer(
         overrides: [

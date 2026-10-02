@@ -120,6 +120,25 @@ class SongTile extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 8),
+              if (song.playCount > 0) ...[
+                Icon(
+                  Icons.play_arrow_rounded,
+                  size: 14,
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.5,
+                  ),
+                ),
+                Text(
+                  '${song.playCount}',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.6,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               Text(
                 Formatters.formatDuration(song.duration),
                 style: TextStyle(
