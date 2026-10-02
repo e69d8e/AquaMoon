@@ -329,6 +329,10 @@ class OnlineMetadataService {
   // ==========================================
 
   /// 1. QQ Music API candidates with duration & scoring
+  ///
+  /// The legacy `c.y.qq.com/soso/fcgi-bin/client_search_cp` endpoint now
+  /// answers HTTP 500, so search goes through the desktop `musicu.fcg`
+  /// gateway instead (`comm` block is required or it rejects with code 2001).
   Future<List<OnlineSearchResult>> _fetchQQMusicCandidates(
     String title,
     String artist,
@@ -338,33 +342,47 @@ class OnlineMetadataService {
     final list = <OnlineSearchResult>[];
     try {
       final keyword = '$title $artist'.trim();
-      final uri = Uri.parse(
-        'https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=1&n=$limit&w=${Uri.encodeComponent(keyword)}&format=json',
-      );
+      final uri = Uri.parse('https://u.y.qq.com/cgi-bin/musicu.fcg');
 
       final response = await _client
-          .get(
+          .post(
             uri,
             headers: {
+              'Content-Type': 'application/json',
               'Referer': 'https://y.qq.com/',
               'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             },
+            body: json.encode({
+              'comm': {'ct': 19, 'cv': 1859, 'uin': 0, 'format': 'json'},
+              'req': {
+                'module': 'music.search.SearchCgiService',
+                'method': 'DoSearchForQQMusicDesktop',
+                'param': {
+                  'search_type': 0,
+                  'query': keyword,
+                  'page_num': 1,
+                  'num_per_page': limit,
+                },
+              },
+            }),
           )
           .timeout(const Duration(seconds: 4));
 
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
-        final songList = data['data']?['song']?['list'] as List<dynamic>?;
+        final songList =
+            data['req']?['data']?['body']?['song']?['list'] as List<dynamic>?;
 
         if (songList != null) {
           for (final item in songList) {
-            final songName = item['songname'] as String? ?? title;
+            final songName = item['name'] as String? ?? title;
             final singers = item['singer'] as List<dynamic>?;
             final singerName =
                 singers?.map((s) => s['name']).join('/') ?? artist;
-            final albumName = item['albumname'] as String? ?? '';
-            final albumMid = item['albummid'] as String?;
-            final songMid = item['songmid'] as String?;
+            final albumObj = item['album'];
+            final albumName = albumObj?['name'] as String? ?? '';
+            final albumMid = albumObj?['mid'] as String?;
+            final songMid = item['mid'] as String?;
             final interval = (item['interval'] as num?)?.toInt() ?? 0;
             final durationMs = interval * 1000;
 
@@ -475,7 +493,13 @@ class OnlineMetadataService {
                 artistsList?.map((a) => a['name']).join('/') ?? artist;
             final albumObj = song['album'];
             final albumName = albumObj?['name'] as String? ?? '';
-            final coverUrl = albumObj?['picUrl'] as String?;
+            // The legacy search API no longer populates album.picUrl; derive
+            // the CDN address from the album picId when it is absent.
+            var coverUrl = albumObj?['picUrl'] as String?;
+            if (coverUrl == null || coverUrl.isEmpty) {
+              final picId = albumObj?['picId'] as num?;
+              coverUrl = neteaseCoverUrlFromPicId(picId?.toString());
+            }
             final durationMs = (song['duration'] as num?)?.toInt() ?? 0;
 
             final score = _calculateMatchScore(
@@ -541,18 +565,47 @@ class OnlineMetadataService {
   }
 
   /// 3. iTunes candidates
+  ///
+  /// The CN storefront intermittently answers with zero results even for
+  /// songs it hosts, so fall back to the TW storefront when CN returns a
+  /// valid-but-empty response (a timeout or HTTP error is not retried, to
+  /// keep the whole multi-source search bounded).
   Future<List<OnlineSearchResult>> _fetchITunesCandidates(
     String title,
     String artist,
     Duration? targetDuration, {
     int limit = 4,
   }) async {
+    final cnResults = await _searchITunesStore(
+      title,
+      artist,
+      targetDuration,
+      country: 'CN',
+      limit: limit,
+    );
+    if (cnResults.isNotEmpty) return cnResults;
+    return _searchITunesStore(
+      title,
+      artist,
+      targetDuration,
+      country: 'TW',
+      limit: limit,
+    );
+  }
+
+  Future<List<OnlineSearchResult>> _searchITunesStore(
+    String title,
+    String artist,
+    Duration? targetDuration, {
+    required String country,
+    required int limit,
+  }) async {
     final list = <OnlineSearchResult>[];
     try {
       final query = artist.isNotEmpty ? '$artist $title' : title;
       final uri = Uri.https('itunes.apple.com', '/search', {
         'term': query,
-        'country': 'CN',
+        'country': country,
         'lang': 'zh_cn',
         'entity': 'song',
         'limit': limit.toString(),
@@ -628,8 +681,7 @@ class OnlineMetadataService {
           final itemTitle = item['trackName'] ?? title;
           final itemArtist = item['artistName'] ?? artist;
           final itemAlbum = item['albumName'] ?? (album ?? '');
-          final durationMs =
-              ((item['duration'] as num?)?.toDouble() ?? 0 * 1000).toInt();
+          final durationMs = lrclibDurationToMs(item['duration'] as num?);
 
           final score = _calculateMatchScore(
             targetTitle: title,
@@ -659,6 +711,32 @@ class OnlineMetadataService {
     } catch (_) {}
     return list;
   }
+
+  // ==========================================
+  // Offline helpers
+  // ==========================================
+
+  /// Derive a NetEase album cover URL from its picId (the search API stopped
+  /// returning `picUrl`). Uses the well-known CDN id scrambling: XOR with a
+  /// fixed magic string, then MD5 → URL-safe base64 path segment.
+  static String? neteaseCoverUrlFromPicId(String? picId) {
+    if (picId == null || picId.isEmpty) return null;
+    const magic = '3go8&\$8*3*3h0k(2)2';
+    final xored = <int>[
+      for (var i = 0; i < picId.length; i++)
+        picId.codeUnitAt(i) ^ magic.codeUnitAt(i % magic.length),
+    ];
+    final digest = base64
+        .encode(md5.convert(xored).bytes)
+        .replaceAll('/', '_')
+        .replaceAll('+', '-');
+    return 'https://p3.music.126.net/$digest/$picId.jpg';
+  }
+
+  /// LRCLIB reports `duration` as (possibly fractional) seconds, while the
+  /// rest of the service works in milliseconds.
+  static int lrclibDurationToMs(num? seconds) =>
+      seconds == null ? 0 : (seconds * 1000).round();
 
   // ==========================================
   // Duration & Similarity Scoring Engine
