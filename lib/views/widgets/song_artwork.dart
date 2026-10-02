@@ -42,6 +42,7 @@ class SongArtwork extends StatelessWidget {
         height: size,
         cacheWidth: cacheDim,
         cacheHeight: cacheDim,
+        gaplessPlayback: true,
         errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
       );
     } else if (effectiveUri != null && effectiveUri.isNotEmpty) {
@@ -55,6 +56,7 @@ class SongArtwork extends StatelessWidget {
           height: size,
           cacheWidth: cacheDim,
           cacheHeight: cacheDim,
+          gaplessPlayback: true,
           errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
         );
       } else if (effectiveUri.startsWith('http://') || effectiveUri.startsWith('https://')) {
@@ -77,6 +79,7 @@ class SongArtwork extends StatelessWidget {
           height: size,
           cacheWidth: cacheDim,
           cacheHeight: cacheDim,
+          gaplessPlayback: true,
           errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
         );
       }

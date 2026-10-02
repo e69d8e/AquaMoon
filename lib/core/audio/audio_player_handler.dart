@@ -57,7 +57,10 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   List<Song> get playlist => _playlist;
   int get currentIndex => _currentIndex;
 
-  Stream<PlaybackProgress> get progressStream =>
+  /// Cached combined stream: building it is cheap but a fresh stream per
+  /// getter call would mean every future subscriber spawns its own
+  /// combineLatest + positionStream subscription pair.
+  late final Stream<PlaybackProgress> progressStream =
       Rx.combineLatest3<Duration, Duration, Duration?, PlaybackProgress>(
         _player.positionStream,
         _player.bufferedPositionStream,

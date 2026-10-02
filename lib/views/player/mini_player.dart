@@ -187,11 +187,15 @@ class _MiniPlayerProgressIndicator extends ConsumerWidget {
     );
     final primaryColor = Theme.of(context).colorScheme.primary;
 
-    return LinearProgressIndicator(
-      value: progressRatio,
-      minHeight: 2.5,
-      backgroundColor: Colors.transparent,
-      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+    // RepaintBoundary keeps the ~3x/second progress repaints local to this
+    // 2.5px indicator instead of dirtying the whole mini-player layer.
+    return RepaintBoundary(
+      child: LinearProgressIndicator(
+        value: progressRatio,
+        minHeight: 2.5,
+        backgroundColor: Colors.transparent,
+        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+      ),
     );
   }
 }

@@ -11,14 +11,18 @@ final statsPeriodTypeProvider = StateProvider<PeriodType>((ref) => PeriodType.da
 /// Currently selected reference date for viewing stats
 final selectedStatsDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
-/// Stream provider for live playback tick updates from the audio handler
-final statsLiveTickStreamProvider = StreamProvider<int>((ref) {
+/// Stream provider for live playback tick updates from the audio handler.
+/// autoDispose so the tick subscription (and the periodic full-stats
+/// recomputation it triggers) stops once the stats/settings page is closed.
+final statsLiveTickStreamProvider = StreamProvider.autoDispose<int>((ref) {
   final handler = ref.watch(audioHandlerProvider);
   return handler.statsTracker.liveTickStream;
 });
 
-/// Computes aggregated ListeningPeriodStats for the active period type and selected date
-final listeningPeriodStatsProvider = Provider<ListeningPeriodStats>((ref) {
+/// Computes aggregated ListeningPeriodStats for the active period type and selected date.
+/// autoDispose: aggregation walks every stored daily record, so it must only
+/// run while the stats page is actually visible.
+final listeningPeriodStatsProvider = Provider.autoDispose<ListeningPeriodStats>((ref) {
   // Trigger rebuild on live audio playback tick
   ref.watch(statsLiveTickStreamProvider);
 
@@ -30,7 +34,7 @@ final listeningPeriodStatsProvider = Provider<ListeningPeriodStats>((ref) {
 });
 
 /// Quick summary of today's listening for home / settings page
-final todayListeningSummaryProvider = Provider<DailyListeningRecord>((ref) {
+final todayListeningSummaryProvider = Provider.autoDispose<DailyListeningRecord>((ref) {
   ref.watch(statsLiveTickStreamProvider);
   final storage = ref.watch(storageServiceProvider);
   final todayStr = Formatters.formatDateKey(DateTime.now());
@@ -38,7 +42,7 @@ final todayListeningSummaryProvider = Provider<DailyListeningRecord>((ref) {
 });
 
 /// Lifetime total listening seconds
-final totalLifetimeListeningSecondsProvider = Provider<int>((ref) {
+final totalLifetimeListeningSecondsProvider = Provider.autoDispose<int>((ref) {
   ref.watch(statsLiveTickStreamProvider);
   final storage = ref.watch(storageServiceProvider);
   return storage.getTotalLifetimeListeningSeconds();

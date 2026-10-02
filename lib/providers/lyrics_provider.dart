@@ -185,7 +185,11 @@ final lyricsNotifierProvider =
       return LyricsNotifier(onlineService, ref);
     });
 
-final currentLyricIndexProvider = Provider<int>((ref) {
+/// autoDispose: only the full-player lyrics UI watches this. Keeping it
+/// non-autoDispose would pin a playbackProgressStream subscription for the
+/// whole app lifetime and re-run the binary search on every position tick
+/// (~3x/second) even when no lyrics are visible.
+final currentLyricIndexProvider = Provider.autoDispose<int>((ref) {
   final lyricsState = ref.watch(lyricsNotifierProvider);
   if (!lyricsState.isSynced || lyricsState.lines.isEmpty) {
     return -1;

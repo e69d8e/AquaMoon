@@ -942,11 +942,15 @@ class _FullPlayerProgressBar extends ConsumerWidget {
     final progress =
         ref.watch(playbackProgressStreamProvider).valueOrNull ??
         const PlaybackProgress();
+    // RepaintBoundary keeps the per-tick progress repaints from dirtying the
+    // cover / lyrics / controls above.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: CustomProgressBar(
-        progress: progress,
-        onSeek: (pos) => ref.read(audioControllerProvider).seek(pos),
+      child: RepaintBoundary(
+        child: CustomProgressBar(
+          progress: progress,
+          onSeek: (pos) => ref.read(audioControllerProvider).seek(pos),
+        ),
       ),
     );
   }
