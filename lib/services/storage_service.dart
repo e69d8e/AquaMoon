@@ -214,6 +214,17 @@ class StorageService {
     await _settingsBox.put('auto_check_updates', enabled);
   }
 
+  /// 水墨专属通知栏（自定义 RemoteViews 通知）开关，默认开启。
+  /// 关闭后仅保留系统原生媒体通知（锁屏/控制中心/蓝牙）。
+  bool getCustomNotificationEnabled() {
+    return _settingsBox.get('custom_notification_enabled', defaultValue: true)
+        as bool;
+  }
+
+  Future<void> saveCustomNotificationEnabled(bool enabled) async {
+    await _settingsBox.put('custom_notification_enabled', enabled);
+  }
+
   DateTime? getLastUpdateCheckTime() {
     final ms = _settingsBox.get('last_update_check_ms') as int?;
     if (ms == null) return null;

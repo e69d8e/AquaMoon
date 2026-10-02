@@ -25,6 +25,9 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   PlaybackMode _playbackMode = PlaybackMode.sequence;
   final List<int> _shuffleHistory = [];
   double _volume = 1.0;
+  // Loaded synchronously in the constructor, before any listener can fire
+  // _syncCustomNotification (Hive reads are synchronous).
+  bool _customNotificationEnabled = true;
 
   final BehaviorSubject<Song?> _currentSongSubject =
       BehaviorSubject<Song?>.seeded(null);
@@ -76,6 +79,8 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   SoundCraftAudioHandler(this._storageService) {
     _statsTracker = ListeningStatsTracker(_storageService);
+    _customNotificationEnabled =
+        _storageService.getCustomNotificationEnabled();
 
     // Attach the player listeners synchronously, before any async gap. The
     // audio_service notification is only shown when `playing=true` propagates
@@ -155,13 +160,13 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
         onTimeout: () {
           // Some OEM skins (e.g. HyperOS) can stall audio-session configuration;
           // never let it block handler readiness or playback start.
-          debugPrint('[SoundCraft] audio session init timed out');
+          debugPrint('[AquaMoon] audio session init timed out');
         },
       );
     } catch (e, st) {
       // An audio-session hiccup on an OEM skin (HyperOS etc.) must never
       // break playback or the media-notification bridge. Log and continue.
-      debugPrint('[SoundCraft] init warning: $e\n$st');
+      debugPrint('[AquaMoon] init warning: $e\n$st');
     }
   }
 
@@ -182,7 +187,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       // shows the system notification when it receives playing=true.
       // Uses debugPrint so it shows in logcat under the "flutter" tag.
       debugPrint(
-        '[SoundCraft] pushing playing=$playing (processingState=$processingState) -> '
+        '[AquaMoon] pushing playing=$playing (processingState=$processingState) -> '
         '${playing ? 'system notification should appear now' : 'paused'}',
       );
       _lastBroadcastPlaying = playing;
@@ -243,6 +248,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     Duration? position,
     Duration? duration,
   }) {
+    if (!_customNotificationEnabled) return;
     final isPlaying = playing ?? _player.playing;
     final song = overrideSong ?? currentSong;
     if (song != null) {
@@ -352,6 +358,22 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     await _storageService.saveVolume(_volume);
   }
 
+  bool get customNotificationEnabled => _customNotificationEnabled;
+
+  /// 水墨专属通知栏（自定义 RemoteViews 通知）开关。系统原生媒体通知不受影响
+  /// ——它是前台服务的载体，关闭会破坏后台播放。立即生效：关闭时撤下现有
+  /// 卡片；开启时若正在播放则按当前状态立刻重建。
+  Future<void> setCustomNotificationEnabled(bool enabled) async {
+    if (_customNotificationEnabled == enabled) return;
+    _customNotificationEnabled = enabled;
+    await _storageService.saveCustomNotificationEnabled(enabled);
+    if (enabled) {
+      _syncCustomNotification();
+    } else {
+      await CustomNotificationService.cancel();
+    }
+  }
+
   void setPlaybackMode(PlaybackMode mode) {
     _playbackMode = mode;
     _playbackModeSubject.add(_playbackMode);
@@ -434,7 +456,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       }
     } catch (e) {
       // Audio playback failed (e.g. file missing or unreadable format)
-      debugPrint('[SoundCraft] playback failed for "${song.title}": $e');
+      debugPrint('[AquaMoon] playback failed for "${song.title}": $e');
       _playbackErrorController.add('无法播放「${song.title}」，文件可能已移动或损坏');
       // Automatically attempt next song if available
       if (_playlist.length > 1) {

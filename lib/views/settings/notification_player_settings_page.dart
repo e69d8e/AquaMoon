@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../core/utils/app_toast.dart';
+import '../../providers/audio_provider.dart';
 
 class NotificationPlayerSettingsPage extends ConsumerStatefulWidget {
   const NotificationPlayerSettingsPage({super.key});
@@ -16,11 +17,14 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
   bool _hasNotificationPermission = false;
   bool _hasBatteryExemption = false;
   bool _isLoading = true;
+  // 水墨专属通知栏（自定义卡片）开关；系统原生媒体通知始终存在，不受此开关影响。
+  bool _customEnabled = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _customEnabled = ref.read(audioHandlerProvider).customNotificationEnabled;
     _checkPermission();
   }
 
@@ -88,39 +92,48 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
     }
   }
 
-  Future<void> _toggleNotification(bool enable) async {
+  /// 水墨专属通知栏开关。开启时若无通知权限会先申请；关闭时立即撤下
+  /// 自定义卡片，系统原生媒体通知保持不变。
+  Future<void> _setCustomEnabled(bool enable) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
 
-    if (enable) {
+    if (enable && !_hasNotificationPermission) {
       final status = await Permission.notification.request();
-      if (status.isGranted) {
-        setState(() {
-          _hasNotificationPermission = true;
-        });
+      if (!status.isGranted) {
         if (mounted) {
-          AppToast.show(
-            context,
-            '已开启通知权限，播放音乐时将自动在系统通知栏显示播放器',
-            icon: Icons.notifications_active_rounded,
-          );
-        }
-      } else {
-        setState(() {
-          _hasNotificationPermission = false;
-        });
-        if (mounted) {
+          setState(() => _hasNotificationPermission = false);
           _showPermissionDeniedDialog();
         }
+        return;
       }
+      if (mounted) setState(() => _hasNotificationPermission = true);
+    }
+
+    setState(() => _customEnabled = enable);
+    await ref.read(audioHandlerProvider).setCustomNotificationEnabled(enable);
+    if (mounted) {
+      AppToast.show(
+        context,
+        enable ? '已开启水墨专属通知栏，与系统原生媒体通知同时显示' : '已关闭水墨专属通知栏，仅保留系统原生媒体通知',
+        icon: enable ? Icons.brush_rounded : Icons.phone_android_rounded,
+      );
+    }
+  }
+
+  /// 仅申请系统通知权限（供排查指南卡片使用），不改变水墨卡片开关。
+  Future<void> _requestNotificationPermission() async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+    final status = await Permission.notification.request();
+    if (!mounted) return;
+    setState(() => _hasNotificationPermission = status.isGranted);
+    if (status.isGranted) {
+      AppToast.show(
+        context,
+        '已开启通知权限，播放音乐时将在系统通知栏显示播放器',
+        icon: Icons.notifications_active_rounded,
+      );
     } else {
-      // Guide user to system settings to disable
-      if (mounted) {
-        AppToast.show(
-          context,
-          '如需关闭通知栏播放器，请在系统设置中关闭通知权限',
-          icon: Icons.settings_rounded,
-        );
-      }
+      _showPermissionDeniedDialog();
     }
   }
 
@@ -185,7 +198,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                '开启通知栏音乐播放器',
+                                '水墨专属通知栏',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -193,22 +206,26 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                _hasNotificationPermission
-                                    ? '系统通知权限已开启，播放时自动展示'
-                                    : '通知权限未开启，点击右侧开关申请权限',
+                                !_hasNotificationPermission
+                                    ? '通知权限未开启，开启开关将先申请权限'
+                                    : _customEnabled
+                                        ? '播放时同时显示水墨专属卡片与系统原生媒体通知'
+                                        : '已关闭，仅显示系统原生媒体通知（锁屏/控制中心/蓝牙）',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: _hasNotificationPermission
-                                      ? Colors.green
-                                      : theme.colorScheme.error,
+                                  color: !_hasNotificationPermission
+                                      ? theme.colorScheme.error
+                                      : _customEnabled
+                                          ? Colors.green
+                                          : theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ],
                           ),
                         ),
                         Switch(
-                          value: _hasNotificationPermission,
-                          onChanged: _toggleNotification,
+                          value: _customEnabled,
+                          onChanged: _setCustomEnabled,
                         ),
                       ],
                     ),
@@ -238,9 +255,10 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                         context,
                         title: '水墨专属通知栏',
                         subtitle: '专为小米HyperOS / 国产深度定制ROM优化，常驻通知中心',
-                        isSelected: true,
+                        isSelected: _customEnabled,
                         icon: Icons.brush_rounded,
                         accentColor: theme.colorScheme.primary,
+                        onTap: () => _setCustomEnabled(true),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -249,9 +267,10 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                         context,
                         title: '系统原生媒体流',
                         subtitle: '遵循 Android MediaSession 标准规范，支持蓝牙与车机',
-                        isSelected: true,
+                        isSelected: !_customEnabled,
                         icon: Icons.phone_android_rounded,
                         accentColor: theme.colorScheme.tertiary,
+                        onTap: () => _setCustomEnabled(false),
                       ),
                     ),
                   ],
@@ -260,7 +279,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    '水月音现已采用【专属自定义通知栏 + 原生 MediaSession 双轨机制】。无论在小米 HyperOS、华为鸿蒙还是原生 Android，播放时均会在系统通知栏及锁屏生成专属音乐控制卡片，支持切歌、暂停/播放与一键关闭。',
+                    '系统原生媒体通知始终开启（受系统通知权限控制），负责锁屏、控制中心与蓝牙/车机媒体卡片；水墨专属卡片可在此开关。两者可同时显示，也可只保留原生通知。',
                     style: TextStyle(
                       fontSize: 12,
                       color: theme.colorScheme.onSurfaceVariant,
@@ -293,7 +312,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                   isGood: _hasNotificationPermission,
                   goodText: '已授权',
                   actionText: '去授权',
-                  onAction: () => _toggleNotification(true),
+                  onAction: _requestNotificationPermission,
                 ),
                 const SizedBox(height: 10),
 
@@ -343,54 +362,58 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
     required bool isSelected,
     required IconData icon,
     required Color accentColor,
+    VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isSelected
-            ? accentColor.withValues(alpha: 0.08)
-            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected ? accentColor : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-          width: isSelected ? 2 : 1,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? accentColor.withValues(alpha: 0.08)
+              : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? accentColor : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+            width: isSelected ? 2 : 1,
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, size: 22, color: accentColor),
                 ),
-                child: Icon(icon, size: 22, color: accentColor),
-              ),
-              if (isSelected)
-                Icon(Icons.check_circle_rounded, color: accentColor, size: 22),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: theme.colorScheme.onSurfaceVariant,
-              height: 1.3,
+                if (isSelected)
+                  Icon(Icons.check_circle_rounded, color: accentColor, size: 22),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -432,11 +455,15 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                 children: [
                   Row(
                     children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                      // 标题用 Flexible：长标题（如「忽略电池优化（无限制后台）」）
+                      // 加徽章后会把行宽挤爆，这里让标题自动换行而不是溢出。
+                      Flexible(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                       if (isGood == true) ...[
