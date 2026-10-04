@@ -2,11 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:aquamoon/models/lyrics_display_settings.dart';
 import 'package:aquamoon/models/song.dart';
 import 'package:aquamoon/providers/audio_provider.dart';
 import 'package:aquamoon/providers/lyrics_provider.dart';
+import 'package:aquamoon/providers/lyrics_settings_provider.dart';
 import 'package:aquamoon/services/online_metadata_service.dart';
+import 'package:aquamoon/services/storage_service.dart';
 import 'package:aquamoon/views/player/lyrics_view.dart';
+
+/// In-memory stand-in so the harness never touches real Hive boxes.
+class _InMemoryStorage extends StorageService {
+  @override
+  LyricsDisplaySettings getSavedLyricsDisplaySettings() =>
+      LyricsDisplaySettings.defaults;
+
+  @override
+  Future<void> saveLyricsDisplaySettings(LyricsDisplaySettings settings) async {}
+}
 
 /// Regression tests for the player page cover ↔ lyrics swipe:
 ///
@@ -75,6 +88,9 @@ void main() {
         ),
         lyricsNotifierProvider.overrideWith(
           (ref) => LyricsNotifier(OnlineMetadataService(), ref),
+        ),
+        lyricsDisplaySettingsProvider.overrideWith(
+          (ref) => LyricsDisplaySettingsNotifier(_InMemoryStorage()),
         ),
       ],
     );

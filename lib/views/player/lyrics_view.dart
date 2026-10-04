@@ -9,6 +9,7 @@ import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/lyrics_provider.dart';
+import '../../providers/lyrics_settings_provider.dart';
 import '../widgets/online_candidate_dialog.dart';
 
 class LyricsView extends ConsumerStatefulWidget {
@@ -23,7 +24,7 @@ class LyricsView extends ConsumerStatefulWidget {
 
 class _LyricsViewState extends ConsumerState<LyricsView>
     with AutomaticKeepAliveClientMixin {
-  static const _estimatedLineHeight = 56.0;
+  static const _highlightDuration = Duration(milliseconds: 350);
 
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _itemKeys = {};
@@ -109,6 +110,10 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     final isFirstPositioning = _lastActiveIndex == -1;
     _lastActiveIndex = index;
 
+    final settings = ref.read(lyricsDisplaySettingsProvider);
+    final estimatedLineHeight =
+        settings.baseFontSize * settings.lineHeight + 24;
+
     // Resolve the target offset within the lyrics list only. Do NOT use
     // Scrollable.ensureVisible here: it reveals the target in every ancestor
     // Scrollable, including the player's horizontal PageView, which yanks the
@@ -119,10 +124,12 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     if (itemRenderObject != null) {
       final viewport = RenderAbstractViewport.maybeOf(itemRenderObject);
       if (viewport != null) {
-        targetOffset = viewport.getOffsetToReveal(itemRenderObject, 0.34).offset;
+        targetOffset = viewport
+            .getOffsetToReveal(itemRenderObject, settings.scrollAlignment)
+            .offset;
       }
     }
-    targetOffset ??= index * _estimatedLineHeight;
+    targetOffset ??= index * estimatedLineHeight;
 
     final clampedOffset = targetOffset.clamp(
       0.0,
@@ -147,6 +154,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     super.build(context);
     final lyricsState = ref.watch(lyricsNotifierProvider);
     final activeIndex = ref.watch(currentLyricIndexProvider);
+    final lyricsSettings = ref.watch(lyricsDisplaySettingsProvider);
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
 
@@ -178,7 +186,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                 lyricsState.plainText!,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: lyricsSettings.baseFontSize,
                   height: 2.0,
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
                 ),
@@ -247,7 +255,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
-        final topPadding = viewportHeight * 0.34;
+        final topPadding = viewportHeight * lyricsSettings.scrollAlignment;
         final bottomPadding = viewportHeight * 0.55;
 
         return GestureDetector(
@@ -291,42 +299,29 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                     ref.read(audioControllerProvider).seek(line.time);
                   },
                   borderRadius: BorderRadius.circular(12),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
+                  child: Padding(
                     padding: const EdgeInsets.symmetric(
                       vertical: 12,
                       horizontal: 16,
                     ),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: isActive
-                          ? (isLight
-                                ? theme.colorScheme.primary.withValues(
-                                    alpha: 0.14,
-                                  )
-                                : theme.colorScheme.primary.withValues(
-                                    alpha: 0.12,
-                                  ))
-                          : Colors.transparent,
-                    ),
-                    child: Text(
-                      line.text,
-                      textAlign: TextAlign.center,
+                    child: AnimatedDefaultTextStyle(
+                      duration: _highlightDuration,
+                      curve: Curves.easeOutCubic,
                       style: TextStyle(
-                        fontSize: isActive ? 21 : 16,
+                        fontSize: isActive
+                            ? lyricsSettings.activeFontSize
+                            : lyricsSettings.baseFontSize,
                         fontWeight: isActive
                             ? FontWeight.w800
                             : FontWeight.w500,
                         color: isActive
-                            ? (isLight
-                                  ? const Color(0xFF1B1C26)
-                                  : theme.colorScheme.primary)
+                            ? theme.colorScheme.primary
                             : theme.colorScheme.onSurface.withValues(
                                 alpha: isLight ? 0.38 : 0.45,
                               ),
-                        height: 1.5,
+                        height: lyricsSettings.lineHeight,
                       ),
+                      child: Text(line.text, textAlign: TextAlign.center),
                     ),
                   ),
                 );

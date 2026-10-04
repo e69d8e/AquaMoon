@@ -6,6 +6,7 @@ import '../models/listening_stats.dart';
 import '../models/song.dart';
 import '../models/playlist.dart';
 import '../models/playback_mode.dart';
+import '../models/lyrics_display_settings.dart';
 
 class StorageService {
   static const String _songsBoxName = 'soundcraft_songs';
@@ -134,6 +135,19 @@ class StorageService {
       _ => 'light',
     };
     await _settingsBox.put('theme_mode', name);
+  }
+
+  LyricsDisplaySettings getSavedLyricsDisplaySettings() {
+    return LyricsDisplaySettings.fromMap(
+      _settingsBox.get('lyrics_display_settings'),
+    );
+  }
+
+  Future<void> saveLyricsDisplaySettings(LyricsDisplaySettings settings) {
+    return _settingsBox.put(
+      'lyrics_display_settings',
+      settings.toMap(),
+    );
   }
 
   // --- History Operations ---

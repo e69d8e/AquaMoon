@@ -12,6 +12,7 @@ import '../../providers/theme_provider.dart';
 import '../../providers/update_provider.dart';
 import '../stats/listening_stats_page.dart';
 import '../widgets/update_dialog.dart';
+import 'lyrics_display_settings_page.dart';
 import 'notification_player_settings_page.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -442,24 +443,48 @@ class SettingsPage extends ConsumerWidget {
                 color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
               ),
             ),
-            child: ListTile(
-              leading: const Icon(Icons.notifications_active_outlined),
-              title: const Text(
-                '通知栏音乐播放器设置',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              subtitle: const Text(
-                '系统通知卡片、小米 HyperOS / 鸿蒙锁屏常驻与省电保活',
-                style: TextStyle(fontSize: 12),
-              ),
-              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const NotificationPlayerSettingsPage(),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.lyrics_rounded),
+                  title: const Text(
+                    '歌词显示设置',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
-                );
-              },
+                  subtitle: const Text(
+                    '字号、行距、当前行高亮与自动滚动位置',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LyricsDisplaySettingsPage(),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.notifications_active_outlined),
+                  title: const Text(
+                    '通知栏音乐播放器设置',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    '系统通知卡片、小米 HyperOS / 鸿蒙锁屏常驻与省电保活',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationPlayerSettingsPage(),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
 
