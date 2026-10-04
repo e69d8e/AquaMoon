@@ -23,8 +23,9 @@ class LyricsView extends ConsumerStatefulWidget {
 }
 
 class _LyricsViewState extends ConsumerState<LyricsView>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   static const _highlightDuration = Duration(milliseconds: 350);
+  static const _autoScrollDuration = Duration(milliseconds: 700);
 
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _itemKeys = {};
@@ -32,10 +33,54 @@ class _LyricsViewState extends ConsumerState<LyricsView>
   int _lastActiveIndex = -1;
   Timer? _userScrollResumeTimer;
 
+  // The auto-scroll glide is driven by our own AnimationController feeding
+  // per-frame jumpTo calls. ScrollController.animateTo must NOT be used here:
+  // it runs a DrivenScrollActivity, which sets IgnorePointer over the list
+  // for its whole duration, so a lyric line tapped inside that window never
+  // reaches its InkWell and the tap falls through to the background
+  // GestureDetector — sliding the player PageView back to the cover page.
+  late final AnimationController _autoScrollController = AnimationController(
+    vsync: this,
+    duration: _autoScrollDuration,
+  );
+  late final CurvedAnimation _autoScrollCurve = CurvedAnimation(
+    parent: _autoScrollController,
+    curve: Curves.easeInOutCubic,
+  );
+  Tween<double>? _autoScrollTween;
+
   // Keeps the scroll position alive inside the player PageView, so swiping
   // back to the cover and returning does not rebuild from the top.
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoScrollCurve.addListener(_applyAutoScrollTick);
+  }
+
+  void _applyAutoScrollTick() {
+    final tween = _autoScrollTween;
+    if (tween == null || !_scrollController.hasClients) return;
+    final target = tween.transform(_autoScrollCurve.value);
+    _scrollController.jumpTo(
+      target.clamp(0.0, _scrollController.position.maxScrollExtent),
+    );
+  }
+
+  void _stopAutoScroll() {
+    _autoScrollTween = null;
+    _autoScrollController.stop();
+  }
+
+  void _glideTo(double targetOffset) {
+    if (!_scrollController.hasClients) return;
+    final from = _scrollController.offset;
+    if ((targetOffset - from).abs() < 0.5) return;
+    _autoScrollTween = Tween<double>(begin: from, end: targetOffset);
+    _autoScrollController.forward(from: 0);
+  }
 
   Future<void> _calibrateOnline() async {
     final selected = await OnlineCandidateSelectDialog.show(
@@ -84,6 +129,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
   void didUpdateWidget(covariant LyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id) {
+      _stopAutoScroll();
       _itemKeys.clear();
       _lastActiveIndex = -1;
       _userScrolling = false;
@@ -94,6 +140,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
   void dispose() {
     _userScrollResumeTimer?.cancel();
     _itemKeys.clear();
+    _autoScrollController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -139,13 +186,10 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     // Snap on first positioning (page just opened or song changed) so the
     // list never visibly "flies" from the top; glide as lines advance.
     if (isFirstPositioning) {
+      _stopAutoScroll();
       _scrollController.jumpTo(clampedOffset);
     } else {
-      _scrollController.animateTo(
-        clampedOffset,
-        duration: const Duration(milliseconds: 700),
-        curve: Curves.easeInOutCubic,
-      );
+      _glideTo(clampedOffset);
     }
   }
 
@@ -261,11 +305,15 @@ class _LyricsViewState extends ConsumerState<LyricsView>
         return GestureDetector(
           onTap: widget.onTapBackground,
           behavior: HitTestBehavior.translucent,
-          child: NotificationListener<UserScrollNotification>(
+          child: NotificationListener<ScrollNotification>(
             onNotification: (notification) {
-              if (notification.direction != ScrollDirection.idle) {
+              if (notification is UserScrollNotification &&
+                  notification.direction != ScrollDirection.idle) {
+                // User took over: kill the glide so its per-frame jumpTo
+                // cannot fight the drag, and pause auto centering.
+                _stopAutoScroll();
                 _userScrolling = true;
-              } else {
+              } else if (notification is UserScrollNotification) {
                 // Delay re-enabling auto scroll after manual swipe; a new
                 // swipe cancels the pending resume so timers don't pile up.
                 _userScrollResumeTimer?.cancel();
@@ -276,6 +324,9 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                     });
                   }
                 });
+              } else if (notification is ScrollStartNotification &&
+                  notification.dragDetails != null) {
+                _stopAutoScroll();
               }
               return false;
             },

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:aquamoon/core/audio/audio_player_handler.dart';
 import 'package:aquamoon/models/lyrics_display_settings.dart';
 import 'package:aquamoon/models/song.dart';
 import 'package:aquamoon/providers/audio_provider.dart';
@@ -21,6 +22,22 @@ class _InMemoryStorage extends StorageService {
   Future<void> saveLyricsDisplaySettings(LyricsDisplaySettings settings) async {}
 }
 
+/// Records seeks without constructing a real audio handler.
+class _FakeAudioHandler implements SoundCraftAudioHandler {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _RecordingAudioController extends AudioPlayerController {
+  final List<Duration> seeks = [];
+  _RecordingAudioController() : super(_FakeAudioHandler());
+
+  @override
+  Future<void> seek(Duration position) async {
+    seeks.add(position);
+  }
+}
+
 /// Regression tests for the player page cover ↔ lyrics swipe:
 ///
 /// 1. The lyric auto-scroll must never scroll the outer horizontal PageView
@@ -29,6 +46,11 @@ class _InMemoryStorage extends StorageService {
 /// 2. The first positioning must be instant, not a 700 ms "fly" from the top.
 /// 3. The lyrics page must stay alive (scroll position preserved) across
 ///    cover ↔ lyrics page switches.
+/// 4. Tapping a lyric line while the auto-scroll glide is running must seek,
+///    not fall through to the background GestureDetector and slide the
+///    PageView back to the cover (the old ScrollController.animateTo ran a
+///    DrivenScrollActivity, which ignores pointers over the list for its
+///    whole duration).
 void main() {
   final testSong = Song(
     id: 'song_test',
@@ -75,13 +97,19 @@ void main() {
     return position!;
   }
 
+  late _RecordingAudioController controller;
+  late int backgroundTaps;
+
   Future<ProviderContainer> pumpPlayerHarness(
     WidgetTester tester, {
     required PageController pageController,
     required StateProvider<int> activeIndexProvider,
   }) async {
+    controller = _RecordingAudioController();
+    backgroundTaps = 0;
     final container = ProviderContainer(
       overrides: [
+        audioControllerProvider.overrideWithValue(controller),
         currentSongProvider.overrideWith((ref) => Stream.value(testSong)),
         currentLyricIndexProvider.overrideWith(
           (ref) => ref.watch(activeIndexProvider),
@@ -105,13 +133,26 @@ void main() {
               controller: pageController,
               children: [
                 const Center(child: Text('封面')),
-                LyricsView(song: testSong, onTapBackground: () {}),
+                LyricsView(
+                  song: testSong,
+                  onTapBackground: () {
+                    backgroundTaps++;
+                    // Same as FullPlayerPage: background tap slides back to
+                    // the cover page.
+                    pageController.animateToPage(
+                      0,
+                      duration: const Duration(milliseconds: 350),
+                      curve: Curves.easeOutCubic,
+                    );
+                  },
+                ),
               ],
             ),
           ),
         ),
       ),
     );
+    await tester.pumpAndSettle();
     return container;
   }
 
@@ -216,6 +257,38 @@ void main() {
       greaterThan(300),
     );
     expect(find.text('歌词第9行', skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('tap on a line mid-glide seeks instead of sliding to cover', (
+    tester,
+  ) async {
+    final pageController = PageController();
+    final activeIndexProvider = StateProvider<int>((ref) => 3);
+    final container = await pumpPlayerHarness(
+      tester,
+      pageController: pageController,
+      activeIndexProvider: activeIndexProvider,
+    );
+
+    pageController.jumpToPage(1);
+    await tester.pumpAndSettle();
+    expect(pageController.page, 1.0);
+
+    // Advance the active line: the auto-scroll glide starts right after this
+    // frame and runs for 700 ms. Any tap inside that window used to be
+    // swallowed by the list's IgnorePointer and treated as a background tap.
+    container.read(activeIndexProvider.notifier).state = 20;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('歌词第4行'));
+    await tester.pumpAndSettle();
+
+    // The tap must reach the line's InkWell and seek — never the background
+    // GestureDetector that slides the PageView back to the cover.
+    expect(controller.seeks.length, 1, reason: 'line tap must seek');
+    expect(backgroundTaps, 0, reason: 'background tap must not fire');
+    expect(pageController.page, 1.0, reason: 'must stay on the lyrics page');
   });
 
   testWidgets('lyrics scroll position survives cover ↔ lyrics round trip', (
