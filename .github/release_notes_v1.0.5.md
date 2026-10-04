@@ -60,8 +60,3 @@
 | 🤖 **Android** | `AquaMoon-Android-arm64-v8a.apk` | **推荐**：适用于绝大多数现代 64 位主流 Android 手机（体积更小）。其他设备可选通用版 `AquaMoon-Android-Universal.apk`，Google Play 可用 `AquaMoon-Android.aab`。 |
 | 🌐 **Web** | `AquaMoon-Web.zip` | Web SPA 静态部署资源包，解压后可直接部署至 Nginx / GitHub Pages / Cloudflare Pages / Vercel 等托管平台。 |
 
----
-
-<div align="center">
-Made with ❤️ by AquaMoon Team
-</div>

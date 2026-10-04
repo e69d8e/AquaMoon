@@ -301,8 +301,3 @@ flutter build web --release
 
 本项目采用 [MIT License](LICENSE) 许可证开源。
 
----
-
-<div align="center">
-Made with ❤️ by AquaMoon Team
-</div>
