@@ -11,12 +11,13 @@ class SoundCraftApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    final palette = ref.watch(themePaletteProvider);
 
     return MaterialApp(
       title: '水月音',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      theme: AppTheme.lightTheme(palette.light),
+      darkTheme: AppTheme.darkTheme(palette.dark),
       themeMode: themeMode,
       home: const HomePage(),
     );

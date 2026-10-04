@@ -137,6 +137,13 @@ class StorageService {
     await _settingsBox.put('theme_mode', name);
   }
 
+  /// 配色方案 id 原始值;解析与未知 id 的回退由 themePaletteProvider 处理。
+  String? getSavedThemeId() => _settingsBox.get('theme_id') as String?;
+
+  Future<void> saveThemeId(String id) async {
+    await _settingsBox.put('theme_id', id);
+  }
+
   LyricsDisplaySettings getSavedLyricsDisplaySettings() {
     return LyricsDisplaySettings.fromMap(
       _settingsBox.get('lyrics_display_settings'),

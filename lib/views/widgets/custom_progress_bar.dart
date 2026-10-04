@@ -27,6 +27,7 @@ class _CustomProgressBarState extends State<CustomProgressBar> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
+    final colorScheme = theme.colorScheme;
 
     final durationMs = widget.progress.duration.inMilliseconds.toDouble();
     final currentMs = _dragValue ?? widget.progress.position.inMilliseconds.toDouble();
@@ -34,9 +35,9 @@ class _CustomProgressBarState extends State<CustomProgressBar> {
     final maxVal = durationMs > 0 ? durationMs : 1.0;
     final clampedVal = currentMs.clamp(0.0, maxVal);
 
-    final activeColor = isLight ? const Color(0xFF1F202B) : Colors.white;
-    final inactiveColor = isLight ? const Color(0x1F000000) : Colors.white.withValues(alpha: 0.22);
-    final labelColor = isLight ? const Color(0xFF75788A) : Colors.white.withValues(alpha: 0.65);
+    final activeColor = colorScheme.onSurface;
+    final inactiveColor = colorScheme.onSurface.withValues(alpha: isLight ? 0.12 : 0.22);
+    final labelColor = colorScheme.onSurfaceVariant;
 
     return Column(
       mainAxisSize: MainAxisSize.min,

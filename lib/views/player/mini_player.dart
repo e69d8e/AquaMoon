@@ -61,16 +61,12 @@ class MiniPlayer extends ConsumerWidget {
               : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isLight
-                ? const Color(0x0F000000)
-                : Colors.white.withValues(alpha: 0.08),
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
             width: 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: isLight
-                  ? const Color(0x14000000)
-                  : Colors.black.withValues(alpha: 0.25),
+              color: Colors.black.withValues(alpha: isLight ? 0.08 : 0.25),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),

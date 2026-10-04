@@ -14,6 +14,7 @@ import '../stats/listening_stats_page.dart';
 import '../widgets/update_dialog.dart';
 import 'lyrics_display_settings_page.dart';
 import 'notification_player_settings_page.dart';
+import 'theme_settings_page.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -47,6 +48,7 @@ class SettingsPage extends ConsumerWidget {
     final libraryState = ref.watch(libraryNotifierProvider);
     final todayStats = ref.watch(todayListeningSummaryProvider);
     final themeMode = ref.watch(themeModeProvider);
+    final palette = ref.watch(themePaletteProvider);
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -551,6 +553,35 @@ class SettingsPage extends ConsumerWidget {
                   ),
                 ],
               ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+            ),
+            child: ListTile(
+              leading: const Icon(Icons.palette_outlined),
+              title: const Text(
+                '主题配色',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                '当前:${palette.name} · ${palette.tagline}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ThemeSettingsPage()),
+                );
+              },
             ),
           ),
 

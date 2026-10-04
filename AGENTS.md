@@ -23,7 +23,7 @@ Dependency direction: `views/` → `providers/` → (`services/` + `core/`). Nev
 - `lib/models/` — immutable models with `copyWith` and **manual** `toMap`/`fromMap` serialization. No Hive codegen or `TypeAdapter`s — everything is stored as plain maps in untyped boxes.
 - `lib/services/storage_service.dart` — the only Hive access point (5 boxes: songs, playlists, history, settings, stats).
 - `lib/providers/` — Riverpod wiring. `storageServiceProvider` and `audioHandlerProvider` are override-only: they throw `UnimplementedError` unless overridden in `main.dart`'s `ProviderScope`. Follow that pattern for any new service needing pre-`runApp` init.
-- `lib/views/` — UI only. Theming lives in `lib/core/theme/app_theme.dart` (Material 3, light + dark — update both).
+- `lib/views/` — UI only. Theming lives in `lib/core/theme/`: `app_palette.dart` defines the named color palettes (default 水墨丹青 `inkwash`; each palette carries light + dark token sets), and `app_theme.dart` builds the Material 3 ThemeData from a palette. Add new colors to `PaletteColors` (both light & dark), never hardcode hex values in views — read `Theme.of(context).colorScheme` or the `AppColors` ThemeExtension instead.
 
 ## Gotchas
 

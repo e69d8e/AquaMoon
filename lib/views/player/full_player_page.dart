@@ -4,6 +4,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../models/playback_mode.dart';
 import '../../models/playback_progress.dart';
@@ -164,31 +165,18 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
 
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
+    final colorScheme = theme.colorScheme;
 
     final screenWidth = MediaQuery.of(context).size.width;
     final coverSize = min(screenWidth * 0.72, 300.0);
 
-    // Dynamic light / dark color tokens
-    final primaryTextColor = isLight ? const Color(0xFF1B1C26) : Colors.white;
-    final secondaryTextColor = isLight
-        ? const Color(0xFF6B6E7D)
-        : Colors.white.withValues(alpha: 0.75);
-    final iconColor = isLight ? const Color(0xFF1F202B) : Colors.white;
-    final composerTextColor = isLight
-        ? const Color(0xFF8B8E9D)
-        : Colors.white.withValues(alpha: 0.55);
+    // Dynamic light / dark color tokens, all driven by the active palette.
+    final primaryTextColor = colorScheme.onSurface;
+    final secondaryTextColor = colorScheme.onSurfaceVariant;
+    final iconColor = colorScheme.onSurface;
+    final composerTextColor = colorScheme.outline;
 
-    final gradientColors = isLight
-        ? const [
-            Color(0xFFEBE6F3), // Soft airy lilac
-            Color(0xFFF6F2F8), // Morning mist lavender
-            Color(0xFFFFFFFF), // Pure silky alabaster
-          ]
-        : const [
-            Color(0xFF5E4866), // Sunset mauve
-            Color(0xFF382A4D), // Twilight deep violet
-            Color(0xFF191326), // Obsidian midnight
-          ];
+    final gradientColors = theme.extension<AppColors>()!.playerGradient;
 
     return Scaffold(
       body: Container(
@@ -489,19 +477,15 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                     borderRadius: BorderRadius.circular(14),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: isLight
-                                            ? const Color(0x1F2A1E40)
-                                            : Colors.black.withValues(
-                                                alpha: 0.45,
-                                              ),
+                                        color: Colors.black.withValues(
+                                          alpha: isLight ? 0.12 : 0.45,
+                                        ),
                                         blurRadius: 28,
                                         offset: const Offset(0, 14),
                                       ),
                                       BoxShadow(
-                                        color: isLight
-                                            ? const Color(0x146B4B6E)
-                                            : const Color(0xFF6B4B6E)
-                                                  .withValues(alpha: 0.25),
+                                        color: theme.colorScheme.primary
+                                            .withValues(alpha: isLight ? 0.10 : 0.28),
                                         blurRadius: 36,
                                         spreadRadius: 2,
                                         offset: const Offset(0, 4),
@@ -596,10 +580,8 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                         _getModeIcon(playbackMode),
                         size: 24,
                         color: playbackMode == PlaybackMode.sequence
-                            ? iconColor.withValues(alpha: 0.5)
-                            : (isLight
-                                  ? theme.colorScheme.primary
-                                  : Colors.white),
+                            ? colorScheme.onSurface.withValues(alpha: 0.5)
+                            : colorScheme.primary,
                       ),
                       tooltip: playbackMode.label,
                       onPressed: () {
@@ -696,15 +678,10 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
 
   void _showQueueModal(BuildContext context) {
     final theme = Theme.of(context);
-    final isLight = theme.brightness == Brightness.light;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: isLight ? Colors.white : const Color(0xFF1E172A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       builder: (ctx) => Consumer(
         builder: (context, ref, _) {
           final queueAsync = ref.watch(playlistQueueStreamProvider);
@@ -730,9 +707,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: isLight
-                                ? const Color(0xFF1C1D24)
-                                : Colors.white,
+                            color: theme.colorScheme.onSurface,
                           ),
                         ),
                         TextButton(
@@ -776,7 +751,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                   ),
                   Divider(
                     height: 1,
-                    color: isLight ? const Color(0x1F000000) : Colors.white12,
+                    color: theme.colorScheme.outlineVariant,
                   ),
                   Expanded(
                     child: queue.isEmpty
@@ -784,9 +759,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                             child: Text(
                               '队列为空',
                               style: TextStyle(
-                                color: isLight
-                                    ? const Color(0xFF75788A)
-                                    : Colors.white54,
+                                color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
                           )
@@ -819,9 +792,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                         : FontWeight.normal,
                                     color: isCurrent
                                         ? theme.colorScheme.primary
-                                        : (isLight
-                                              ? const Color(0xFF1C1D24)
-                                              : Colors.white70),
+                                        : theme.colorScheme.onSurface,
                                   ),
                                 ),
                                 subtitle: Text(
@@ -829,18 +800,14 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: isLight
-                                        ? const Color(0xFF75788A)
-                                        : Colors.white38,
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
                                 trailing: IconButton(
                                   icon: Icon(
                                     Icons.close_rounded,
                                     size: 20,
-                                    color: isLight
-                                        ? const Color(0xFF75788A)
-                                        : Colors.white38,
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                   onPressed: () {
                                     ref
