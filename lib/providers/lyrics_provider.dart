@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/audio/audio_player_handler.dart';
 import '../core/utils/lrc_parser.dart';
 import '../models/lyric_line.dart';
 import '../models/song.dart';
@@ -101,43 +102,50 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         duration: song.duration,
       );
 
-      // Verify songId hasn't changed during the async request
-      if (state.songId != song.id) {
-        return;
-      }
-
       if (result != null) {
-        // Cache online cover art if local song lacks cover
+        String? lrcContent = result.syncedLyrics ?? result.plainLyrics;
+
+        // Cache online cover art if local song lacks cover. Skipped when the
+        // user already moved on to another song — don't pay for the download.
         String? newArtUri = song.albumArtUri;
-        if ((newArtUri == null || newArtUri.isEmpty) &&
+        if (state.songId == song.id &&
+            (newArtUri == null || newArtUri.isEmpty) &&
             result.coverUrl != null) {
           newArtUri = await _onlineService.cacheOnlineImage(result.coverUrl!);
         }
 
-        // Check again after image cache
+        // Persist whatever this fetch produced even if the user switched
+        // songs mid-request: a match already paid for with a network round
+        // trip must land in the library record, otherwise the next playback
+        // silently repeats the same online lookup.
+        final hasNewData =
+            lrcContent != null ||
+            (newArtUri != null && newArtUri != song.albumArtUri);
+        if (hasNewData) {
+          _ref
+              .read(libraryNotifierProvider.notifier)
+              .updateSong(
+                song.copyWith(lrcContent: lrcContent, albumArtUri: newArtUri),
+              );
+        }
+
+        // The UI state (and handler metadata) only follows the fetch while
+        // this song is still the one being displayed. state.songId moves on
+        // as soon as another song starts loading.
         if (state.songId != song.id) {
           return;
         }
 
-        String? lrcContent = result.syncedLyrics ?? result.plainLyrics;
-
-        // Update song in library & audio handler
-        final updatedSong = song.copyWith(
-          lrcContent: lrcContent,
-          albumArtUri: newArtUri,
-        );
-
-        _ref.read(libraryNotifierProvider.notifier).updateSong(updatedSong);
-
-        // Only update handler if this song is still the current active one
+        SoundCraftAudioHandler? handler;
+        try {
+          handler = _ref.read(audioHandlerProvider);
+        } catch (_) {}
         final currentActive = _ref.read(currentSongProvider).valueOrNull;
         if (currentActive?.id == song.id) {
-          _ref
-              .read(audioHandlerProvider)
-              .updateCurrentSongMetadata(
-                albumArtUri: newArtUri,
-                lrcContent: lrcContent,
-              );
+          handler?.updateCurrentSongMetadata(
+            albumArtUri: newArtUri,
+            lrcContent: lrcContent,
+          );
         }
 
         if (result.syncedLyrics != null) {
@@ -160,12 +168,14 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         }
       }
 
-      state = LyricsState(
-        lines: const [],
-        isLoading: false,
-        error: '暂无歌词',
-        songId: song.id,
-      );
+      if (state.songId == song.id) {
+        state = LyricsState(
+          lines: const [],
+          isLoading: false,
+          error: '暂无歌词',
+          songId: song.id,
+        );
+      }
     } catch (_) {
       if (state.songId == song.id) {
         state = LyricsState(

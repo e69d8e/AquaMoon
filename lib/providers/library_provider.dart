@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -89,55 +90,152 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
 
   LibraryNotifier(this._storageService, [this._audioHandler])
     : super(const LibraryState()) {
-    _loadSongs();
+    unawaited(_loadSongs());
   }
 
-  void _loadSongs() {
+  Future<void> _loadSongs() async {
     final songs = _storageService.getAllSongs();
-    final deduplicated = _deduplicateSongs(songs);
-    if (deduplicated.length < songs.length) {
-      _storageService.overwriteAllSongs(deduplicated);
-    }
+    final (deduplicated, mergedChanged, droppedIds) = _deduplicateSongs(songs);
+    // Publish the deduplicated library synchronously so the very first read
+    // of this provider already sees the final list.
     state = state.copyWith(songs: deduplicated);
     _fixMissingDurations(deduplicated);
+    // Persist dedup outcomes as targeted writes — merged copies are saved
+    // and duplicates removed by id. The previous whole-box rewrite ran
+    // unawaited next to concurrent saveSong calls and could resurrect stale
+    // records (wiping freshly matched lyrics with them).
+    if (mergedChanged.isNotEmpty) {
+      await _storageService.saveSongs(mergedChanged);
+    }
+    if (droppedIds.isNotEmpty) {
+      await _storageService.deleteSongs(droppedIds);
+    }
   }
 
-  List<Song> _deduplicateSongs(List<Song> songs) {
+  /// Deduplicates [songs] by file path and title+artist metadata.
+  ///
+  /// Returns the deduplicated list, the kept records whose data was enriched
+  /// by a dropped duplicate (they must be re-saved), and the ids of the
+  /// dropped duplicates (they must be deleted from storage).
+  (List<Song>, List<Song>, List<String>) _deduplicateSongs(List<Song> songs) {
     final unique = <Song>[];
-    final seenPaths = <String>{};
-    final metaKeyMap = <String, Song>{};
+    final mergedChanged = <Song>[];
+    final indexById = <String, int>{};
+    final keptIdByPath = <String, String>{};
+    final keptIdByMetaKey = <String, String>{};
 
     for (final song in songs) {
       final path = song.filePath;
-      if (seenPaths.contains(path)) {
-        continue;
-      }
-
       final titleNorm = song.title.trim().toLowerCase();
       final artistNorm = song.artist.trim().toLowerCase();
       final metaKey = '$titleNorm|$artistNorm';
 
-      if (titleNorm.isNotEmpty &&
+      String? keptId;
+      final pathDupId = keptIdByPath[path];
+      if (pathDupId != null) {
+        keptId = pathDupId;
+      } else if (titleNorm.isNotEmpty &&
           titleNorm != '未知曲目' &&
           titleNorm != '本地歌曲' &&
           artistNorm != '未知歌手') {
-        final existing = metaKeyMap[metaKey];
-        if (existing != null && existing.id != song.id) {
+        final metaDupId = keptIdByMetaKey[metaKey];
+        if (metaDupId != null) {
+          final existing = unique[indexById[metaDupId]!];
           if (existing.durationMs == 0 ||
               song.durationMs == 0 ||
               (existing.durationMs - song.durationMs).abs() < 3000) {
-            continue;
+            keptId = metaDupId;
           }
         }
       }
 
-      seenPaths.add(path);
-      if (artistNorm != '未知歌手') {
-        metaKeyMap[metaKey] = song;
+      if (keptId != null) {
+        final keepIndex = indexById[keptId]!;
+        final keptSongId = unique[keepIndex].id;
+        final merged = _mergeDuplicateData(unique[keepIndex], song);
+        unique[keepIndex] = merged;
+        mergedChanged.add(merged);
+        // The merge may have upgraded placeholder title/artist on the kept
+        // record — re-index its metadata key so later songs match it.
+        keptIdByMetaKey.removeWhere((key, id) => id == keptSongId);
+        final mergedArtist = merged.artist.trim();
+        if (mergedArtist.isNotEmpty && mergedArtist != '未知歌手') {
+          final mergedMetaKey =
+              '${merged.title.trim().toLowerCase()}|'
+              '${mergedArtist.toLowerCase()}';
+          keptIdByMetaKey.putIfAbsent(mergedMetaKey, () => keptSongId);
+        }
+        continue;
       }
+
+      keptIdByPath[path] = song.id;
+      if (artistNorm != '未知歌手') {
+        keptIdByMetaKey[metaKey] = song.id;
+      }
+      indexById[song.id] = unique.length;
       unique.add(song);
     }
-    return unique;
+
+    final keptIds = {for (final s in unique) s.id};
+    final droppedIds = [
+      for (final s in songs) if (!keptIds.contains(s.id)) s.id,
+    ];
+    return (unique, mergedChanged, droppedIds);
+  }
+
+  static bool _isBlankTitle(String title) {
+    final t = title.trim();
+    return t.isEmpty || t == '未知曲目' || t == '本地歌曲';
+  }
+
+  static bool _isBlankArtist(String artist) {
+    final a = artist.trim();
+    return a.isEmpty || a == '未知歌手';
+  }
+
+  static bool _isBlankAlbum(String album) {
+    final a = album.trim();
+    return a.isEmpty || a == '未知专辑';
+  }
+
+  static bool _isSyncedLrc(String? lrc) =>
+      lrc != null && lrc.contains(RegExp(r'\[\d{1,2}:\d{2}(\.\d+)?\]'));
+
+  /// Fills [keep] with data that only exists on [drop] before the duplicate
+  /// record is discarded. Without this, startup deduplication used to wipe
+  /// matched lyrics / cached covers that lived only on the dropped copy —
+  /// the "matched lyrics are gone after relaunch" bug.
+  Song _mergeDuplicateData(Song keep, Song drop) {
+    final keepLrcSynced = _isSyncedLrc(keep.lrcContent);
+    final dropLrcSynced = _isSyncedLrc(drop.lrcContent);
+    // Prefer synced lyrics over plain text when the two copies disagree.
+    final String? lrcContent =
+        keep.lrcContent == null
+            ? drop.lrcContent
+            : drop.lrcContent != null && !keepLrcSynced && dropLrcSynced
+            ? drop.lrcContent
+            : keep.lrcContent;
+
+    return keep.copyWith(
+      title: _isBlankTitle(keep.title) && !_isBlankTitle(drop.title)
+          ? drop.title
+          : keep.title,
+      artist: _isBlankArtist(keep.artist) && !_isBlankArtist(drop.artist)
+          ? drop.artist
+          : keep.artist,
+      album: _isBlankAlbum(keep.album) && !_isBlankAlbum(drop.album)
+          ? drop.album
+          : keep.album,
+      durationMs: keep.durationMs > 0 ? keep.durationMs : drop.durationMs,
+      lrcContent: lrcContent,
+      albumArtUri: keep.albumArtUri ?? drop.albumArtUri,
+      albumArtBytes: keep.albumArtBytes ?? drop.albumArtBytes,
+      playCount:
+          keep.playCount >= drop.playCount ? keep.playCount : drop.playCount,
+      isFavorite: keep.isFavorite || drop.isFavorite,
+      trackNumber: keep.trackNumber ?? drop.trackNumber,
+      year: keep.year ?? drop.year,
+    );
   }
 
   void _fixMissingDurations(List<Song> songs) {
@@ -420,7 +518,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
 
     if (newSongs.isNotEmpty) {
       await _storageService.saveSongs(newSongs);
-      _loadSongs();
+      await _loadSongs();
     }
 
     return newSongs.length;
@@ -483,7 +581,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       }
     }
 
-    _loadSongs();
+    await _loadSongs();
     state = state.copyWith(
       isScanning: false,
       scanProgressText: null,

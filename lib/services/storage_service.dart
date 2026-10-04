@@ -69,14 +69,6 @@ class StorageService {
     await _songsBox.putAll(entries);
   }
 
-  Future<void> overwriteAllSongs(List<Song> songs) async {
-    await _songsBox.clear();
-    final Map<String, dynamic> entries = {
-      for (final song in songs) song.id: song.toMap(),
-    };
-    await _songsBox.putAll(entries);
-  }
-
   Future<void> deleteSong(String songId) async {
     await _songsBox.delete(songId);
     // Remove from history as well
@@ -85,6 +77,13 @@ class StorageService {
       history.remove(songId);
       await _historyBox.put('recent_song_ids', history);
     }
+  }
+
+  /// Bulk-removes songs by id (history cleanup is handled separately by
+  /// [deleteSong]; dedup deletion doesn't touch play history).
+  Future<void> deleteSongs(List<String> songIds) async {
+    if (songIds.isEmpty) return;
+    await _songsBox.deleteAll(songIds);
   }
 
   Future<Song?> toggleFavorite(String songId) async {

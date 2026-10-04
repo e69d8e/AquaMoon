@@ -294,4 +294,215 @@ void main() {
       expect(identical(initialFiltered, thirdFiltered), isTrue);
     });
   });
+
+  group('Duplicate record merging on startup dedup', () {
+    late Directory tempDir;
+    late StorageService storageService;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('hive_dedup_test_');
+      storageService = StorageService();
+      await storageService.init(tempDir.path);
+    });
+
+    tearDown(() async {
+      await Hive.close();
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    ProviderContainer buildContainer() {
+      final container = ProviderContainer(
+        overrides: [storageServiceProvider.overrideWithValue(storageService)],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    /// Dedup writes are scheduled fire-and-forget from the notifier
+    /// constructor; poll until they land so assertions are deterministic and
+    /// nothing outlives Hive.close().
+    Future<void> waitUntilStorageSettled(bool Function() condition) async {
+      for (var i = 0; i < 100; i++) {
+        if (condition()) return;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      fail('storage did not settle in time');
+    }
+
+    test('matched lyrics on the dropped duplicate survive dedup', () async {
+      // Hive box iteration is key-ordered, so ids encode which record comes
+      // first: the copy WITHOUT lyrics is the one dedup keeps.
+      await storageService.saveSongs([
+        Song(
+          id: 'a-no-lyrics',
+          title: '同一首歌',
+          artist: '同一位歌手',
+          album: '专辑',
+          durationMs: 200000,
+          filePath: '/music/dup1.mp3',
+          dateAdded: DateTime(2026, 1, 1),
+          playCount: 3,
+        ),
+        Song(
+          id: 'b-with-lyrics',
+          title: '同一首歌',
+          artist: '同一位歌手',
+          album: '专辑',
+          durationMs: 200500,
+          filePath: '/music/dup2.mp3',
+          dateAdded: DateTime(2026, 2, 1),
+          lrcContent: '[00:01.00]匹配到的歌词',
+          albumArtUri: 'https://cover.example/art.jpg',
+          playCount: 7,
+          isFavorite: true,
+        ),
+      ]);
+
+      final state = buildContainer().read(libraryNotifierProvider);
+
+      expect(state.songs.length, 1);
+      final merged = state.songs.single;
+      expect(merged.id, 'a-no-lyrics');
+      expect(merged.lrcContent, '[00:01.00]匹配到的歌词');
+      expect(merged.albumArtUri, 'https://cover.example/art.jpg');
+      expect(merged.playCount, 7);
+      expect(merged.isFavorite, isTrue);
+
+      // The drop is persisted, and the kept record carries the merged data.
+      await waitUntilStorageSettled(
+        () => storageService.getSong('b-with-lyrics') == null,
+      );
+      expect(
+        storageService.getSong('a-no-lyrics')!.lrcContent,
+        '[00:01.00]匹配到的歌词',
+      );
+    });
+
+    test('synced lyrics are preferred over plain text when merging', () async {
+      await storageService.saveSongs([
+        Song(
+          id: 'a-plain',
+          title: '纯文本',
+          artist: '歌手',
+          album: '专辑',
+          durationMs: 180000,
+          filePath: '/music/p1.mp3',
+          dateAdded: DateTime(2026, 1, 1),
+          lrcContent: '只是一段没有时间轴的纯文本歌词',
+        ),
+        Song(
+          id: 'b-synced',
+          title: '纯文本',
+          artist: '歌手',
+          album: '专辑',
+          durationMs: 180000,
+          filePath: '/music/p2.mp3',
+          dateAdded: DateTime(2026, 1, 2),
+          lrcContent: '[00:01.00]带时间轴的歌词',
+        ),
+      ]);
+
+      final state = buildContainer().read(libraryNotifierProvider);
+      expect(state.songs.single.lrcContent, '[00:01.00]带时间轴的歌词');
+      await waitUntilStorageSettled(
+        () => storageService.getSong('b-synced') == null,
+      );
+    });
+
+    test('kept record keeps its synced lyrics when the duplicate has none better', () async {
+      await storageService.saveSongs([
+        Song(
+          id: 'a-synced',
+          title: '保留',
+          artist: '歌手',
+          album: '专辑',
+          durationMs: 180000,
+          filePath: '/music/s1.mp3',
+          dateAdded: DateTime(2026, 1, 1),
+          lrcContent: '[00:01.00]保留的同步歌词',
+        ),
+        Song(
+          id: 'b-plain',
+          title: '保留',
+          artist: '歌手',
+          album: '专辑',
+          durationMs: 180000,
+          filePath: '/music/s2.mp3',
+          dateAdded: DateTime(2026, 1, 2),
+          lrcContent: '纯文本歌词',
+        ),
+      ]);
+
+      final state = buildContainer().read(libraryNotifierProvider);
+      expect(state.songs.single.lrcContent, '[00:01.00]保留的同步歌词');
+      await waitUntilStorageSettled(
+        () => storageService.getSong('b-plain') == null,
+      );
+    });
+
+    test('path duplicate upgrades placeholder identity fields', () async {
+      await storageService.saveSongs([
+        Song(
+          id: 'a-untagged',
+          title: '未知曲目',
+          artist: '未知歌手',
+          album: '未知专辑',
+          durationMs: 180000,
+          filePath: '/music/same.mp3',
+          dateAdded: DateTime(2026, 1, 1),
+        ),
+        Song(
+          id: 'b-tagged',
+          title: '真实歌名',
+          artist: '真实歌手',
+          album: '真实专辑',
+          durationMs: 180000,
+          filePath: '/music/same.mp3',
+          dateAdded: DateTime(2026, 1, 2),
+          lrcContent: '[00:01.00]歌词',
+        ),
+      ]);
+
+      final state = buildContainer().read(libraryNotifierProvider);
+      expect(state.songs.length, 1);
+      final merged = state.songs.single;
+      expect(merged.id, 'a-untagged');
+      expect(merged.title, '真实歌名');
+      expect(merged.artist, '真实歌手');
+      expect(merged.album, '真实专辑');
+      expect(merged.lrcContent, '[00:01.00]歌词');
+      await waitUntilStorageSettled(
+        () => storageService.getSong('b-tagged') == null,
+      );
+    });
+
+    test('distinct songs with same metadata but far durations are both kept',
+        () async {
+      await storageService.saveSongs([
+        Song(
+          id: 'live',
+          title: '同一首歌',
+          artist: '同一位歌手',
+          album: '专辑',
+          durationMs: 300000,
+          filePath: '/music/live.mp3',
+          dateAdded: DateTime(2026, 1, 1),
+        ),
+        Song(
+          id: 'studio',
+          title: '同一首歌',
+          artist: '同一位歌手',
+          album: '专辑',
+          durationMs: 200000,
+          filePath: '/music/studio.mp3',
+          dateAdded: DateTime(2026, 1, 2),
+        ),
+      ]);
+
+      final state = buildContainer().read(libraryNotifierProvider);
+      expect(state.songs.length, 2);
+    });
+  });
 }
