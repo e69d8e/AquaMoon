@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用内更新：允许 FileProvider 向系统安装器分享缓存目录中的 APK -->
+<paths>
+    <cache-path
+        name="apk_cache"
+        path="." />
+    <files-path
+        name="app_files"
+        path="." />
+</paths>

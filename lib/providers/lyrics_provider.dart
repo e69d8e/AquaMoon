@@ -65,8 +65,22 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
     });
   }
 
-  Future<void> loadLyricsForSong(Song song, {bool forceOnline = false}) async {
-    state = state.copyWith(isLoading: true, songId: song.id, error: null);
+  /// Loads lyrics for [song]; when [forceOnline] is set, always fetches from
+  /// the network and replaces cached lyrics.
+  ///
+  /// Returns an error message on failure, `null` on success — so callers
+  /// triggering a manual match for a non-playing song can toast the outcome
+  /// without reading (stale) shared state afterwards.
+  Future<String?> loadLyricsForSong(Song song, {bool forceOnline = false}) async {
+    // 只有正在播放（或尚未播放任何歌）时才接管共享的歌词状态；对曲库中
+    // 其他歌手动“匹配歌词”不应把全屏播放器的歌词页换成那首歌的内容。
+    final currentActive = _ref.read(currentSongProvider).valueOrNull;
+    final isDisplayTarget = currentActive == null || currentActive.id == song.id;
+    if (isDisplayTarget) {
+      // copyWith 的 error: null 是 no-op，无法清掉上一首的错误/纯文本残留，
+      // 这里直接用全新状态。
+      state = LyricsState(isLoading: true, songId: song.id);
+    }
 
     // 1. If song already has cached LRC content and not forcing online refresh
     if (!forceOnline &&
@@ -74,22 +88,26 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         song.lrcContent!.trim().isNotEmpty) {
       final parsed = LrcParser.parse(song.lrcContent);
       if (parsed.isNotEmpty) {
-        state = LyricsState(
-          lines: parsed,
-          isLoading: false,
-          isSynced: true,
-          songId: song.id,
-        );
-        return;
+        if (isDisplayTarget) {
+          state = LyricsState(
+            lines: parsed,
+            isLoading: false,
+            isSynced: true,
+            songId: song.id,
+          );
+        }
+        return null;
       } else {
         // May be plain lyrics
-        state = LyricsState(
-          plainText: song.lrcContent,
-          isLoading: false,
-          isSynced: false,
-          songId: song.id,
-        );
-        return;
+        if (isDisplayTarget) {
+          state = LyricsState(
+            plainText: song.lrcContent,
+            isLoading: false,
+            isSynced: false,
+            songId: song.id,
+          );
+        }
+        return null;
       }
     }
 
@@ -117,31 +135,41 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         // Persist whatever this fetch produced even if the user switched
         // songs mid-request: a match already paid for with a network round
         // trip must land in the library record, otherwise the next playback
-        // silently repeats the same online lookup.
+        // silently repeats the same online lookup. Merged onto the freshest
+        // stored copy so the stale [song] snapshot can't revert playCount /
+        // isFavorite / lyrics saved meanwhile.
         final hasNewData =
             lrcContent != null ||
             (newArtUri != null && newArtUri != song.albumArtUri);
         if (hasNewData) {
-          _ref
+          await _ref
               .read(libraryNotifierProvider.notifier)
-              .updateSong(
-                song.copyWith(lrcContent: lrcContent, albumArtUri: newArtUri),
+              .updateSongMerged(
+                song.id,
+                (current) => current.copyWith(
+                  // 手动重新匹配用检索结果替换；自动补齐只填空缺，
+                  // 不覆盖刚保存过的歌词。
+                  lrcContent: forceOnline
+                      ? lrcContent
+                      : (current.lrcContent ?? lrcContent),
+                  albumArtUri: current.albumArtUri ?? newArtUri,
+                ),
               );
         }
 
         // The UI state (and handler metadata) only follows the fetch while
         // this song is still the one being displayed. state.songId moves on
         // as soon as another song starts loading.
-        if (state.songId != song.id) {
-          return;
+        if (!isDisplayTarget || state.songId != song.id) {
+          return null;
         }
 
         SoundCraftAudioHandler? handler;
         try {
           handler = _ref.read(audioHandlerProvider);
         } catch (_) {}
-        final currentActive = _ref.read(currentSongProvider).valueOrNull;
-        if (currentActive?.id == song.id) {
+        final currentActiveNow = _ref.read(currentSongProvider).valueOrNull;
+        if (currentActiveNow?.id == song.id) {
           handler?.updateCurrentSongMetadata(
             albumArtUri: newArtUri,
             lrcContent: lrcContent,
@@ -156,7 +184,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
             isSynced: true,
             songId: song.id,
           );
-          return;
+          return null;
         } else if (result.plainLyrics != null) {
           state = LyricsState(
             plainText: result.plainLyrics,
@@ -164,11 +192,11 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
             isSynced: false,
             songId: song.id,
           );
-          return;
+          return null;
         }
       }
 
-      if (state.songId == song.id) {
+      if (isDisplayTarget && state.songId == song.id) {
         state = LyricsState(
           lines: const [],
           isLoading: false,
@@ -176,8 +204,9 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
           songId: song.id,
         );
       }
+      return '暂无歌词';
     } catch (_) {
-      if (state.songId == song.id) {
+      if (isDisplayTarget && state.songId == song.id) {
         state = LyricsState(
           lines: const [],
           isLoading: false,
@@ -185,6 +214,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
           songId: song.id,
         );
       }
+      return '网络异常，获取歌词失败';
     }
   }
 }
@@ -209,4 +239,17 @@ final currentLyricIndexProvider = Provider.autoDispose<int>((ref) {
   final position = progressAsync.valueOrNull?.position ?? Duration.zero;
 
   return LrcParser.findCurrentIndex(lyricsState.lines, position);
+});
+
+/// 当前行内已被"点亮"的文字比例（0.0–1.0），仅增强型逐字歌词返回非 null。
+/// autoDispose 与 currentLyricIndexProvider 同生命周期。
+final currentLyricLitFractionProvider = Provider.autoDispose<double?>((ref) {
+  final lyricsState = ref.watch(lyricsNotifierProvider);
+  final index = ref.watch(currentLyricIndexProvider);
+  if (index < 0 || index >= lyricsState.lines.length) return null;
+
+  final progressAsync = ref.watch(playbackProgressStreamProvider);
+  final position = progressAsync.valueOrNull?.position ?? Duration.zero;
+
+  return LrcParser.litFraction(lyricsState.lines[index], position);
 });

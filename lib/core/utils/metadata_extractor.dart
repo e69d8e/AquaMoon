@@ -16,6 +16,10 @@ class AudioMetadataResult {
   final Uint8List? albumArtBytes;
   final int? year;
 
+  /// Embedded lyrics (USLT / ©lyr / LYRICS tag) when the file carries them —
+  /// synced LRC content or plain text, verbatim from the tag.
+  final String? lyrics;
+
   const AudioMetadataResult({
     required this.title,
     required this.artist,
@@ -24,6 +28,7 @@ class AudioMetadataResult {
     this.albumArtUri,
     this.albumArtBytes,
     this.year,
+    this.lyrics,
   });
 }
 
@@ -116,7 +121,28 @@ class MetadataExtractor {
           _isWatermark(result.title)) {
         final id3v1 = await _parseId3v1(file, filePath);
         if (id3v1 != null) {
-          result = id3v1;
+          if (result == null) {
+            result = id3v1;
+          } else {
+            // ID3v1 只有标题/歌手/专辑/年份——按字段合并，别让整对象替换
+            // 丢掉 ID3v2 已解析出的内嵌封面、歌词和时长。
+            result = AudioMetadataResult(
+              title: (result.title == '未知曲目' || _isWatermark(result.title))
+                  ? id3v1.title
+                  : result.title,
+              artist: (result.artist.isEmpty || _isWatermark(result.artist))
+                  ? id3v1.artist
+                  : result.artist,
+              album: (result.album.isEmpty || _isWatermark(result.album))
+                  ? id3v1.album
+                  : result.album,
+              durationMs: result.durationMs,
+              albumArtUri: result.albumArtUri,
+              albumArtBytes: result.albumArtBytes,
+              year: result.year ?? id3v1.year,
+              lyrics: result.lyrics,
+            );
+          }
         }
       }
 
@@ -133,6 +159,7 @@ class MetadataExtractor {
               albumArtUri: folderCoverUri,
               albumArtBytes: result.albumArtBytes,
               year: result.year,
+              lyrics: result.lyrics,
             );
           } else {
             final fb = _fallbackFromFilename(filePath);
@@ -163,6 +190,7 @@ class MetadataExtractor {
               albumArtUri: result.albumArtUri,
               albumArtBytes: result.albumArtBytes,
               year: result.year,
+              lyrics: result.lyrics,
             );
           }
         }
@@ -213,6 +241,7 @@ class MetadataExtractor {
       int durationMs = 0;
       Uint8List? artBytes;
       int? year;
+      String? lyrics;
 
       while (!isLast && offset + 4 <= data.length) {
         final headerByte = data[offset];
@@ -246,6 +275,7 @@ class MetadataExtractor {
             if (yearStr != null && yearStr.length >= 4) {
               year ??= int.tryParse(yearStr.substring(0, 4));
             }
+            lyrics ??= _vorbisLyrics(comments);
             if (comments.containsKey('METADATA_BLOCK_PICTURE')) {
               try {
                 final picBase64 = comments['METADATA_BLOCK_PICTURE']!;
@@ -274,6 +304,7 @@ class MetadataExtractor {
             if (yearStr != null && yearStr.length >= 4) {
               year ??= int.tryParse(yearStr.substring(0, 4));
             }
+            lyrics ??= _vorbisLyrics(comments);
             if (comments.containsKey('METADATA_BLOCK_PICTURE')) {
               try {
                 final picBase64 = comments['METADATA_BLOCK_PICTURE']!;
@@ -306,6 +337,7 @@ class MetadataExtractor {
         albumArtUri: artUri,
         albumArtBytes: artBytes,
         year: year,
+        lyrics: lyrics,
       );
     } catch (_) {
       return null;
@@ -429,6 +461,7 @@ class MetadataExtractor {
       Uint8List? artBytes;
       int? year;
       int durationMs = 0;
+      String? lyrics;
 
       int i = 0;
       while (i + 8 < data.length) {
@@ -460,7 +493,9 @@ class MetadataExtractor {
             if (timescale > 0) {
               durationMs = ((duration * 1000) / timescale).toInt();
             }
-          } else if (version == 1 && i + 36 <= data.length) {
+          } else if (version == 1 && i + 40 <= data.length) {
+            // 64 位时长字段落在 data[i+32..i+39]，边界必须覆盖到 i+40，
+            // 否则 mvhd 收尾贴近 2MB 窗口时 RangeError 会丢掉整个 M4A 解析。
             final timescale =
                 (data[i + 28] << 24) |
                 (data[i + 29] << 16) |
@@ -525,6 +560,12 @@ class MetadataExtractor {
           if (yearStr != null && yearStr.length >= 4) {
             year = int.tryParse(yearStr.substring(0, 4));
           }
+        } else if (boxType == '©lyr' ||
+            (data[i + 4] == 0xA9 &&
+                data[i + 5] == 0x6C &&
+                data[i + 6] == 0x79 &&
+                data[i + 7] == 0x72)) {
+          lyrics = _extractM4aString(data.sublist(i, i + boxSize));
         } else if (boxType == 'covr') {
           artBytes = _extractM4aCover(data.sublist(i, i + boxSize));
         }
@@ -552,6 +593,7 @@ class MetadataExtractor {
         albumArtUri: artUri,
         albumArtBytes: artBytes,
         year: year,
+        lyrics: lyrics,
       );
     } catch (_) {
       return null;
@@ -607,10 +649,11 @@ class MetadataExtractor {
     String tempDirPath,
   ) async {
     try {
-      final comments = _parseVorbisComments(data);
+      final comments = _parseOggVorbisComments(data);
       final title = comments['TITLE'] ?? comments['title'];
       final artist = comments['ARTIST'] ?? comments['artist'];
       final album = comments['ALBUM'] ?? comments['album'];
+      final lyrics = _vorbisLyrics(comments);
 
       Uint8List? artBytes;
       if (comments.containsKey('METADATA_BLOCK_PICTURE')) {
@@ -633,10 +676,53 @@ class MetadataExtractor {
         album: album ?? fallback.album,
         albumArtUri: artUri,
         albumArtBytes: artBytes,
+        lyrics: lyrics,
       );
     } catch (_) {
       return null;
     }
+  }
+
+  /// OGG/Opus 的注释头包在 OggS 页结构里：Vorbis 以 `\x03vorbis` 开头，
+  /// Opus 以 `OpusTags` 开头。直接把整段页流喂给裸 Vorbis 注释解析器会把
+  /// "OggS" 魔数当成 vendor 长度（~1.4GB），导致 OGG/Opus 元数据永远解析
+  /// 失败。这里先定位注释头包，再从包体解析。
+  static Map<String, String> _parseOggVorbisComments(Uint8List data) {
+    final vorbisMarker = <int>[0x03, ...'vorbis'.codeUnits];
+    final opusMarker = 'OpusTags'.codeUnits;
+    var start = _indexOfBytes(data, vorbisMarker);
+    var markerLen = vorbisMarker.length;
+    final opusStart = _indexOfBytes(data, opusMarker);
+    if (start == null || (opusStart != null && opusStart < start)) {
+      start = opusStart;
+      markerLen = opusMarker.length;
+    }
+    if (start == null) return const {};
+    return _parseVorbisComments(
+      Uint8List.fromList(data.sublist(start + markerLen)),
+    );
+  }
+
+  static int? _indexOfBytes(Uint8List data, List<int> pattern) {
+    if (pattern.isEmpty || data.length < pattern.length) return null;
+    outer:
+    for (var i = 0; i <= data.length - pattern.length; i++) {
+      for (var j = 0; j < pattern.length; j++) {
+        if (data[i + j] != pattern[j]) continue outer;
+      }
+      return i;
+    }
+    return null;
+  }
+
+  /// Standard Vorbis-comment lyric fields (FLAC / OGG / Opus).
+  static String? _vorbisLyrics(Map<String, String> comments) {
+    final value =
+        comments['LYRICS'] ??
+        comments['UNSYNCEDLYRICS'] ??
+        comments['UNSYNCED LYRICS'];
+    if (value == null || value.trim().isEmpty) return null;
+    return value;
   }
 
   // ==========================================
@@ -663,6 +749,7 @@ class MetadataExtractor {
     int durationMs = 0;
     Uint8List? artBytes;
     int? year;
+    String? lyrics;
 
     int offset = 0;
     while (offset + 10 < data.length) {
@@ -716,13 +803,25 @@ class MetadataExtractor {
         if (yearStr.length >= 4) {
           year = int.tryParse(yearStr.substring(0, 4));
         }
+      } else if (frameId == 'USLT' || frameId == 'ULT') {
+        lyrics ??= _decodeUnsyncedLyricsFrame(frameData);
       } else if (frameId == 'APIC' || frameId == 'PIC') {
         artBytes = _extractApicArtwork(frameData, isV22: version == 2);
       }
     }
 
     if (durationMs <= 0) {
-      durationMs = await _calculateMp3Duration(file, 10 + tagSize);
+      // MP3 帧扫描只对真正的 MP3 有意义：对带 ID3 头的 WAV/FLAC 会在
+      // PCM/其他数据里误认 MPEG 同步字得出垃圾时长，顶掉按容器算出的
+      // 正确结果（dispatcher 只在 durationMs<=0 时才走容器算法）。
+      final ext = p.extension(filePath).toLowerCase();
+      if (ext == '.mp3' || ext.isEmpty) {
+        durationMs = await _calculateMp3Duration(file, 10 + tagSize);
+      } else if (ext == '.wav') {
+        durationMs = await _calculateWavDurationAfter(file, 10 + tagSize);
+      } else if (ext == '.flac') {
+        durationMs = await _calculateFlacDurationAfter(file, 10 + tagSize);
+      }
     }
 
     String? artUri;
@@ -745,7 +844,24 @@ class MetadataExtractor {
       albumArtUri: artUri,
       albumArtBytes: artBytes,
       year: year,
+      lyrics: lyrics,
     );
+  }
+
+  /// Decodes an ID3v2 USLT (unsynchronized lyrics) frame:
+  /// [encoding:1][language:3][content descriptor:\0][lyrics text].
+  static String? _decodeUnsyncedLyricsFrame(Uint8List frameData) {
+    if (frameData.length < 5) return null;
+    final encoding = frameData[0];
+    try {
+      final textStart = _skipNullTerminatedString(frameData, 4, encoding);
+      if (textStart >= frameData.length) return null;
+      final text = _decodeString(frameData.sublist(textStart), encoding);
+      final cleaned = text.replaceAll('\u0000', '').trim();
+      return cleaned.isEmpty ? null : cleaned;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<int> _calculateMp3Duration(File file, int tagSize) async {
@@ -877,7 +993,11 @@ class MetadataExtractor {
     return 0;
   }
 
-  static Future<int> _calculateWavDuration(File file, Uint8List header) async {
+  static Future<int> _calculateWavDuration(
+    File file,
+    Uint8List header, {
+    int dataStart = 44,
+  }) async {
     try {
       if (header.length < 44) return 0;
       if (String.fromCharCodes(header.sublist(0, 4)) != 'RIFF' ||
@@ -890,8 +1010,62 @@ class MetadataExtractor {
           (header[30] << 16) |
           (header[31] << 24);
       final fileSize = await file.length();
-      if (byteRate > 0 && fileSize > 44) {
-        return (((fileSize - 44) * 1000) ~/ byteRate);
+      if (byteRate > 0 && fileSize > dataStart) {
+        return (((fileSize - dataStart) * 1000) ~/ byteRate);
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  /// WAV 带 ID3v2 前导时，RIFF 头在标签之后——从标签尾读头部再算时长。
+  static Future<int> _calculateWavDurationAfter(File file, int start) async {
+    try {
+      final headerBytes = await file
+          .openRead(start, start + 64)
+          .fold<List<int>>([], (p, e) => p..addAll(e));
+      return await _calculateWavDuration(
+        file,
+        Uint8List.fromList(headerBytes),
+        dataStart: start + 44,
+      );
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// FLAC 带 ID3v2 前导时，dispatcher 的 fLaC 魔数检测看不到流头——
+  /// 从标签尾定位 STREAMINFO 块补算时长。
+  static Future<int> _calculateFlacDurationAfter(File file, int start) async {
+    try {
+      final head = await file
+          .openRead(start, start + 65536)
+          .fold<List<int>>([], (p, e) => p..addAll(e));
+      final data = Uint8List.fromList(head);
+      if (data.length < 26 ||
+          data[0] != 0x66 ||
+          data[1] != 0x4C ||
+          data[2] != 0x61 ||
+          data[3] != 0x43) {
+        return 0;
+      }
+      int offset = 4;
+      while (offset + 4 <= data.length) {
+        final headerByte = data[offset];
+        final isLast = (headerByte & 0x80) != 0;
+        final blockType = headerByte & 0x7F;
+        final blockLength =
+            (data[offset + 1] << 16) |
+            (data[offset + 2] << 8) |
+            data[offset + 3];
+        offset += 4;
+        if (blockType == 0) {
+          if (offset + blockLength > data.length) return 0;
+          return _parseFlacStreamInfo(
+            data.sublist(offset, offset + blockLength),
+          );
+        }
+        if (isLast) break;
+        offset += blockLength;
       }
     } catch (_) {}
     return 0;
@@ -997,8 +1171,12 @@ class MetadataExtractor {
   static String _decodeTextFrame(Uint8List frameData) {
     if (frameData.isEmpty) return '';
     final encoding = frameData[0];
-    final content = frameData.sublist(1);
+    return _decodeString(frameData.sublist(1), encoding);
+  }
 
+  /// Decodes tag text bytes with the given ID3 encoding byte
+  /// (0 = latin1, 1 = UTF-16 w/ BOM, 2 = UTF-16BE, 3 = UTF-8).
+  static String _decodeString(Uint8List content, int encoding) {
     try {
       if (encoding == 0) {
         return latin1.decode(content).replaceAll('\u0000', '');
@@ -1165,11 +1343,15 @@ class MetadataExtractor {
   );
 
   static String cleanTrackName(String raw) {
+    // 剥掉文件名里的前置曲目号：'01. '、'01 - '。只用于文件名回退，
+    // 内嵌标题走 [_stripQualityNoise]，否则会误伤 "7 Years"、"99 Luftballons"
+    // 这类以数字开头的真实歌名。
+    return _stripQualityNoise(raw.replaceAll(_leadingTrackRegex, ''));
+  }
+
+  /// 去掉音质标注与下载站噪声，但不动前置曲目号。
+  static String _stripQualityNoise(String raw) {
     return raw
-        .replaceAll(
-          _leadingTrackRegex,
-          '',
-        ) // Leading track numbers: '01. ', '01 - '
         .replaceAll(_squareQualityRegex, '')
         .replaceAll(_roundQualityRegex, '')
         .replaceAll(_chineseQualityRegex, '')
@@ -1183,7 +1365,8 @@ class MetadataExtractor {
   ) {
     final fallback = _fallbackFromFilename(filePath);
 
-    String title = cleanTrackName(res.title);
+    // 内嵌标题是权威数据：只清音质噪声，不剥前置曲目号。
+    String title = _stripQualityNoise(res.title);
     String artist = res.artist.trim();
     String album = res.album.trim();
 
@@ -1207,6 +1390,7 @@ class MetadataExtractor {
       albumArtUri: res.albumArtUri,
       albumArtBytes: res.albumArtBytes,
       year: res.year,
+      lyrics: res.lyrics,
     );
   }
 

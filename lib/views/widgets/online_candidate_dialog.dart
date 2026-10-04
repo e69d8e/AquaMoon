@@ -141,9 +141,12 @@ class _OnlineCandidateSelectDialogState
         _isLoadingLyrics = true;
       });
       final service = ref.read(onlineMetadataServiceProvider);
+      // 预览加载期间“检索”仍可点：await 返回时 _candidates 可能已被新一轮
+      // 搜索整体替换，按下标写回会把别的歌的歌词贴到这张卡片上。
+      final listSnapshot = _candidates;
       try {
         final enriched = await service.ensureLyricsLoaded(candidate);
-        if (mounted) {
+        if (mounted && identical(_candidates, listSnapshot)) {
           setState(() {
             _candidates[index] = enriched;
           });

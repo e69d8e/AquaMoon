@@ -88,6 +88,12 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       widget.song,
     );
     if (selected != null) {
+      // Hoist provider access above the await-heavy section: the hosting
+      // player page can be popped while the cover downloads, and riverpod
+      // throws on ref use after dispose.
+      final library = ref.read(libraryNotifierProvider.notifier);
+      final handler = ref.read(audioHandlerProvider);
+      final lyricsNotifier = ref.read(lyricsNotifierProvider.notifier);
       final onlineService = ref.read(onlineMetadataServiceProvider);
       String? newArtUri = widget.song.albumArtUri;
       if (selected.coverUrl != null && selected.coverUrl!.isNotEmpty) {
@@ -95,25 +101,26 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       }
       final newLrc = selected.syncedLyrics ?? selected.plainLyrics;
 
-      final updated = widget.song.copyWith(
-        title: selected.title,
-        artist: selected.artist,
-        album: selected.album.isNotEmpty ? selected.album : widget.song.album,
-        albumArtUri: newArtUri,
-        lrcContent: newLrc,
-      );
+      final applied = await library.updateSongMerged(widget.song.id, (current) {
+        return current.copyWith(
+          title: selected.title,
+          artist: selected.artist,
+          album: selected.album.isNotEmpty ? selected.album : current.album,
+          albumArtUri: newArtUri,
+          lrcContent: newLrc,
+        );
+      });
+      if (applied == null) return;
+      final updated = applied;
 
-      await ref.read(libraryNotifierProvider.notifier).updateSong(updated);
-      ref
-          .read(audioHandlerProvider)
-          .updateCurrentSongMetadata(
-            title: updated.title,
-            artist: updated.artist,
-            album: updated.album,
-            albumArtUri: updated.albumArtUri,
-            lrcContent: updated.lrcContent,
-          );
-      ref.read(lyricsNotifierProvider.notifier).loadLyricsForSong(updated);
+      handler.updateCurrentSongMetadata(
+        title: updated.title,
+        artist: updated.artist,
+        album: updated.album,
+        albumArtUri: updated.albumArtUri,
+        lrcContent: updated.lrcContent,
+      );
+      lyricsNotifier.loadLyricsForSong(updated);
 
       if (mounted) {
         AppToast.show(
@@ -296,6 +303,8 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       _scrollToActiveIndex(activeIndex, lyricsState.lines.length);
     });
 
+    final litFraction = ref.watch(currentLyricLitFractionProvider);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
@@ -344,6 +353,37 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                 final isActive = index == activeIndex;
                 final key = _itemKeys.putIfAbsent(index, () => GlobalKey());
 
+                final baseStyle = TextStyle(
+                  fontSize: isActive
+                      ? lyricsSettings.activeFontSize
+                      : lyricsSettings.baseFontSize,
+                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                  color: isActive
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface.withValues(
+                          alpha: isLight ? 0.38 : 0.45,
+                        ),
+                  height: lyricsSettings.lineHeight,
+                );
+
+                Widget lineChild;
+                if (isActive && line.hasWordTimings && litFraction != null) {
+                  // 逐字卡拉OK：当前行按字符进度做双色渐变填充。
+                  lineChild = _buildKaraokeText(
+                    line.text,
+                    litFraction,
+                    baseStyle,
+                    theme,
+                  );
+                } else {
+                  lineChild = AnimatedDefaultTextStyle(
+                    duration: _highlightDuration,
+                    curve: Curves.easeOutCubic,
+                    style: baseStyle,
+                    child: Text(line.text, textAlign: TextAlign.center),
+                  );
+                }
+
                 return InkWell(
                   key: key,
                   onTap: () {
@@ -355,25 +395,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                       vertical: 12,
                       horizontal: 16,
                     ),
-                    child: AnimatedDefaultTextStyle(
-                      duration: _highlightDuration,
-                      curve: Curves.easeOutCubic,
-                      style: TextStyle(
-                        fontSize: isActive
-                            ? lyricsSettings.activeFontSize
-                            : lyricsSettings.baseFontSize,
-                        fontWeight: isActive
-                            ? FontWeight.w800
-                            : FontWeight.w500,
-                        color: isActive
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurface.withValues(
-                                alpha: isLight ? 0.38 : 0.45,
-                              ),
-                        height: lyricsSettings.lineHeight,
-                      ),
-                      child: Text(line.text, textAlign: TextAlign.center),
-                    ),
+                    child: lineChild,
                   ),
                 );
               },
@@ -381,6 +403,35 @@ class _LyricsViewState extends ConsumerState<LyricsView>
           ),
         );
       },
+    );
+  }
+
+  /// 逐字卡拉OK文本：前 [fraction] 比例的字符用高亮色，其余用弱化色。
+  /// 由于歌词 provider 在每个位置跳变时都会重建，这里无需额外的动画。
+  /// 按 grapheme 切分，避免把 emoji 等代理对从中间劈开。
+  Widget _buildKaraokeText(
+    String text,
+    double fraction,
+    TextStyle baseStyle,
+    ThemeData theme,
+  ) {
+    final graphemes = text.characters.toList();
+    final litCount =
+        (graphemes.length * fraction).round().clamp(0, graphemes.length);
+    return Text.rich(
+      TextSpan(
+        style: baseStyle,
+        children: [
+          TextSpan(text: graphemes.take(litCount).join()),
+          TextSpan(
+            text: graphemes.skip(litCount).join(),
+            style: TextStyle(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.28),
+            ),
+          ),
+        ],
+      ),
+      textAlign: TextAlign.center,
     );
   }
 }

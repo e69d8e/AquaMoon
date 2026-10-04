@@ -23,6 +23,26 @@ class CustomProgressBar extends StatefulWidget {
 class _CustomProgressBarState extends State<CustomProgressBar> {
   double? _dragValue;
 
+  /// 松手后的 seek 目标（毫秒）。进度流约 3 次/秒才更新一次，在它反映新
+  /// 位置之前沿用拖动值渲染，否则滑块会先弹回旧位置、等流追上再跳回来。
+  double? _pendingSeekMs;
+
+  @override
+  void didUpdateWidget(covariant CustomProgressBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final pending = _pendingSeekMs;
+    if (pending != null) {
+      final streamedMs = widget.progress.position.inMilliseconds.toDouble();
+      // 进度流到达 seek 目标附近（±1.5s）后切回流式进度。
+      if ((streamedMs - pending).abs() <= 1500) {
+        setState(() {
+          _pendingSeekMs = null;
+          _dragValue = null;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -65,12 +85,13 @@ class _CustomProgressBarState extends State<CustomProgressBar> {
             onChanged: (val) {
               setState(() {
                 _dragValue = val;
+                _pendingSeekMs = null;
               });
               widget.onSeeking?.call(Duration(milliseconds: val.toInt()));
             },
             onChangeEnd: (val) {
               setState(() {
-                _dragValue = null;
+                _pendingSeekMs = val;
               });
               widget.onSeek(Duration(milliseconds: val.toInt()));
             },

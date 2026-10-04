@@ -281,6 +281,9 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                               tooltip: '更多操作与下载',
                               onSelected: (action) async {
                                 switch (action) {
+                                  case 'sleep_timer':
+                                    _showSleepTimerSheet();
+                                    break;
                                   case 'save_cover':
                                     _saveCurrentCover(song);
                                     break;
@@ -297,6 +300,20 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                           song,
                                         );
                                     if (selected != null) {
+                                      // Hoist every provider access above the
+                                      // await-heavy section: the page can be
+                                      // popped while the cover downloads, and
+                                      // riverpod throws on ref use after
+                                      // dispose.
+                                      final library = ref.read(
+                                        libraryNotifierProvider.notifier,
+                                      );
+                                      final handler = ref.read(
+                                        audioHandlerProvider,
+                                      );
+                                      final lyricsNotifier = ref.read(
+                                        lyricsNotifierProvider.notifier,
+                                      );
                                       final onlineService = ref.read(
                                         onlineMetadataServiceProvider,
                                       );
@@ -312,33 +329,29 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                           selected.syncedLyrics ??
                                           selected.plainLyrics;
 
-                                      final updated = song.copyWith(
-                                        title: selected.title,
-                                        artist: selected.artist,
-                                        album: selected.album.isNotEmpty
-                                            ? selected.album
-                                            : song.album,
-                                        albumArtUri: newArtUri,
-                                        lrcContent: newLrc,
-                                      );
+                                      final applied = await library
+                                          .updateSongMerged(song.id, (current) {
+                                        return current.copyWith(
+                                          title: selected.title,
+                                          artist: selected.artist,
+                                          album: selected.album.isNotEmpty
+                                              ? selected.album
+                                              : current.album,
+                                          albumArtUri: newArtUri,
+                                          lrcContent: newLrc,
+                                        );
+                                      });
+                                      if (applied == null) break;
+                                      final updated = applied;
 
-                                      await ref
-                                          .read(
-                                            libraryNotifierProvider.notifier,
-                                          )
-                                          .updateSong(updated);
-                                      ref
-                                          .read(audioHandlerProvider)
-                                          .updateCurrentSongMetadata(
-                                            title: updated.title,
-                                            artist: updated.artist,
-                                            album: updated.album,
-                                            albumArtUri: updated.albumArtUri,
-                                            lrcContent: updated.lrcContent,
-                                          );
-                                      ref
-                                          .read(lyricsNotifierProvider.notifier)
-                                          .loadLyricsForSong(updated);
+                                      handler.updateCurrentSongMetadata(
+                                        title: updated.title,
+                                        artist: updated.artist,
+                                        album: updated.album,
+                                        albumArtUri: updated.albumArtUri,
+                                        lrcContent: updated.lrcContent,
+                                      );
+                                      lyricsNotifier.loadLyricsForSong(updated);
                                       if (context.mounted) {
                                         AppToast.show(
                                           context,
@@ -365,6 +378,17 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                 }
                               },
                               itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'sleep_timer',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.bedtime_outlined, size: 18),
+                                      SizedBox(width: 10),
+                                      Text('睡眠定时器'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuDivider(),
                                 const PopupMenuItem(
                                   value: 'save_cover',
                                   child: Row(
@@ -566,7 +590,10 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
               // Progress Bar (Isolated Rebuild)
               const _FullPlayerProgressBar(),
 
-              const SizedBox(height: 16),
+              // Sleep timer countdown chip (hidden when no timer is active)
+              const _SleepTimerChip(),
+
+              const SizedBox(height: 8),
 
               // Bottom 5-Button Controls Row
               Padding(
@@ -674,6 +701,114 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
       case PlaybackMode.shuffle:
         return Icons.shuffle_rounded;
     }
+  }
+
+  void _showSleepTimerSheet() {
+    final options = [
+      (label: '15 分钟', duration: const Duration(minutes: 15)),
+      (label: '30 分钟', duration: const Duration(minutes: 30)),
+      (label: '60 分钟', duration: const Duration(minutes: 60)),
+      (label: '90 分钟', duration: const Duration(minutes: 90)),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Consumer(
+            builder: (context, sheetRef, _) {
+              final remaining = sheetRef.watch(
+                sleepTimerStreamProvider.select((v) => v.valueOrNull),
+              );
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.bedtime_outlined,
+                          size: 20,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          '睡眠定时器',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (remaining != null)
+                          Text(
+                            '${remaining.inMinutes}分${(remaining.inSeconds % 60).toString().padLeft(2, '0')}秒后停止',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 12),
+                  ...List.generate(options.length, (i) {
+                    final option = options[i];
+                    return ListTile(
+                      leading: const Icon(Icons.timelapse_rounded, size: 20),
+                      title: Text(option.label, style: const TextStyle(fontSize: 14)),
+                      onTap: () {
+                        ref
+                            .read(audioControllerProvider)
+                            .startSleepTimer(option.duration);
+                        Navigator.pop(sheetContext);
+                        AppToast.show(
+                          context,
+                          '将在${option.label}后停止播放',
+                          icon: Icons.bedtime_outlined,
+                        );
+                      },
+                    );
+                  }),
+                  ListTile(
+                    enabled: remaining != null,
+                    leading: Icon(
+                      Icons.cancel_outlined,
+                      size: 20,
+                      color: remaining != null ? Colors.redAccent : null,
+                    ),
+                    title: Text(
+                      '关闭定时器',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: remaining != null ? Colors.redAccent : null,
+                      ),
+                    ),
+                    onTap: remaining == null
+                        ? null
+                        : () {
+                            ref
+                                .read(audioControllerProvider)
+                                .cancelSleepTimer();
+                            Navigator.pop(sheetContext);
+                            AppToast.show(
+                              context,
+                              '已关闭睡眠定时器',
+                              icon: Icons.cancel_outlined,
+                            );
+                          },
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   void _showQueueModal(BuildContext context) {
@@ -834,8 +969,70 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
   }
 }
 
-class _FullPlayerLyricPreview extends ConsumerWidget {
-  final String artist;
+/// 睡眠定时器倒计时小徽标；未启用时不占位。
+class _SleepTimerChip extends ConsumerWidget {
+  const _SleepTimerChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final remaining = ref.watch(
+      sleepTimerStreamProvider.select((v) => v.valueOrNull),
+    );
+    if (remaining == null) return const SizedBox(height: 0, width: 0);
+
+    final theme = Theme.of(context);
+    final minutes = remaining.inMinutes.remainder(60);
+    final seconds = remaining.inSeconds.remainder(60);
+    final label = remaining.inHours > 0
+        ? '${remaining.inHours}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}'
+        : '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => ref.read(audioControllerProvider).cancelSleepTimer(),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: theme.colorScheme.primary.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.bedtime_rounded,
+                size: 13,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '$label 后停止',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.close_rounded,
+                size: 12,
+                color: theme.colorScheme.primary.withValues(alpha: 0.7),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FullPlayerLyricPreview extends ConsumerWidget {  final String artist;
   final Color primaryTextColor;
   final Color composerTextColor;
 

@@ -10,6 +10,7 @@ import '../../providers/audio_provider.dart';
 import '../../providers/update_provider.dart';
 import '../online_search/online_search_page.dart';
 import '../player/mini_player.dart';
+import '../history/recent_plays_page.dart';
 import '../settings/settings_page.dart';
 import '../stats/listening_stats_page.dart';
 import '../widgets/update_dialog.dart';
@@ -273,6 +274,12 @@ class _HomePageState extends ConsumerState<HomePage>
                                   _pushPage(() => const ListeningStatsPage()),
                             ),
                             IconButton(
+                              icon: const Icon(Icons.history_rounded),
+                              tooltip: '最近播放',
+                              onPressed: () =>
+                                  _pushPage(() => const RecentPlaysPage()),
+                            ),
+                            IconButton(
                               icon: const Icon(Icons.cloud_download_outlined),
                               tooltip: '全网在线歌曲与歌词检索',
                               onPressed: () =>
@@ -343,6 +350,9 @@ class _HomePageState extends ConsumerState<HomePage>
                   case 'stats':
                     _pushPage(() => const ListeningStatsPage());
                     break;
+                  case 'recent':
+                    _pushPage(() => const RecentPlaysPage());
+                    break;
                   case 'online':
                     _pushPage(() => const OnlineSearchPage());
                     break;
@@ -356,6 +366,16 @@ class _HomePageState extends ConsumerState<HomePage>
                       Icon(Icons.insights_rounded, size: 20),
                       SizedBox(width: 10),
                       Text('听歌统计'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'recent',
+                  child: Row(
+                    children: [
+                      Icon(Icons.history_rounded, size: 20),
+                      SizedBox(width: 10),
+                      Text('最近播放'),
                     ],
                   ),
                 ),

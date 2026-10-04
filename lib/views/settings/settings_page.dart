@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -10,8 +13,10 @@ import '../../providers/listening_stats_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/update_provider.dart';
+import '../../services/backup_service.dart';
 import '../stats/listening_stats_page.dart';
 import '../widgets/update_dialog.dart';
+import 'audio_effects_settings_page.dart';
 import 'lyrics_display_settings_page.dart';
 import 'notification_player_settings_page.dart';
 import 'theme_settings_page.dart';
@@ -41,6 +46,142 @@ class SettingsPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// 失效文件清理：先检测、后确认、再移除。
+  Future<void> _cleanupMissingFiles(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    AppToast.show(context, '正在检测曲库文件完整性...', icon: Icons.search_rounded);
+    final missing = await ref
+        .read(libraryNotifierProvider.notifier)
+        .findMissingFiles();
+
+    if (!context.mounted) return;
+    if (missing.isEmpty) {
+      AppToast.show(
+        context,
+        '曲库健康：所有音频文件均可访问',
+        icon: Icons.verified_outlined,
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('发现失效歌曲'),
+        content: Text(
+          '有 ${missing.length} 首歌曲的音频文件已无法访问（可能被移动或删除）。\n\n'
+          '前几首：\n${missing.take(5).map((s) => '《${s.title}》').join('、')}${missing.length > 5 ? ' 等' : ''}\n\n'
+          '确认从曲库中移除它们吗？（磁盘文件不受影响，重新扫描后可找回）',
+          style: const TextStyle(height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final count = await ref
+        .read(libraryNotifierProvider.notifier)
+        .removeMissingFiles();
+    if (context.mounted) {
+      AppToast.show(
+        context,
+        '已移除 $count 首失效歌曲',
+        icon: Icons.cleaning_services_rounded,
+      );
+    }
+  }
+
+  /// 从备份文件恢复全部数据。
+  Future<void> _restoreBackup(BuildContext context, WidgetRef ref) async {
+    List<PlatformFile>? picked;
+    try {
+      picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+    } catch (_) {
+      picked = null;
+    }
+    // 某些平台取消时可能返回空列表而非 null（List.single 会抛 StateError）。
+    if (picked == null || picked.isEmpty) return;
+    final path = picked.first.path;
+    if (path == null || !context.mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('确认恢复备份？'),
+        content: const Text(
+          '恢复将覆盖当前的曲库、歌单、收藏、历史、统计与设置。建议先「导出全部数据」留存现状。\n\n恢复完成后需要重启应用生效。',
+          style: TextStyle(height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('开始恢复'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      final summary = await BackupService(
+        ref.read(storageServiceProvider),
+      ).restoreFromFile(path);
+      if (context.mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('恢复完成'),
+            content: Text(
+              '已恢复 ${summary.songs} 首歌曲、${summary.playlists} 个歌单与 '
+              '${summary.historyEntries} 条播放历史。\n\n请重启应用以加载恢复的数据。',
+              style: const TextStyle(height: 1.4),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+      }
+    } on FormatException catch (e) {
+      if (context.mounted) {
+        AppToast.show(
+          context,
+          e.message,
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        AppToast.show(
+          context,
+          '恢复失败，文件可能已损坏',
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    }
   }
 
   @override
@@ -348,6 +489,47 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 const Divider(height: 1, indent: 56),
                 ListTile(
+                  leading: const Icon(Icons.lyrics_outlined),
+                  title: const Text(
+                    '扫描本地歌词文件',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    '查找与音频同目录同名的 .lrc 文件补齐歌词',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final count = await ref
+                        .read(libraryNotifierProvider.notifier)
+                        .scanSidecarLyrics();
+                    if (context.mounted) {
+                      AppToast.show(
+                        context,
+                        count > 0 ? '已为 $count 首歌曲补齐本地歌词！' : '未发现可补齐的本地歌词',
+                        icon: count > 0
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.info_outline_rounded,
+                      );
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.cleaning_services_outlined),
+                  title: const Text(
+                    '清理失效歌曲',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    '检测已被移动或删除的音频文件并从曲库移除',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _cleanupMissingFiles(context, ref),
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
                   leading: Icon(
                     Icons.auto_awesome_rounded,
                     color: theme.colorScheme.primary,
@@ -447,6 +629,34 @@ class SettingsPage extends ConsumerWidget {
             ),
             child: Column(
               children: [
+                if (Platform.isAndroid) ...[
+                  ListTile(
+                    leading: const Icon(Icons.equalizer_rounded),
+                    title: const Text(
+                      '音效与均衡器',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      '淡入淡出与多频段均衡器（Android 专属）',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    trailing: const Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
+                    ),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const AudioEffectsSettingsPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1, indent: 56),
+                ],
                 ListTile(
                   leading: const Icon(Icons.lyrics_rounded),
                   title: const Text(
@@ -586,6 +796,74 @@ class SettingsPage extends ConsumerWidget {
           ),
 
           const SizedBox(height: 24),
+
+          // Section 3.5: 数据备份与恢复
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Text(
+              '数据备份与恢复',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.backup_outlined),
+                  title: const Text(
+                    '导出全部数据',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    '曲库、歌单、收藏、历史、统计与设置打包为 JSON 备份',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final result = await BackupService(
+                      ref.read(storageServiceProvider),
+                    ).exportBackup();
+                    if (context.mounted) {
+                      AppToast.show(
+                        context,
+                        result.success ? result.message : result.message,
+                        icon: result.success
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.error_outline_rounded,
+                      );
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.restore_rounded),
+                  title: const Text(
+                    '从备份恢复',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    '选择此前导出的水月音备份文件，恢复后需重启应用',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _restoreBackup(context, ref),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
 
           // Section 4: 关于应用 — 更新检查
           const _UpdateSettingsCard(),

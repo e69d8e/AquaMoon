@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/utils/app_toast.dart';
+import '../../../models/playlist.dart';
 import '../../../models/song.dart';
 import '../../../providers/audio_provider.dart';
 import '../../../providers/library_provider.dart';
+import '../../../providers/playlist_provider.dart';
 import '../../online_search/online_search_page.dart';
 import '../../settings/settings_page.dart';
 import '../../widgets/song_tile.dart';
@@ -23,6 +25,142 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   Timer? _searchDebounce;
+  final Set<String> _selectedIds = {};
+
+  bool get _selectionMode => _selectedIds.isNotEmpty;
+
+  void _enterSelectionMode(String songId) {
+    setState(() => _selectedIds.add(songId));
+  }
+
+  void _exitSelectionMode() {
+    setState(() => _selectedIds.clear());
+  }
+
+  void _toggleSelection(String songId) {
+    setState(() {
+      if (!_selectedIds.remove(songId)) _selectedIds.add(songId);
+      // 取消到空时自然退出多选模式。
+    });
+  }
+
+  void _selectAll(List<Song> songs) {
+    setState(() {
+      for (final song in songs) {
+        _selectedIds.add(song.id);
+      }
+    });
+  }
+
+  Future<void> _batchDelete(List<Song> songs) async {
+    final selected = songs
+        .where((s) => _selectedIds.contains(s.id))
+        .toList(growable: false);
+    if (selected.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量移除'),
+        content: Text(
+          '确定将 ${selected.length} 首歌曲从曲库移除吗？\n\n提示：设备中的本地原音频文件不会被删除。',
+          style: const TextStyle(height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final library = ref.read(libraryNotifierProvider.notifier);
+    final count = await library.deleteSongsByIds([
+      for (final s in selected) s.id,
+    ]);
+    if (mounted) {
+      AppToast.show(
+        context,
+        '已从曲库移除 $count 首歌曲',
+        icon: Icons.delete_sweep_rounded,
+      );
+      _exitSelectionMode();
+    }
+  }
+
+  Future<void> _batchFavorite(List<Song> songs, bool favorite) async {
+    final library = ref.read(libraryNotifierProvider.notifier);
+    final count = await library.setFavorites(_selectedIds.toList(), favorite);
+    if (mounted) {
+      AppToast.show(
+        context,
+        favorite ? '已收藏 $count 首歌曲' : '已取消收藏 $count 首歌曲',
+        icon: favorite
+            ? Icons.favorite_rounded
+            : Icons.favorite_border_rounded,
+      );
+      _exitSelectionMode();
+    }
+  }
+
+  Future<void> _batchAddToPlaylist() async {
+    final playlists = ref.read(playlistNotifierProvider);
+    final selectedIds = _selectedIds.toList();
+    if (playlists.isEmpty || selectedIds.isEmpty) {
+      AppToast.show(
+        context,
+        playlists.isEmpty ? '暂无自定义歌单，请先在歌单页面创建！' : '未选中歌曲',
+        icon: Icons.info_outline_rounded,
+      );
+      return;
+    }
+
+    final chosen = await showDialog<Object>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('将 ${selectedIds.length} 首歌添加到歌单'),
+        content: SizedBox(
+          width: 300,
+          height: 280,
+          child: ListView.builder(
+            itemCount: playlists.length,
+            itemBuilder: (c, i) {
+              final pl = playlists[i];
+              return ListTile(
+                title: Text(pl.name),
+                subtitle: Text('${pl.songIds.length} 首歌曲'),
+                trailing: const Icon(Icons.add_circle_outline_rounded),
+                onTap: () => Navigator.pop(ctx, pl),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+
+    if (chosen is! Playlist || !mounted) return;
+    final playlistNotifier = ref.read(playlistNotifierProvider.notifier);
+    await playlistNotifier.addSongsToPlaylist(chosen.id, selectedIds);
+    if (mounted) {
+      AppToast.show(
+        context,
+        '已添加 ${selectedIds.length} 首歌曲到《${chosen.name}》',
+        icon: Icons.playlist_add_check_rounded,
+      );
+      _exitSelectionMode();
+    }
+  }
 
   @override
   void initState() {
@@ -40,6 +178,86 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
     _searchFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// 多选模式下的顶部操作栏：全选、批量收藏、加入歌单、批量移除、退出。
+  Widget _buildSelectionBar(BuildContext context, List<Song> songs) {
+    final theme = Theme.of(context);
+    final selectedCount = _selectedIds.length;
+    final selectedSongs = songs
+        .where((s) => _selectedIds.contains(s.id))
+        .toList(growable: false);
+    final allFavorite =
+        selectedSongs.isNotEmpty && selectedSongs.every((s) => s.isFavorite);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 20),
+            tooltip: '退出多选',
+            visualDensity: VisualDensity.compact,
+            onPressed: _exitSelectionMode,
+          ),
+          Text(
+            '已选 $selectedCount 首',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.select_all_rounded, size: 20),
+            tooltip: '全选',
+            visualDensity: VisualDensity.compact,
+            onPressed: songs.isEmpty ? null : () => _selectAll(songs),
+          ),
+          const Spacer(),
+          IconButton(
+            icon: Icon(
+              allFavorite
+                  ? Icons.favorite_border_rounded
+                  : Icons.favorite_rounded,
+              size: 20,
+              color: allFavorite ? null : Colors.redAccent,
+            ),
+            tooltip: allFavorite ? '批量取消收藏' : '批量收藏',
+            visualDensity: VisualDensity.compact,
+            onPressed: selectedSongs.isEmpty
+                ? null
+                : () => _batchFavorite(songs, !allFavorite),
+          ),
+          IconButton(
+            icon: const Icon(Icons.playlist_add_rounded, size: 20),
+            tooltip: '添加到歌单',
+            visualDensity: VisualDensity.compact,
+            onPressed: selectedSongs.isEmpty ? null : _batchAddToPlaylist,
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.delete_outline_rounded,
+              size: 20,
+              color: Colors.redAccent,
+            ),
+            tooltip: '从曲库移除',
+            visualDensity: VisualDensity.compact,
+            onPressed: selectedSongs.isEmpty
+                ? null
+                : () => _batchDelete(songs),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Cancels the active search: text, filter and IME session all at once.
@@ -150,6 +368,9 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
           _scrollToCurrentPlaying(currentSongId, songs);
         }
         break;
+      case 'multi_select':
+        if (songs.isNotEmpty) _enterSelectionMode(songs.first.id);
+        break;
       case 'rescan':
         _rescanLibrary();
         break;
@@ -202,8 +423,12 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
 
     return Column(
       children: [
-        // Top Search & Sort Action Row (Clean & Minimal)
-        Padding(
+        // Top Search & Sort Action Row (Clean & Minimal); swapped for the
+        // batch-selection toolbar while a multi-select is in progress.
+        if (_selectionMode)
+          _buildSelectionBar(context, songs)
+        else
+          Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
           child: Row(
             children: [
@@ -330,6 +555,17 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
                         ],
                       ),
                     ),
+                  if (songs.isNotEmpty)
+                    const PopupMenuItem(
+                      value: 'multi_select',
+                      child: Row(
+                        children: [
+                          Icon(Icons.checklist_rounded, size: 18),
+                          SizedBox(width: 10),
+                          Text('批量管理（多选）'),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
                     value: 'rescan',
                     child: Row(
@@ -438,6 +674,10 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
                         song: song,
                         contextQueue: songs,
                         index: index,
+                        selectionMode: _selectionMode,
+                        isSelected: _selectedIds.contains(song.id),
+                        onSelectionToggle: () => _toggleSelection(song.id),
+                        onLongPress: () => _enterSelectionMode(song.id),
                       );
                     },
                   ),

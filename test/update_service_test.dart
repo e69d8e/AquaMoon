@@ -129,5 +129,55 @@ void main() {
       expect(info!.releaseUrl,
           'https://github.com/e69d8e/AquaMoon/releases');
     });
+
+    test('prefers the Universal APK over per-ABI builds regardless of order',
+        () async {
+      final service = UpdateService(
+        client: MockClient(
+          (request) async => _releaseResponse({
+            ..._mockRelease,
+            'assets': [
+              {
+                'name': 'AquaMoon-Android-arm64-v8a.apk',
+                'browser_download_url': 'https://example.com/arm64.apk',
+              },
+              {
+                'name': 'AquaMoon-Android-Universal.apk',
+                'browser_download_url': 'https://example.com/universal.apk',
+              },
+              {
+                'name': 'checksums.txt',
+                'browser_download_url': 'https://example.com/checksums.txt',
+              },
+            ],
+          }),
+        ),
+      );
+
+      final info = await service.checkForUpdate(currentVersion: '1.0.2');
+
+      expect(info!.apkUrl, 'https://example.com/universal.apk');
+    });
+
+    test('falls back to the first .apk when no Universal asset exists',
+        () async {
+      final service = UpdateService(
+        client: MockClient(
+          (request) async => _releaseResponse({
+            ..._mockRelease,
+            'assets': [
+              {
+                'name': 'AquaMoon-Android-arm64-v8a.apk',
+                'browser_download_url': 'https://example.com/arm64.apk',
+              },
+            ],
+          }),
+        ),
+      );
+
+      final info = await service.checkForUpdate(currentVersion: '1.0.2');
+
+      expect(info!.apkUrl, 'https://example.com/arm64.apk');
+    });
   });
 }

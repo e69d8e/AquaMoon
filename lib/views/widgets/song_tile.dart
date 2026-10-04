@@ -20,6 +20,12 @@ class SongTile extends ConsumerWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onSetAsPlaylistCover;
 
+  /// 多选模式：点击行为切换为勾选/取消勾选，长按由外层列表接管。
+  final bool selectionMode;
+  final bool isSelected;
+  final VoidCallback? onSelectionToggle;
+  final VoidCallback? onLongPress;
+
   const SongTile({
     super.key,
     required this.song,
@@ -28,6 +34,10 @@ class SongTile extends ConsumerWidget {
     this.onTap,
     this.onDelete,
     this.onSetAsPlaylistCover,
+    this.selectionMode = false,
+    this.isSelected = false,
+    this.onSelectionToggle,
+    this.onLongPress,
   });
 
   @override
@@ -46,23 +56,41 @@ class SongTile extends ConsumerWidget {
     final theme = Theme.of(context);
 
     return Material(
-      color: isCurrent
+      color: isSelected
+          ? theme.colorScheme.primary.withValues(alpha: 0.14)
+          : isCurrent
           ? theme.colorScheme.primary.withValues(alpha: 0.08)
           : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        onTap:
-            onTap ??
-            () {
-              ref
-                  .read(audioControllerProvider)
-                  .playSong(song, queue: contextQueue);
-            },
+        onTap: selectionMode
+            ? onSelectionToggle
+            : onTap ??
+                  () {
+                    ref
+                        .read(audioControllerProvider)
+                        .playSong(song, queue: contextQueue);
+                  },
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 6.0),
           child: Row(
             children: [
+              if (selectionMode) ...[
+                Icon(
+                  isSelected
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 22,
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.4,
+                        ),
+                ),
+                const SizedBox(width: 10),
+              ],
               SongArtwork(song: song, size: 44, borderRadius: 8),
               const SizedBox(width: 12),
               Expanded(
@@ -149,46 +177,63 @@ class SongTile extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 2),
-              // Favorite toggle and all other per-song operations live in the
-              // overflow menu so each row carries a single trailing control.
-              PopupMenuButton<String>(
-                icon: Icon(
-                  Icons.more_vert_rounded,
-                  size: 18,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.5,
-                  ),
-                ),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 32),
-                onSelected: (action) => _handleAction(context, ref, action),
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: 'toggle_favorite',
-                    child: Row(
-                      children: [
-                        Icon(
-                          song.isFavorite
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          size: 18,
-                          color: song.isFavorite ? Colors.redAccent : null,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(song.isFavorite ? '取消收藏' : '收藏'),
-                      ],
+              if (selectionMode)
+                const SizedBox(width: 26)
+              else
+                // Favorite toggle and all other per-song operations live in
+                // the overflow menu so each row carries a single trailing
+                // control.
+                PopupMenuButton<String>(
+                  icon: Icon(
+                    Icons.more_vert_rounded,
+                    size: 18,
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.5,
                     ),
                   ),
-                  const PopupMenuItem(
-                    value: 'add_to_playlist',
-                    child: Row(
-                      children: [
-                        Icon(Icons.playlist_add_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('添加到歌单'),
-                      ],
-                    ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 32,
                   ),
+                  onSelected: (action) => _handleAction(context, ref, action),
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'toggle_favorite',
+                      child: Row(
+                        children: [
+                          Icon(
+                            song.isFavorite
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            size: 18,
+                            color: song.isFavorite ? Colors.redAccent : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(song.isFavorite ? '取消收藏' : '收藏'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'play_next',
+                      child: Row(
+                        children: [
+                          Icon(Icons.queue_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('下一首播放'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'add_to_playlist',
+                      child: Row(
+                        children: [
+                          Icon(Icons.playlist_add_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('添加到歌单'),
+                        ],
+                      ),
+                    ),
                   if (onSetAsPlaylistCover != null)
                     const PopupMenuItem(
                       value: 'set_as_cover',
@@ -261,6 +306,16 @@ class SongTile extends ConsumerWidget {
       case 'toggle_favorite':
         ref.read(libraryNotifierProvider.notifier).toggleFavorite(song);
         break;
+      case 'play_next':
+        await ref.read(audioControllerProvider).playNext(song);
+        if (context.mounted) {
+          AppToast.show(
+            context,
+            '已加入下一首播放：《${song.title}》',
+            icon: Icons.queue_rounded,
+          );
+        }
+        break;
       case 'set_as_cover':
         onSetAsPlaylistCover?.call();
         break;
@@ -273,6 +328,10 @@ class SongTile extends ConsumerWidget {
       case 'online_candidate_select':
         final selected = await OnlineCandidateSelectDialog.show(context, song);
         if (selected != null) {
+          // The tile can be disposed while the cover downloads (list scroll /
+          // navigation) — capture what we need before the first await and
+          // bail out instead of touching `ref` on a dead widget.
+          final library = ref.read(libraryNotifierProvider.notifier);
           final onlineService = ref.read(onlineMetadataServiceProvider);
           String? newArtUri = song.albumArtUri;
           if (selected.coverUrl != null && selected.coverUrl!.isNotEmpty) {
@@ -282,15 +341,17 @@ class SongTile extends ConsumerWidget {
           }
           final newLrc = selected.syncedLyrics ?? selected.plainLyrics;
 
-          final updated = song.copyWith(
-            title: selected.title,
-            artist: selected.artist,
-            album: selected.album.isNotEmpty ? selected.album : song.album,
-            albumArtUri: newArtUri,
-            lrcContent: newLrc,
-          );
-
-          await ref.read(libraryNotifierProvider.notifier).updateSong(updated);
+          final applied = await library.updateSongMerged(song.id, (current) {
+            return current.copyWith(
+              title: selected.title,
+              artist: selected.artist,
+              album: selected.album.isNotEmpty ? selected.album : current.album,
+              albumArtUri: newArtUri,
+              lrcContent: newLrc,
+            );
+          });
+          if (applied == null || !context.mounted) break;
+          final updated = applied;
 
           final currentSong = ref.read(currentSongProvider).valueOrNull;
           if (currentSong != null && currentSong.id == updated.id) {
@@ -308,13 +369,11 @@ class SongTile extends ConsumerWidget {
                 .loadLyricsForSong(updated);
           }
 
-          if (context.mounted) {
-            AppToast.show(
-              context,
-              '已应用来自 ${selected.source} 的《${selected.title}》元数据！',
-              icon: Icons.check_circle_outline_rounded,
-            );
-          }
+          AppToast.show(
+            context,
+            '已应用来自 ${selected.source} 的《${selected.title}》元数据！',
+            icon: Icons.check_circle_outline_rounded,
+          );
         }
         break;
       case 'fetch_online_metadata':
@@ -323,11 +382,10 @@ class SongTile extends ConsumerWidget {
           '正在匹配《${song.title}》在线信息...',
           icon: Icons.sync_rounded,
         );
-        await ref
+        final error = await ref
             .read(lyricsNotifierProvider.notifier)
             .loadLyricsForSong(song, forceOnline: true);
         if (context.mounted) {
-          final error = ref.read(lyricsNotifierProvider).error;
           AppToast.show(
             context,
             error != null ? '在线匹配失败：$error' : '在线信息匹配完成！',

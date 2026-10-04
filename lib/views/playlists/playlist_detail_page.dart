@@ -7,6 +7,7 @@ import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../services/file_export_service.dart';
 import '../widgets/song_artwork.dart';
 import '../widgets/song_tile.dart';
 import 'add_songs_to_playlist_dialog.dart';
@@ -59,13 +60,58 @@ class PlaylistDetailPage extends ConsumerWidget {
             onPressed: () =>
                 AddSongsToPlaylistDialog.show(context, currentPlaylist),
           ),
-          IconButton(
-            icon: const Icon(
-              Icons.delete_outline_rounded,
-              color: Colors.redAccent,
-            ),
-            tooltip: '删除歌单',
-            onPressed: () => _confirmDelete(context, ref),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded, size: 22),
+            tooltip: '更多操作',
+            onSelected: (action) {
+              switch (action) {
+                case 'rename':
+                  _showRenameDialog(context, ref, currentPlaylist);
+                  break;
+                case 'export_m3u':
+                  _exportM3u(context, currentPlaylist, songs);
+                  break;
+                case 'delete':
+                  _confirmDelete(context, ref, currentPlaylist);
+                  break;
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'rename',
+                child: Row(
+                  children: [
+                    Icon(Icons.drive_file_rename_outline_rounded, size: 18),
+                    SizedBox(width: 10),
+                    Text('重命名 / 描述'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'export_m3u',
+                child: Row(
+                  children: [
+                    Icon(Icons.playlist_add_check_outlined, size: 18),
+                    SizedBox(width: 10),
+                    Text('导出 M3U 播放列表'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline_rounded,
+                      size: 18,
+                      color: Colors.redAccent,
+                    ),
+                    SizedBox(width: 10),
+                    Text('删除歌单', style: TextStyle(color: Colors.redAccent)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -277,69 +323,100 @@ class PlaylistDetailPage extends ConsumerWidget {
                       ),
                     ),
                   )
-                : ListView.builder(
+                : ReorderableListView.builder(
+                    buildDefaultDragHandles: false,
                     itemExtent: 58.0,
                     padding: const EdgeInsets.only(bottom: 120),
                     itemCount: songs.length,
+                    // onReorderItem 的 newIndex 已按移除位置校正，
+                    // 与 reorderPlaylistSongs 的 removeAt+insert 语义一致。
+                    onReorderItem: (oldIndex, newIndex) {
+                      ref
+                          .read(playlistNotifierProvider.notifier)
+                          .reorderPlaylistSongs(
+                            currentPlaylist.id,
+                            oldIndex,
+                            newIndex,
+                          );
+                    },
+                    proxyDecorator: (child, index, animation) => AnimatedBuilder(
+                      animation: animation,
+                      builder: (context, _) {
+                        final t = Curves.easeInOut.transform(
+                          animation.value.clamp(0.0, 1.0),
+                        );
+                        return Material(
+                          elevation: t * 6,
+                          borderRadius: BorderRadius.circular(12),
+                          child: child,
+                        );
+                      },
+                    ),
                     itemBuilder: (context, index) {
                       final song = songs[index];
-                      return SongTile(
-                        song: song,
-                        contextQueue: songs,
+                      // 长按整行启动拖拽排序；普通滑动仍用于列表滚动。
+                      return ReorderableDelayedDragStartListener(
+                        key: ValueKey('playlist_song_${song.id}'),
                         index: index,
-                        onSetAsPlaylistCover: () async {
-                          await ref
-                              .read(playlistNotifierProvider.notifier)
-                              .setPlaylistCover(
-                                currentPlaylist.id,
-                                song.albumArtUri,
+                        child: SongTile(
+                          song: song,
+                          contextQueue: songs,
+                          index: index,
+                          onSetAsPlaylistCover: () async {
+                            await ref
+                                .read(playlistNotifierProvider.notifier)
+                                .setPlaylistCover(
+                                  currentPlaylist.id,
+                                  song.albumArtUri,
+                                );
+                            if (context.mounted) {
+                              AppToast.show(
+                                context,
+                                '已将《${song.title}》封面设为歌单封面！',
+                                icon: Icons.check_circle_rounded,
                               );
-                          if (context.mounted) {
-                            AppToast.show(
-                              context,
-                              '已将《${song.title}》封面设为歌单封面！',
-                              icon: Icons.check_circle_rounded,
-                            );
-                          }
-                        },
-                        onDelete: () {
-                          showDialog<void>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('从歌单移除'),
-                              content: Text(
-                                '确定将《${song.title}》从歌单《${currentPlaylist.name}》中移除吗？\n\n提示：歌曲仍保留在本地曲库中。',
-                                style: const TextStyle(height: 1.4),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(ctx).pop(),
-                                  child: const Text('取消'),
+                            }
+                          },
+                          onDelete: () {
+                            showDialog<void>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('从歌单移除'),
+                                content: Text(
+                                  '确定将《${song.title}》从歌单《${currentPlaylist.name}》中移除吗？\n\n提示：歌曲仍保留在本地曲库中。',
+                                  style: const TextStyle(height: 1.4),
                                 ),
-                                FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: Colors.redAccent,
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(),
+                                    child: const Text('取消'),
                                   ),
-                                  onPressed: () {
-                                    Navigator.of(ctx).pop();
-                                    ref
-                                        .read(playlistNotifierProvider.notifier)
-                                        .removeSongFromPlaylist(
-                                          currentPlaylist.id,
-                                          song.id,
-                                        );
-                                    AppToast.show(
-                                      context,
-                                      '已从歌单移除《${song.title}》',
-                                      icon: Icons.delete_sweep_rounded,
-                                    );
-                                  },
-                                  child: const Text('移除'),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                                  FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.redAccent,
+                                    ),
+                                    onPressed: () {
+                                      Navigator.of(ctx).pop();
+                                      ref
+                                          .read(playlistNotifierProvider
+                                              .notifier)
+                                          .removeSongFromPlaylist(
+                                            currentPlaylist.id,
+                                            song.id,
+                                          );
+                                      AppToast.show(
+                                        context,
+                                        '已从歌单移除《${song.title}》',
+                                        icon: Icons.delete_sweep_rounded,
+                                      );
+                                    },
+                                    child: const Text('移除'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                       );
                     },
                   ),
@@ -349,12 +426,94 @@ class PlaylistDetailPage extends ConsumerWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, WidgetRef ref) {
+  Future<void> _showRenameDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Playlist currentPlaylist,
+  ) async {
+    final nameController = TextEditingController(text: currentPlaylist.name);
+    final descController = TextEditingController(
+      text: currentPlaylist.description,
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('重命名歌单'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: '歌单名称'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: descController,
+              decoration: const InputDecoration(labelText: '描述 (可选)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: nameController,
+            builder: (context, value, _) {
+              return FilledButton(
+                onPressed: value.text.trim().isEmpty
+                    ? null
+                    : () {
+                        ref
+                            .read(playlistNotifierProvider.notifier)
+                            .renamePlaylist(
+                              currentPlaylist.id,
+                              value.text,
+                              description: descController.text,
+                            );
+                        Navigator.pop(dialogContext);
+                      },
+                child: const Text('保存'),
+              );
+            },
+          ),
+        ],
+      ),
+    ).whenComplete(() {
+      nameController.dispose();
+      descController.dispose();
+    });
+  }
+
+  Future<void> _exportM3u(
+    BuildContext context,
+    Playlist currentPlaylist,
+    List<Song> songs,
+  ) async {
+    final res = await FileExportService.exportPlaylistM3u(
+      playlistName: currentPlaylist.name,
+      songs: songs,
+    );
+    if (context.mounted) {
+      AppToast.show(
+        context,
+        res.success ? res.message : res.message,
+        icon: res.success
+            ? Icons.check_circle_outline_rounded
+            : Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  void _confirmDelete(BuildContext context, WidgetRef ref, Playlist currentPlaylist) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除歌单'),
-        content: Text('确定要删除歌单《${playlist.name}》吗？歌单内的本地歌曲不会被删除。'),
+        content: Text('确定要删除歌单《${currentPlaylist.name}》吗？歌单内的本地歌曲不会被删除。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -364,7 +523,7 @@ class PlaylistDetailPage extends ConsumerWidget {
             onPressed: () {
               ref
                   .read(playlistNotifierProvider.notifier)
-                  .deletePlaylist(playlist.id);
+                  .deletePlaylist(currentPlaylist.id);
               Navigator.pop(ctx);
               Navigator.pop(context);
             },

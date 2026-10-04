@@ -96,6 +96,7 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
           selected.coverUrl!,
         );
       }
+      if (!mounted) return;
 
       setState(() {
         _titleController.text = selected.title;
@@ -186,26 +187,35 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
     }
   }
 
-  void _saveChanges() {
-    final updatedSong = widget.song.copyWith(
-      title: _titleController.text.trim().isNotEmpty
-          ? _titleController.text.trim()
-          : widget.song.title,
-      artist: _artistController.text.trim().isNotEmpty
-          ? _artistController.text.trim()
-          : '未知歌手',
-      album: _albumController.text.trim().isNotEmpty
-          ? _albumController.text.trim()
-          : '未知专辑',
-      year: int.tryParse(_yearController.text.trim()),
-      albumArtUri: _customAlbumArtUri,
-      lrcContent: _lrcController.text.trim().isNotEmpty
-          ? _lrcController.text.trim()
-          : null,
-    );
+  Future<void> _saveChanges() async {
+    final lrcText = _lrcController.text.trim();
+    final yearText = _yearController.text.trim();
 
-    // Save to Hive
-    ref.read(libraryNotifierProvider.notifier).updateSong(updatedSong);
+    // Merge onto the freshest stored copy: while this dialog is open the
+    // song may gain a play count / favorite / auto-matched lyrics — saving
+    // the snapshot taken at open time would silently revert those.
+    final updatedSong = await ref
+        .read(libraryNotifierProvider.notifier)
+        .updateSongMerged(widget.song.id, (current) {
+          return current.copyWith(
+            title: _titleController.text.trim().isNotEmpty
+                ? _titleController.text.trim()
+                : current.title,
+            artist: _artistController.text.trim().isNotEmpty
+                ? _artistController.text.trim()
+                : '未知歌手',
+            album: _albumController.text.trim().isNotEmpty
+                ? _albumController.text.trim()
+                : '未知专辑',
+            albumArtUri: _customAlbumArtUri,
+            // 清空输入框 = 真正清空字段（copyWith 传 null 只会保留旧值）。
+            lrcContent: lrcText.isNotEmpty ? lrcText : null,
+            clearLrcContent: lrcText.isEmpty,
+            year: int.tryParse(yearText),
+            clearYear: yearText.isEmpty,
+          );
+        });
+    if (updatedSong == null || !mounted) return;
 
     // If currently playing, sync with AudioHandler & LyricsProvider
     final currentSong = ref.read(currentSongProvider).valueOrNull;
@@ -222,6 +232,7 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
       ref.read(lyricsNotifierProvider.notifier).loadLyricsForSong(updatedSong);
     }
 
+    if (!mounted) return;
     Navigator.of(context).pop();
     AppToast.show(
       context,

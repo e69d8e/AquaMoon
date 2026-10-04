@@ -2,6 +2,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/audio/audio_player_handler.dart';
+import '../models/audio_effects.dart';
 import '../models/playback_mode.dart';
 import '../models/playback_progress.dart';
 import '../models/song.dart';
@@ -47,6 +48,12 @@ final playbackErrorStreamProvider = StreamProvider<String>((ref) {
   return handler.playbackErrorStream;
 });
 
+/// 睡眠定时器剩余时间；`null` 表示未启用。
+final sleepTimerStreamProvider = StreamProvider<Duration?>((ref) {
+  final handler = ref.watch(audioHandlerProvider);
+  return handler.sleepTimerStream;
+});
+
 class AudioPlayerController {
   final SoundCraftAudioHandler _handler;
 
@@ -58,7 +65,9 @@ class AudioPlayerController {
   Future<void> playAtIndex(int index) => _handler.playAtIndex(index);
 
   Future<void> togglePlayPause() async {
-    if (_handler.playbackState.value.playing) {
+    // 用 handler 的同步播放状态判断：playbackState 的流式更新滞后
+    // （开启淡入淡出时暂停会先渐变 ~240ms），快速连点会读到旧值。
+    if (_handler.isPlaying) {
       await _handler.pause();
     } else {
       await _handler.play();
@@ -81,6 +90,35 @@ class AudioPlayerController {
   void reorderQueue(int oldIndex, int newIndex) =>
       _handler.reorderQueue(oldIndex, newIndex);
   void clearQueue() => _handler.clearQueue();
+
+  /// 把歌曲插到当前歌曲之后播放。
+  Future<void> playNext(Song song) => _handler.playNext(song);
+
+  // --- Sleep timer ---
+
+  Stream<Duration?> get sleepTimerStream => _handler.sleepTimerStream;
+  Duration? get sleepTimerRemaining => _handler.sleepTimerRemaining;
+  void startSleepTimer(Duration duration) =>
+      _handler.startSleepTimer(duration);
+  void cancelSleepTimer() => _handler.cancelSleepTimer();
+
+  // --- Audio effects ---
+
+  bool get fadeEnabled => _handler.fadeEnabled;
+  Future<void> setFadeEnabled(bool enabled) =>
+      _handler.setFadeEnabled(enabled);
+  dynamic get equalizer => _handler.equalizer;
+  Future<void> setEqualizerEnabled(bool enabled) =>
+      _handler.setEqualizerEnabled(enabled);
+  Future<void> setEqualizerGains(List<double> gains) =>
+      _handler.setEqualizerGains(gains);
+  Future<EqualizerSnapshot?> loadEqualizerSnapshot() =>
+      _handler.loadEqualizerSnapshot();
+  Future<void> setEqualizerBandGain(int index, double gain) =>
+      _handler.setEqualizerBandGain(index, gain);
+
+  /// 是否支持均衡器（仅 Android 构建了音频管线时为 true）。
+  bool get equalizerSupported => _handler.equalizer != null;
 }
 
 final audioControllerProvider = Provider<AudioPlayerController>((ref) {

@@ -1,10 +1,15 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../core/utils/app_toast.dart';
 import '../../../models/song.dart';
 import '../../../providers/library_provider.dart';
 import '../../../providers/playlist_provider.dart';
+import '../../../services/file_export_service.dart';
 import '../../playlists/playlist_detail_page.dart';
 import '../../widgets/song_artwork.dart';
 
@@ -44,6 +49,20 @@ class PlaylistsTab extends ConsumerWidget {
                 ),
               ),
               const Spacer(),
+              IconButton(
+                icon: Icon(
+                  Icons.note_add_outlined,
+                  size: 21,
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.8,
+                  ),
+                ),
+                tooltip: '导入 M3U 歌单',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () => _importM3uPlaylist(context, ref),
+              ),
               IconButton(
                 icon: Icon(
                   Icons.add_rounded,
@@ -171,6 +190,83 @@ class PlaylistsTab extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  /// 导入 m3u/m3u8 播放列表：解析文件条目并与本地曲库匹配，
+  /// 新建歌单并按文件内顺序写入匹配到的歌曲。
+  Future<void> _importM3uPlaylist(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    List<PlatformFile>? picked;
+    try {
+      picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['m3u', 'm3u8'],
+      );
+    } catch (_) {
+      picked = null;
+    }
+    // 某些平台取消时可能返回空列表而非 null（List.single 会抛 StateError）。
+    if (picked == null || picked.isEmpty) return;
+    final filePath = picked.first.path;
+    if (filePath == null || !context.mounted) return;
+
+    final library =
+        ref.read(libraryNotifierProvider.select((s) => s.songs));
+    final String content;
+    try {
+      content = await File(filePath).readAsString();
+    } catch (_) {
+      if (context.mounted) {
+        AppToast.show(context, '歌单文件读取失败', icon: Icons.error_outline_rounded);
+      }
+      return;
+    }
+
+    final result = M3uPlaylistParser.parse(content, library);
+    if (result.matchedSongIds.isEmpty) {
+      if (context.mounted) {
+        AppToast.show(
+          context,
+          '未匹配到曲库中的歌曲（共 ${result.unmatchedEntries} 条无法导入）',
+          icon: Icons.info_outline_rounded,
+        );
+      }
+      return;
+    }
+
+    final name = _extractPlaylistName(content) ??
+        p.basenameWithoutExtension(filePath);
+
+    final playlist = await ref
+        .read(playlistNotifierProvider.notifier)
+        .createPlaylist(name);
+    await ref
+        .read(playlistNotifierProvider.notifier)
+        .addSongsToPlaylist(playlist.id, result.matchedSongIds);
+
+    if (context.mounted) {
+      final skipped = result.unmatchedEntries;
+      AppToast.show(
+        context,
+        skipped > 0
+            ? '已导入歌单「$name」：匹配 ${result.matchedSongIds.length} 首，$skipped 首不在曲库'
+            : '已导入歌单「$name」共 ${result.matchedSongIds.length} 首歌曲',
+        icon: Icons.playlist_add_check_rounded,
+      );
+    }
+  }
+
+  static String? _extractPlaylistName(String content) {
+    for (final line in content.split(RegExp(r'\r?\n'))) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('#PLAYLIST:')) {
+        final name = trimmed.substring('#PLAYLIST:'.length).trim();
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return null;
   }
 
   void _showCreatePlaylistDialog(BuildContext context, WidgetRef ref) {

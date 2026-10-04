@@ -50,7 +50,7 @@ class Playlist {
       name: map['name'] as String? ?? '新歌单',
       description: map['description'] as String? ?? '',
       songIds: (map['songIds'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
-      createdAt: map['createdAt'] != null
+      createdAt: map['createdAt'] is String
           ? DateTime.tryParse(map['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),
       coverArtUri: map['coverArtUri'] as String?,

@@ -36,6 +36,67 @@ class PlaylistNotifier extends StateNotifier<List<Playlist>> {
     state = state.where((p) => p.id != id).toList();
   }
 
+  /// 重命名歌单（顺带更新描述）；名称为空时静默忽略。
+  Future<void> renamePlaylist(
+    String id,
+    String name, {
+    String? description,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final index = state.indexWhere((p) => p.id == id);
+    if (index < 0) return;
+    final updated = state[index].copyWith(
+      name: trimmed,
+      description: description?.trim() ?? state[index].description,
+    );
+    await _storageService.savePlaylist(updated);
+    state = [
+      for (final p in state)
+        if (p.id == id) updated else p,
+    ];
+  }
+
+  /// 歌单内拖拽排序。[oldIndex]/[newIndex] 遵循 ReorderableListView 的语义
+  ///（目标位置按移除前的索引给出）。
+  ///
+  /// 详情页渲染的是“过滤掉曲库中已不存在的歌曲”后的列表，拖拽索引以它为准；
+  /// 历史数据里 songIds 可能残留失效 id，所以这里先按曲库把失效 id 剔除，
+  /// 再套用索引，否则拖拽会作用到错误的歌上（或看起来毫无效果）。
+  Future<void> reorderPlaylistSongs(
+    String playlistId,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final index = state.indexWhere((p) => p.id == playlistId);
+    if (index < 0) return;
+    final playlist = state[index];
+
+    final existingIds = playlist.songIds
+        .where((id) => _storageService.getSong(id) != null)
+        .toList();
+    if (oldIndex < 0 || oldIndex >= existingIds.length) return;
+    final clampedNewIndex = newIndex.clamp(0, existingIds.length - 1);
+
+    List<String> ids;
+    if (existingIds.length == playlist.songIds.length) {
+      ids = List<String>.from(playlist.songIds);
+    } else {
+      ids = existingIds;
+    }
+    if (oldIndex != clampedNewIndex) {
+      final id = ids.removeAt(oldIndex);
+      ids.insert(clampedNewIndex, id);
+    }
+
+    final updated = playlist.copyWith(songIds: ids);
+    await _storageService.savePlaylist(updated);
+    state = [
+      for (final p in state)
+        if (p.id == playlistId) updated else p,
+    ];
+  }
+
   Future<void> addSongToPlaylist(String playlistId, String songId) async {
     final index = state.indexWhere((p) => p.id == playlistId);
     if (index >= 0) {
@@ -127,6 +188,9 @@ final favoritesSongsProvider = Provider<List<Song>>((ref) {
 });
 
 final historySongsProvider = Provider<List<Song>>((ref) {
+  // Bumping this tick (e.g. after 清空历史) forces a re-read of the box;
+  // normal playback already rebuilds this provider via playCount changes.
+  ref.watch(historyRefreshTickProvider);
   final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
   final storage = ref.watch(storageServiceProvider);
   final historyIds = storage.getHistoryIds();
@@ -143,3 +207,6 @@ final historySongsProvider = Provider<List<Song>>((ref) {
 
   return result;
 });
+
+/// 手动触发最近播放列表重算的计数器（清空历史等不走 playCount 的操作）。
+final historyRefreshTickProvider = StateProvider<int>((ref) => 0);

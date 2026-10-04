@@ -48,6 +48,66 @@ final totalLifetimeListeningSecondsProvider = Provider.autoDispose<int>((ref) {
   return storage.getTotalLifetimeListeningSeconds();
 });
 
+/// 年度热力图数据：dateStr -> 当日收听秒数。
+final yearHeatmapDataProvider = Provider.autoDispose<Map<String, int>>((ref) {
+  ref.watch(statsLiveTickStreamProvider);
+  final storage = ref.watch(storageServiceProvider);
+  final year = ref.watch(selectedStatsDateProvider).year;
+  final records = storage.getDailyRecordsInRange(
+    DateTime(year, 1, 1),
+    DateTime(year, 12, 31),
+  );
+  return {
+    for (final r in records)
+      if (r.totalDurationSeconds > 0) r.dateStr: r.totalDurationSeconds,
+  };
+});
+
+/// 指定歌手在当前统计周期内的歌曲榜（供歌手下钻弹层使用）。
+final artistSongsInPeriodProvider =
+    Provider.autoDispose.family<List<SongStatItem>, String>((ref, artist) {
+  ref.watch(statsLiveTickStreamProvider);
+  final storage = ref.watch(storageServiceProvider);
+  final periodType = ref.watch(statsPeriodTypeProvider);
+  final targetDate = ref.watch(selectedStatsDateProvider);
+
+  final records = _recordsForPeriod(storage, periodType, targetDate);
+  final topSongs = _extractTopSongs(records);
+  return topSongs.where((s) => s.artist == artist).toList();
+});
+
+List<DailyListeningRecord> _recordsForPeriod(
+  StorageService storage,
+  PeriodType periodType,
+  DateTime targetDate,
+) {
+  switch (periodType) {
+    case PeriodType.day:
+      return [storage.getDailyListeningRecord(Formatters.formatDateKey(targetDate))];
+    case PeriodType.week:
+      final monday = DateTime(
+        targetDate.year,
+        targetDate.month,
+        targetDate.day,
+      ).subtract(Duration(days: targetDate.weekday - 1));
+      return storage.getDailyRecordsInRange(
+        monday,
+        monday.add(const Duration(days: 6)),
+      );
+    case PeriodType.month:
+      final firstDay = DateTime(targetDate.year, targetDate.month, 1);
+      final lastDay = DateTime(targetDate.year, targetDate.month + 1, 0);
+      return storage.getDailyRecordsInRange(firstDay, lastDay);
+    case PeriodType.year:
+      return storage.getDailyRecordsInRange(
+        DateTime(targetDate.year, 1, 1),
+        DateTime(targetDate.year, 12, 31),
+      );
+    case PeriodType.all:
+      return storage.getAllDailyRecords();
+  }
+}
+
 ListeningPeriodStats _calculatePeriodStats(
   StorageService storage,
   PeriodType periodType,

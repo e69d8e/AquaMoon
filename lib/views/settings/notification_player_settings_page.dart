@@ -59,12 +59,14 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
         batteryGranted = batteryStatus.isGranted;
       }
 
+      if (!mounted) return;
       setState(() {
         _hasNotificationPermission = notifStatus.isGranted;
         _hasBatteryExemption = batteryGranted;
         _isLoading = false;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -75,20 +77,21 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
     if (!Platform.isAndroid) return;
     try {
       final status = await Permission.ignoreBatteryOptimizations.request();
+      if (!mounted) return;
       setState(() {
         _hasBatteryExemption = status.isGranted;
       });
-      if (status.isGranted && mounted) {
+      if (status.isGranted) {
         AppToast.show(
           context,
           '已成功开启无限制后台运行与省电豁免',
           icon: Icons.battery_charging_full_rounded,
         );
-      } else if (mounted) {
+      } else {
         openAppSettings();
       }
     } catch (_) {
-      openAppSettings();
+      if (mounted) openAppSettings();
     }
   }
 

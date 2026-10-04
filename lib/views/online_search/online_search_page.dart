@@ -251,6 +251,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     Song localSong,
     OnlineSearchResult onlineData,
   ) async {
+    // Hoist provider access above the awaits: the page can be popped while
+    // the cover downloads, and riverpod throws on ref use after dispose.
+    final library = ref.read(libraryNotifierProvider.notifier);
     final onlineService = ref.read(onlineMetadataServiceProvider);
     String? newArtUri = localSong.albumArtUri;
     if (onlineData.coverUrl != null && onlineData.coverUrl!.isNotEmpty) {
@@ -258,15 +261,17 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     }
     final newLrc = onlineData.syncedLyrics ?? onlineData.plainLyrics;
 
-    final updated = localSong.copyWith(
-      title: onlineData.title,
-      artist: onlineData.artist,
-      album: onlineData.album.isNotEmpty ? onlineData.album : localSong.album,
-      albumArtUri: newArtUri,
-      lrcContent: newLrc,
-    );
-
-    await ref.read(libraryNotifierProvider.notifier).updateSong(updated);
+    final applied = await library.updateSongMerged(localSong.id, (current) {
+      return current.copyWith(
+        title: onlineData.title,
+        artist: onlineData.artist,
+        album: onlineData.album.isNotEmpty ? onlineData.album : current.album,
+        albumArtUri: newArtUri,
+        lrcContent: newLrc,
+      );
+    });
+    if (applied == null) return;
+    final updated = applied;
 
     final currentSong = ref.read(currentSongProvider).valueOrNull;
     if (currentSong != null && currentSong.id == updated.id) {

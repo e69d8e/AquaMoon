@@ -250,6 +250,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         if (await File(s.filePath).exists()) {
           final meta = await MetadataExtractor.extractFromFile(s.filePath);
           if (meta.durationMs > 0) {
+            // The snapshot may be stale — skip songs deleted while we were
+            // extracting, otherwise saveSong would resurrect them.
+            if (_storageService.getSong(s.id) == null) continue;
             final fix = s.copyWith(durationMs: meta.durationMs);
             await _storageService.saveSong(fix);
             _audioHandler?.syncSong(fix);
@@ -314,18 +317,19 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       scanProgressPercent: 0.0,
     );
 
-    final validPaths = pickedFiles
-        .map((f) => f.path)
-        .whereType<String>()
-        .toList();
-    final count = await _processAudioFilePaths(validPaths);
-
-    state = state.copyWith(
-      isScanning: false,
-      scanProgressText: null,
-      scanProgressPercent: null,
-    );
-    return count;
+    try {
+      final validPaths = pickedFiles
+          .map((f) => f.path)
+          .whereType<String>()
+          .toList();
+      return await _processAudioFilePaths(validPaths);
+    } finally {
+      state = state.copyWith(
+        isScanning: false,
+        scanProgressText: null,
+        scanProgressPercent: null,
+      );
+    }
   }
 
   /// Recursively collects supported audio file paths under [roots], resolving
@@ -381,26 +385,25 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       scanProgressPercent: null,
     );
 
-    final audioFilePaths = await _collectAudioFiles([directoryPath]);
+    try {
+      final audioFilePaths = await _collectAudioFiles([directoryPath]);
+      if (audioFilePaths.isEmpty) {
+        return 0;
+      }
 
-    if (audioFilePaths.isEmpty) {
-      state = state.copyWith(isScanning: false, scanProgressText: null);
-      return 0;
+      state = state.copyWith(
+        scanProgressText: '发现 ${audioFilePaths.length} 首歌曲，正在解析标签与内嵌封面...',
+        scanProgressPercent: 0.0,
+      );
+
+      return await _processAudioFilePaths(audioFilePaths);
+    } finally {
+      state = state.copyWith(
+        isScanning: false,
+        scanProgressText: null,
+        scanProgressPercent: null,
+      );
     }
-
-    state = state.copyWith(
-      isScanning: true,
-      scanProgressText: '发现 ${audioFilePaths.length} 首歌曲，正在解析标签与内嵌封面...',
-      scanProgressPercent: 0.0,
-    );
-
-    final count = await _processAudioFilePaths(audioFilePaths);
-    state = state.copyWith(
-      isScanning: false,
-      scanProgressText: null,
-      scanProgressPercent: null,
-    );
-    return count;
   }
 
   Future<int> scanSystemMusicDirectory() async {
@@ -421,20 +424,20 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       scanProgressPercent: null,
     );
 
-    final audioFilePaths = await _collectAudioFiles(commonDirs);
+    try {
+      final audioFilePaths = await _collectAudioFiles(commonDirs);
+      if (audioFilePaths.isEmpty) {
+        return 0;
+      }
 
-    if (audioFilePaths.isEmpty) {
-      state = state.copyWith(isScanning: false, scanProgressText: null);
-      return 0;
+      return await _processAudioFilePaths(audioFilePaths);
+    } finally {
+      state = state.copyWith(
+        isScanning: false,
+        scanProgressText: null,
+        scanProgressPercent: null,
+      );
     }
-
-    final count = await _processAudioFilePaths(audioFilePaths);
-    state = state.copyWith(
-      isScanning: false,
-      scanProgressText: null,
-      scanProgressPercent: null,
-    );
-    return count;
   }
 
   Future<int> _processAudioFilePaths(List<String> paths) async {
@@ -466,7 +469,12 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         chunk.map((filePath) async {
           if (existingPaths.contains(filePath)) return null;
           final meta = await MetadataExtractor.extractFromFile(filePath);
-          return (filePath, meta);
+          // 内嵌歌词缺失时再找同名 .lrc 侧车文件。
+          var lyrics = meta.lyrics;
+          if (lyrics == null || lyrics.trim().isEmpty) {
+            lyrics = await _readSidecarLrc(filePath);
+          }
+          return (filePath, meta, lyrics);
         }),
       );
 
@@ -474,6 +482,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         if (item == null) continue;
         final filePath = item.$1;
         final metadata = item.$2;
+        final lyrics = item.$3;
 
         final titleNorm = metadata.title.trim().toLowerCase();
         final artistNorm = metadata.artist.trim().toLowerCase();
@@ -503,6 +512,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
           filePath: filePath,
           albumArtUri: metadata.albumArtUri,
           albumArtBytes: metadata.albumArtBytes,
+          lrcContent: (lyrics != null && lyrics.trim().isNotEmpty)
+              ? lyrics
+              : null,
           dateAdded: DateTime.now(),
           source: SongSource.local,
           year: metadata.year,
@@ -540,58 +552,66 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       scanProgressPercent: 0.0,
     );
 
-    int enrichedCount = 0;
-    int failedCount = 0;
-    for (int i = 0; i < targets.length; i++) {
-      final song = targets[i];
-      final percent = (i + 1) / targets.length;
+    try {
+      int enrichedCount = 0;
+      int failedCount = 0;
+      for (int i = 0; i < targets.length; i++) {
+        final song = targets[i];
+        final percent = (i + 1) / targets.length;
 
-      state = state.copyWith(
-        scanProgressText: '正在匹配 (${i + 1}/${targets.length}): ${song.title}',
-        scanProgressPercent: percent,
-      );
-
-      try {
-        final result = await onlineService.fetchMetadata(
-          title: song.title,
-          artist: song.artist,
-          album: song.album,
-          duration: song.duration,
+        state = state.copyWith(
+          scanProgressText: '正在匹配 (${i + 1}/${targets.length}): ${song.title}',
+          scanProgressPercent: percent,
         );
 
-        if (result != null) {
-          String? newArtUri = song.albumArtUri;
-          if (newArtUri == null && result.coverUrl != null) {
-            newArtUri = await onlineService.cacheOnlineImage(result.coverUrl!);
-          }
-          final newLrc =
-              song.lrcContent ?? result.syncedLyrics ?? result.plainLyrics;
+        try {
+          final result = await onlineService.fetchMetadata(
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            duration: song.duration,
+          );
 
-          if (newArtUri != song.albumArtUri || newLrc != song.lrcContent) {
-            final updated = song.copyWith(
-              albumArtUri: newArtUri,
-              lrcContent: newLrc,
-            );
-            await _storageService.saveSong(updated);
-            enrichedCount++;
+          if (result != null) {
+            String? newArtUri = song.albumArtUri;
+            if (newArtUri == null && result.coverUrl != null) {
+              newArtUri = await onlineService.cacheOnlineImage(result.coverUrl!);
+            }
+            final newLrc =
+                song.lrcContent ?? result.syncedLyrics ?? result.plainLyrics;
+
+            if (newArtUri != song.albumArtUri || newLrc != song.lrcContent) {
+              // Merge onto the freshest stored copy: `song` was snapshotted
+              // before the whole batch, so saving it wholesale would revert
+              // play counts / favorites accumulated meanwhile.
+              final applied = await updateSongMerged(
+                song.id,
+                (current) => current.copyWith(
+                  albumArtUri: current.albumArtUri ?? newArtUri,
+                  lrcContent: current.lrcContent ?? newLrc,
+                ),
+              );
+              if (applied != null) enrichedCount++;
+            }
           }
+        } catch (_) {
+          failedCount++;
         }
-      } catch (_) {
-        failedCount++;
       }
-    }
 
-    await _loadSongs();
-    state = state.copyWith(
-      isScanning: false,
-      scanProgressText: null,
-      scanProgressPercent: null,
-    );
-    return BatchMatchResult(
-      total: targets.length,
-      enriched: enrichedCount,
-      failed: failedCount,
-    );
+      await _loadSongs();
+      return BatchMatchResult(
+        total: targets.length,
+        enriched: enrichedCount,
+        failed: failedCount,
+      );
+    } finally {
+      state = state.copyWith(
+        isScanning: false,
+        scanProgressText: null,
+        scanProgressPercent: null,
+      );
+    }
   }
 
   Future<void> deleteSong(Song song) async {
@@ -599,6 +619,115 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     state = state.copyWith(
       songs: state.songs.where((s) => s.id != song.id).toList(),
     );
+  }
+
+  /// 批量收藏/取消收藏。返回受影响歌曲数。
+  Future<int> setFavorites(List<String> songIds, bool favorite) async {
+    final idSet = songIds.toSet();
+    final updated = <Song>[];
+    for (final song in state.songs) {
+      if (!idSet.contains(song.id) || song.isFavorite == favorite) continue;
+      final next = song.copyWith(isFavorite: favorite);
+      await _storageService.saveSong(next);
+      _audioHandler?.syncSong(next);
+      updated.add(next);
+    }
+    if (updated.isNotEmpty) {
+      final byId = {for (final s in updated) s.id: s};
+      state = state.copyWith(
+        songs: [
+          for (final s in state.songs) byId[s.id] ?? s,
+        ],
+      );
+    }
+    return updated.length;
+  }
+
+  /// 批量从曲库移除（本地文件不受影响）。
+  Future<int> deleteSongsByIds(List<String> songIds) async {
+    if (songIds.isEmpty) return 0;
+    final idSet = songIds.toSet();
+    await _storageService.deleteSongs(songIds);
+    state = state.copyWith(
+      songs: state.songs.where((s) => !idSet.contains(s.id)).toList(),
+    );
+    return songIds.length;
+  }
+
+  /// 找出磁盘上已不存在（被移动/删除）的曲库歌曲。
+  Future<List<Song>> findMissingFiles() async {
+    final missing = <Song>[];
+    const chunkSize = 32;
+    for (var i = 0; i < state.songs.length; i += chunkSize) {
+      final chunk = state.songs.sublist(
+        i,
+        (i + chunkSize < state.songs.length)
+            ? i + chunkSize
+            : state.songs.length,
+      );
+      final results = await Future.wait([
+        for (final s in chunk)
+          s.filePath.isEmpty
+              ? Future.value(false)
+              : File(s.filePath).exists(),
+      ]);
+      for (var j = 0; j < chunk.length; j++) {
+        if (!results[j]) missing.add(chunk[j]);
+      }
+    }
+    return missing;
+  }
+
+  /// 移除全部失效歌曲。返回移除数量。
+  Future<int> removeMissingFiles() async {
+    final missing = await findMissingFiles();
+    if (missing.isEmpty) return 0;
+    await _storageService.deleteSongs([for (final s in missing) s.id]);
+    final removedIds = missing.map((s) => s.id).toSet();
+    state = state.copyWith(
+      songs: state.songs.where((s) => !removedIds.contains(s.id)).toList(),
+    );
+    return missing.length;
+  }
+
+  /// 扫描与音频同目录同名 `.lrc` 文件，为缺失歌词的歌曲补齐。
+  /// 返回补齐的歌曲数。
+  Future<int> scanSidecarLyrics() async {
+    int filled = 0;
+    for (final song in state.songs) {
+      if (song.lrcContent != null && song.lrcContent!.trim().isNotEmpty) {
+        continue;
+      }
+      final lrc = await _readSidecarLrc(song.filePath);
+      if (lrc == null) continue;
+      final updated = await updateSongMerged(
+        song.id,
+        (current) => current.lrcContent == null
+            ? current.copyWith(lrcContent: lrc)
+            : current,
+      );
+      if (updated == null) continue;
+      filled++;
+    }
+    if (filled > 0) {
+      state = state.copyWith(songs: _storageService.getAllSongs());
+    }
+    return filled;
+  }
+
+  /// `<音频文件名>.lrc` 侧车歌词；读取失败或不存在返回 null。
+  static Future<String?> _readSidecarLrc(String audioPath) async {
+    if (audioPath.isEmpty) return null;
+    try {
+      final lrcPath =
+          '${audioPath.substring(0, audioPath.length - p.extension(audioPath).length)}.lrc';
+      final file = File(lrcPath);
+      if (!await file.exists()) return null;
+      final content = await file.readAsString();
+      return content.trim().isEmpty ? null : content;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> toggleFavorite(Song song) async {
@@ -619,6 +748,31 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       songs: state.songs.map((s) => s.id == song.id ? song : s).toList(),
     );
     _audioHandler?.syncSong(song);
+  }
+
+  /// Applies [update] onto the freshest copy of the song (re-read from
+  /// storage) before persisting. Callers holding a snapshot captured before
+  /// an await (cover download, lyrics fetch, dialog editing…) must use this
+  /// instead of [updateSong]: writing the stale snapshot wholesale would
+  /// revert playCount / isFavorite / lyrics changes that happened meanwhile,
+  /// because the audio handler bumps playCount directly in the songs box.
+  /// Returns the persisted merged song, or null when the song was deleted
+  /// meanwhile (a slow async task must not resurrect it).
+  Future<Song?> updateSongMerged(
+    String songId,
+    Song Function(Song current) update,
+  ) async {
+    final current = _storageService.getSong(songId);
+    if (current == null) return null;
+    final merged = update(current);
+    await _storageService.saveSong(merged);
+    if (state.songs.any((s) => s.id == songId)) {
+      state = state.copyWith(
+        songs: state.songs.map((s) => s.id == songId ? merged : s).toList(),
+      );
+    }
+    _audioHandler?.syncSong(merged);
+    return merged;
   }
 
   /// Re-reads [songId] from storage and patches the in-memory copy when the

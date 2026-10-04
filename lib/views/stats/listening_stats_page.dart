@@ -10,6 +10,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
 import '../widgets/song_artwork.dart';
 import 'widgets/listening_chart.dart';
+import 'widgets/listening_heatmap.dart';
 import 'widgets/stats_summary_card.dart';
 
 class ListeningStatsPage extends ConsumerWidget {
@@ -80,6 +81,12 @@ class ListeningStatsPage extends ConsumerWidget {
           // 4. Interactive Duration Distribution Chart
           ListeningChart(bars: stats.chartBars, periodType: periodType),
 
+          // 4.5 Year view: GitHub-style daily listening heatmap
+          if (periodType == PeriodType.year) ...[
+            const SizedBox(height: 24),
+            _buildYearHeatmap(context, ref),
+          ],
+
           const SizedBox(height: 24),
 
           // 5. Top Songs Section
@@ -94,7 +101,7 @@ class ListeningStatsPage extends ConsumerWidget {
 
           // 6. Top Artists Section
           if (stats.topArtists.isNotEmpty) ...[
-            _buildTopArtistsSection(context, stats.topArtists),
+            _buildTopArtistsSection(context, ref, stats.topArtists),
             const SizedBox(height: 24),
           ],
 
@@ -248,6 +255,44 @@ class ListeningStatsPage extends ConsumerWidget {
                   ref.read(selectedStatsDateProvider.notifier).state =
                       _stepDate(periodType, selectedDate, 1);
                 },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildYearHeatmap(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final year = ref.watch(selectedStatsDateProvider).year;
+    final dailySeconds = ref.watch(yearHeatmapDataProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.calendar_month_rounded,
+              size: 20,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$year 全年听歌热力图',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(
+              alpha: 0.3,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: ListeningHeatmap(year: year, dailySeconds: dailySeconds),
         ),
       ],
     );
@@ -520,6 +565,7 @@ class ListeningStatsPage extends ConsumerWidget {
 
   Widget _buildTopArtistsSection(
     BuildContext context,
+    WidgetRef ref,
     List<ArtistStatItem> topArtists,
   ) {
     final theme = Theme.of(context);
@@ -602,11 +648,154 @@ class ListeningStatsPage extends ConsumerWidget {
                     color: theme.colorScheme.primary,
                   ),
                 ),
+                // 点击下钻：展示该歌手在此周期内的歌曲明细。
+                onTap: () => _showArtistDetailSheet(context, ref, item.artist),
               );
             },
           ),
         ),
       ],
+    );
+  }
+
+  /// 歌手下钻弹层：当前统计周期内该歌手的歌曲明细（按时长排序）。
+  void _showArtistDetailSheet(
+    BuildContext context,
+    WidgetRef ref,
+    String artist,
+  ) {
+    final periodType = ref.read(statsPeriodTypeProvider);
+    final theme = Theme.of(context);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final songs = ref.watch(artistSongsInPeriodProvider(artist));
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person_pin_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              artist,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${periodType.label}周期内收听 ${songs.length} 首曲目',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: songs.isEmpty
+                      ? Center(
+                          child: Text(
+                            '该周期内暂无收听记录',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          controller: scrollController,
+                          itemCount: songs.length,
+                          separatorBuilder: (_, _) =>
+                              const Divider(height: 1, indent: 68),
+                          itemBuilder: (context, index) {
+                            final item = songs[index];
+                            return ListTile(
+                              leading: SongArtwork(
+                                artUri: item.albumArtUri,
+                                size: 42,
+                                borderRadius: 8,
+                              ),
+                              title: Text(
+                                item.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text(
+                                item.playCount > 0
+                                    ? '播放 ${item.playCount} 次'
+                                    : '收听快照',
+                                style: const TextStyle(fontSize: 11.5),
+                              ),
+                              trailing: Text(
+                                Formatters.formatListeningDuration(
+                                  item.duration,
+                                  short: true,
+                                ),
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                              onTap: () {
+                                final allSongs = ref
+                                    .read(libraryNotifierProvider)
+                                    .songs;
+                                final match = allSongs
+                                    .where((s) => s.id == item.songId)
+                                    .firstOrNull;
+                                if (match != null) {
+                                  ref
+                                      .read(audioControllerProvider)
+                                      .playSong(match);
+                                  Navigator.pop(sheetContext);
+                                } else {
+                                  AppToast.show(
+                                    context,
+                                    '《${item.title}》不在当前曲库中',
+                                    icon: Icons.history_rounded,
+                                  );
+                                }
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

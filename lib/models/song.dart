@@ -49,12 +49,14 @@ class Song {
     String? albumArtUri,
     Uint8List? albumArtBytes,
     String? lrcContent,
+    bool clearLrcContent = false,
     DateTime? dateAdded,
     int? playCount,
     bool? isFavorite,
     SongSource? source,
     int? trackNumber,
     int? year,
+    bool clearYear = false,
   }) {
     return Song(
       id: id ?? this.id,
@@ -65,13 +67,13 @@ class Song {
       filePath: filePath ?? this.filePath,
       albumArtUri: albumArtUri ?? this.albumArtUri,
       albumArtBytes: albumArtBytes ?? this.albumArtBytes,
-      lrcContent: lrcContent ?? this.lrcContent,
+      lrcContent: clearLrcContent ? null : (lrcContent ?? this.lrcContent),
       dateAdded: dateAdded ?? this.dateAdded,
       playCount: playCount ?? this.playCount,
       isFavorite: isFavorite ?? this.isFavorite,
       source: source ?? this.source,
       trackNumber: trackNumber ?? this.trackNumber,
-      year: year ?? this.year,
+      year: clearYear ? null : (year ?? this.year),
     );
   }
 
@@ -104,7 +106,7 @@ class Song {
       filePath: map['filePath'] as String? ?? '',
       albumArtUri: map['albumArtUri'] as String?,
       lrcContent: map['lrcContent'] as String?,
-      dateAdded: map['dateAdded'] != null
+      dateAdded: map['dateAdded'] is String
           ? DateTime.tryParse(map['dateAdded'] as String) ?? DateTime.now()
           : DateTime.now(),
       playCount: (map['playCount'] as num?)?.toInt() ?? 0,
