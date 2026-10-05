@@ -13,6 +13,7 @@ import '../player/mini_player.dart';
 import '../history/recent_plays_page.dart';
 import '../settings/settings_page.dart';
 import '../stats/listening_stats_page.dart';
+import '../widgets/glass_container.dart';
 import '../widgets/update_dialog.dart';
 import 'tabs/all_songs_tab.dart';
 import 'tabs/favorites_tab.dart';
@@ -317,9 +318,14 @@ class _HomePageState extends ConsumerState<HomePage>
     }
 
     // Mobile Layout with BottomNavigationBar
+    //
+    // extendBody 让列表内容从磨砂导航栏与迷你播放器下方滚过,玻璃效果才
+    // 有内容可模糊;body 的 MediaQuery.padding.bottom 因此被抬升为底部
+    // 导航栏总高度,迷你播放器与列表留白都据此避让。
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: Scaffold(
+        extendBody: true,
         appBar: AppBar(
           elevation: 0,
           scrolledUnderElevation: 0,
@@ -399,15 +405,33 @@ class _HomePageState extends ConsumerState<HomePage>
             const SizedBox(width: 4),
           ],
         ),
-        body: Stack(
-          children: [
-            IndexedStack(index: currentTab, children: _tabs),
-            const Positioned(left: 0, right: 0, bottom: 0, child: MiniPlayer()),
-          ],
+        body: Builder(
+          builder: (bodyContext) {
+            final bottomChromeHeight =
+                MediaQuery.of(bodyContext).padding.bottom;
+            return Stack(
+              children: [
+                IndexedStack(index: currentTab, children: _tabs),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: bottomChromeHeight,
+                  child: const MiniPlayer(),
+                ),
+              ],
+            );
+          },
         ),
-        bottomNavigationBar: NavigationBar(
-          elevation: 0,
-          selectedIndex: currentTab,
+        bottomNavigationBar: GlassContainer(
+          blurSigma: 24,
+          tint: theme.colorScheme.surface.withValues(
+            alpha: isLight ? 0.78 : 0.66,
+          ),
+          child: NavigationBar(
+            elevation: 0,
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            selectedIndex: currentTab,
           onDestinationSelected: (index) {
             ref.read(currentTabProvider.notifier).state = index;
           },
@@ -428,6 +452,7 @@ class _HomePageState extends ConsumerState<HomePage>
               label: '收藏',
             ),
           ],
+        ),
         ),
       ),
     );

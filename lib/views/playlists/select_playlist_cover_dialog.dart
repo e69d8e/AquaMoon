@@ -6,6 +6,7 @@ import '../../models/playlist.dart';
 import '../../models/song.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../widgets/glass_container.dart';
 import '../widgets/song_artwork.dart';
 
 class SelectPlaylistCoverDialog extends ConsumerStatefulWidget {
@@ -65,12 +66,9 @@ class _SelectPlaylistCoverDialogState
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Container(
+      child: GlassContainer(
         height: MediaQuery.of(context).size.height * 0.75,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: Column(
           children: [
             // Drag Handle

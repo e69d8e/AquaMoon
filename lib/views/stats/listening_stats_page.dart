@@ -8,6 +8,7 @@ import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
+import '../widgets/glass_container.dart';
 import '../widgets/song_artwork.dart';
 import 'widgets/listening_chart.dart';
 import 'widgets/listening_heatmap.dart';
@@ -670,6 +671,7 @@ class ListeningStatsPage extends ConsumerWidget {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final songs = ref.watch(artistSongsInPeriodProvider(artist));
         return DraggableScrollableSheet(
@@ -678,7 +680,11 @@ class ListeningStatsPage extends ConsumerWidget {
           minChildSize: 0.4,
           expand: false,
           builder: (context, scrollController) {
-            return Column(
+            return GlassContainer(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+              child: Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -792,6 +798,7 @@ class ListeningStatsPage extends ConsumerWidget {
                         ),
                 ),
               ],
+            ),
             );
           },
         );

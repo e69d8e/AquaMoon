@@ -10,6 +10,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../services/file_export_service.dart';
 import '../../services/online_metadata_service.dart';
+import '../widgets/glass_container.dart';
 
 class OnlineSearchPage extends ConsumerStatefulWidget {
   final String? initialQuery;
@@ -1007,12 +1008,9 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
     final isLight = theme.brightness == Brightness.light;
     final lyricText = _item.syncedLyrics ?? _item.plainLyrics;
 
-    return Container(
+    return GlassContainer(
       height: MediaQuery.of(context).size.height * 0.85,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Column(
         children: [
           // Drag handle

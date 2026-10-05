@@ -16,6 +16,7 @@ import '../../services/file_export_service.dart';
 import '../online_search/online_search_page.dart';
 import '../widgets/custom_progress_bar.dart';
 import '../widgets/edit_song_dialog.dart';
+import '../widgets/glass_container.dart';
 import '../widgets/online_candidate_dialog.dart';
 import '../widgets/song_artwork.dart';
 import 'lyrics_view.dart';
@@ -713,10 +714,14 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
 
     showModalBottomSheet<void>(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
-        return SafeArea(
-          child: Consumer(
+        return GlassContainer(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: SafeArea(
+            top: false,
+            child: Consumer(
             builder: (context, sheetRef, _) {
               final remaining = sheetRef.watch(
                 sleepTimerStreamProvider.select((v) => v.valueOrNull),
@@ -806,6 +811,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
               );
             },
           ),
+          ),
         );
       },
     );
@@ -817,6 +823,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) => Consumer(
         builder: (context, ref, _) {
           final queueAsync = ref.watch(playlistQueueStreamProvider);
@@ -830,7 +837,11 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
             minChildSize: 0.4,
             expand: false,
             builder: (context, scrollController) {
-              return Column(
+              return GlassContainer(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                child: Column(
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -960,12 +971,13 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                           ),
                   ),
                 ],
-              );
-            },
-          );
-        },
-      ),
-    );
+              ),
+            );
+          },
+        );
+      },
+    ),
+  );
   }
 }
 

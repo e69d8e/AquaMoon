@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/audio_provider.dart';
+import '../widgets/glass_container.dart';
 import '../widgets/song_artwork.dart';
 import 'full_player_page.dart';
 
@@ -53,27 +54,19 @@ class MiniPlayer extends ConsumerWidget {
           ),
         );
       },
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isLight
-              ? theme.colorScheme.surface
-              : theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: GlassContainer(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-            width: 1,
-          ),
-          boxShadow: [
+          blurSigma: 24,
+          shadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: isLight ? 0.08 : 0.25),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),
           ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
@@ -165,6 +158,7 @@ class MiniPlayer extends ConsumerWidget {
             // Bottom border thin progress indicator isolated from main container
             const _MiniPlayerProgressIndicator(),
           ],
+        ),
         ),
       ),
     );

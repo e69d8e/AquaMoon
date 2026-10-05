@@ -178,7 +178,10 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab> {
           child: ListView.builder(
             controller: _scrollController,
             itemExtent: 58.0,
-            padding: const EdgeInsets.only(bottom: 120),
+            // 底部留白 = 底部导航栏(MediaQuery 抬升量)+ 迷你播放器。
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).padding.bottom + 96,
+            ),
             itemCount: favorites.length,
             itemBuilder: (context, index) {
               final song = favorites[index];

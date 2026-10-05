@@ -121,7 +121,13 @@ class PlaylistsTab extends ConsumerWidget {
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+                  // 底部留白 = 底部导航栏(MediaQuery 抬升量)+ 迷你播放器。
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    4,
+                    16,
+                    MediaQuery.of(context).padding.bottom + 96,
+                  ),
                   itemCount: playlists.length,
                   itemBuilder: (context, index) {
                     final pl = playlists[index];
