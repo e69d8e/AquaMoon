@@ -53,6 +53,8 @@ class _OnlineCandidateSelectDialogState
   String? _errorMessage;
   int? _expandedLyricIndex;
   bool _isLoadingLyrics = false;
+  // 仅预取排名最靠前的一个可拉取候选；进行中时其标签显示“歌词获取中…”。
+  int? _prefetchingLyricIndex;
 
   @override
   void initState() {
@@ -91,6 +93,7 @@ class _OnlineCandidateSelectDialogState
       _isLoading = true;
       _errorMessage = null;
       _expandedLyricIndex = null;
+      _prefetchingLyricIndex = null;
     });
 
     try {
@@ -105,11 +108,13 @@ class _OnlineCandidateSelectDialogState
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _candidates = results;
+          // 预取歌词会按下标写回，这里拷贝一份，不依赖服务返回可变列表。
+          _candidates = List.of(results);
           if (results.isEmpty) {
             _errorMessage = '未找到匹配的在线数据，您可以微调歌名或歌手名后重试。';
           }
         });
+        _prefetchCandidateLyrics();
       }
     } catch (e) {
       if (mounted) {
@@ -118,6 +123,35 @@ class _OnlineCandidateSelectDialogState
           _errorMessage = '检索失败: $e';
         });
       }
+    }
+  }
+
+  /// 搜索接口只返回标题/封面等基础信息，QQ 音乐与网易云的歌词要凭 extraId
+  /// 走二次接口拉取。这里只预取排名最靠前的一个可拉取候选（即“推荐首选”），
+  /// 让首选卡片不用点“预览歌词”就显示真实歌词状态；其余候选仍在点开预览时
+  /// 按需拉取（Apple Music 检索接口不提供歌词，维持原样）。
+  void _prefetchCandidateLyrics() {
+    final service = ref.read(onlineMetadataServiceProvider);
+    final listSnapshot = _candidates;
+    for (var i = 0; i < _candidates.length; i++) {
+      final candidate = _candidates[i];
+      if (candidate.hasLyrics ||
+          candidate.extraId == null ||
+          (candidate.source != 'QQ音乐' && candidate.source != '网易云音乐')) {
+        continue;
+      }
+      setState(() {
+        _prefetchingLyricIndex = i;
+      });
+      service.ensureLyricsLoaded(candidate).then((enriched) {
+        // await 期间“检索”可能已换掉整个结果集，按下标写回会张冠李戴。
+        if (!mounted || !identical(_candidates, listSnapshot)) return;
+        setState(() {
+          _prefetchingLyricIndex = null;
+          _candidates[i] = enriched;
+        });
+      });
+      return;
     }
   }
 
@@ -136,7 +170,11 @@ class _OnlineCandidateSelectDialogState
       _expandedLyricIndex = index;
     });
 
-    if (!candidate.hasLyrics && candidate.extraId != null) {
+    // 首选的自动补歌词若仍在路上，展开即可——补齐后卡片会自动刷新，
+    // 这里再发一次请求纯属重复。
+    if (!candidate.hasLyrics &&
+        candidate.extraId != null &&
+        _prefetchingLyricIndex != index) {
       setState(() {
         _isLoadingLyrics = true;
       });
@@ -518,6 +556,24 @@ class _OnlineCandidateSelectDialogState
                             widget.song.duration,
                           );
                           final sourceColor = _getSourceColor(item.source);
+                          final hasSyncedLyrics = item.syncedLyrics != null;
+                          final hasPlainLyrics = item.plainLyrics != null;
+                          final isFetchingLyrics =
+                              _prefetchingLyricIndex == index;
+                          final lyricTagText = hasSyncedLyrics
+                              ? 'LRC 滚动歌词'
+                              : hasPlainLyrics
+                              ? '纯文本歌词'
+                              : isFetchingLyrics
+                              ? '歌词获取中…'
+                              : '无歌词';
+                          final lyricTagColor = hasSyncedLyrics
+                              ? Colors.green
+                              : hasPlainLyrics
+                              ? Colors.blue
+                              : isFetchingLyrics
+                              ? Colors.orange
+                              : theme.colorScheme.onSurfaceVariant;
 
                           return Card(
                             elevation: 0,
@@ -737,72 +793,22 @@ class _OnlineCandidateSelectDialogState
                                                         vertical: 1.5,
                                                       ),
                                                   decoration: BoxDecoration(
-                                                    color:
-                                                        item.syncedLyrics !=
-                                                            null
-                                                        ? Colors.green
-                                                              .withValues(
-                                                                alpha: 0.12,
-                                                              )
-                                                        : (item.plainLyrics !=
-                                                                  null
-                                                              ? Colors.blue
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.12,
-                                                                    )
-                                                              : theme
-                                                                    .colorScheme
-                                                                    .surfaceContainerHighest),
+                                                    color: lyricTagColor
+                                                        .withValues(alpha: 0.12),
                                                     borderRadius:
-                                                        BorderRadius.circular(
-                                                          4,
-                                                        ),
+                                                        BorderRadius.circular(4),
                                                     border: Border.all(
-                                                      color:
-                                                          item.syncedLyrics !=
-                                                              null
-                                                          ? Colors.green
-                                                                .withValues(
-                                                                  alpha: 0.4,
-                                                                )
-                                                          : (item.plainLyrics !=
-                                                                    null
-                                                                ? Colors.blue
-                                                                      .withValues(
-                                                                        alpha:
-                                                                            0.4,
-                                                                      )
-                                                                : theme
-                                                                      .colorScheme
-                                                                      .outlineVariant
-                                                                      .withValues(
-                                                                        alpha:
-                                                                            0.4,
-                                                                      )),
+                                                      color: lyricTagColor
+                                                          .withValues(alpha: 0.4),
                                                     ),
                                                   ),
                                                   child: Text(
-                                                    item.syncedLyrics != null
-                                                        ? 'LRC 滚动歌词'
-                                                        : (item.plainLyrics !=
-                                                                  null
-                                                              ? '纯文本歌词'
-                                                              : '无歌词'),
+                                                    lyricTagText,
                                                     style: TextStyle(
                                                       fontSize: 10,
                                                       fontWeight:
                                                           FontWeight.w500,
-                                                      color:
-                                                          item.syncedLyrics !=
-                                                              null
-                                                          ? Colors.green
-                                                          : (item.plainLyrics !=
-                                                                    null
-                                                                ? Colors.blue
-                                                                : theme
-                                                                      .colorScheme
-                                                                      .onSurfaceVariant),
+                                                      color: lyricTagColor,
                                                     ),
                                                   ),
                                                 ),

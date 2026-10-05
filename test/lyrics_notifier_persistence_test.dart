@@ -194,5 +194,43 @@ void main() {
       expect(state.lines, isEmpty);
       expect(storageService.getSong('lyr-a')!.lrcContent, isNull);
     });
+
+    test(
+      'restart-restored song starts loading on notifier creation without playback',
+      () async {
+        // 重启恢复的当前歌曲先于歌词 notifier 存在：mini player 等早已把
+        // currentSongProvider 订阅成 AsyncData(songA)，之后用户才打开
+        // 歌词页并首次创建 notifier —— ref.listen 对这个已有值不回调。
+        currentSongController.add(songA);
+        final container = buildContainer();
+        container.read(currentSongProvider);
+        await settle();
+        expect(container.read(currentSongProvider).valueOrNull?.id, 'lyr-a');
+
+        container.read(lyricsNotifierProvider);
+        await settle();
+
+        // 未按播放也必须立即开始加载，而不是停在空状态等播放重发触发。
+        final loading = container.read(lyricsNotifierProvider);
+        expect(loading.songId, 'lyr-a');
+        expect(loading.isLoading, isTrue);
+
+        fetchCompleter.complete(
+          const OnlineSearchResult(
+            title: '歌A',
+            artist: '歌手A',
+            album: '专辑A',
+            syncedLyrics: '[00:01.00]A的歌词',
+          ),
+        );
+        await settle();
+
+        final state = container.read(lyricsNotifierProvider);
+        expect(state.songId, 'lyr-a');
+        expect(state.isSynced, isTrue);
+        expect(state.lines, isNotEmpty);
+        expect(storageService.getSong('lyr-a')!.lrcContent, '[00:01.00]A的歌词');
+      },
+    );
   });
 }

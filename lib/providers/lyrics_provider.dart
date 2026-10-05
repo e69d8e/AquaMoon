@@ -63,6 +63,15 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         state = const LyricsState();
       }
     });
+
+    // 重启恢复的“上次播放”歌曲在本 notifier 创建之前就已发射进流里，
+    // ref.listen 对已有的值不回调——不补这次读取的话，退出重开后要按下
+    // 播放（playAtIndex 重发同一首歌）才会加载歌词。同一首歌不会重复
+    // 加载：loadLyricsForSong 一进来就把 state.songId 置为该歌。
+    final restored = _ref.read(currentSongProvider).valueOrNull;
+    if (restored != null) {
+      loadLyricsForSong(restored);
+    }
   }
 
   /// Loads lyrics for [song]; when [forceOnline] is set, always fetches from
