@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../core/platform/apk_installer.dart';
 import '../core/utils/version_utils.dart';
 import '../models/update_info.dart';
 
@@ -16,15 +17,20 @@ import '../models/update_info.dart';
 /// from "check failed" (manual check shows an error toast, auto check stays
 /// silent).
 class UpdateService {
-  UpdateService({http.Client? client, String? apiUrl})
-      : _client = client ?? http.Client(),
-        _apiUrl = apiUrl ?? defaultApiUrl;
+  UpdateService({
+    http.Client? client,
+    String? apiUrl,
+    Future<List<String>> Function()? abiProvider,
+  }) : _client = client ?? http.Client(),
+       _apiUrl = apiUrl ?? defaultApiUrl,
+       _abiProvider = abiProvider ?? ApkInstaller.supportedAbis;
 
   static const String defaultApiUrl =
       'https://api.github.com/repos/e69d8e/AquaMoon/releases/latest';
 
   final http.Client _client;
   final String _apiUrl;
+  final Future<List<String>> Function() _abiProvider;
 
   /// Returns update info when [currentVersion] is behind the latest GitHub
   /// release, `null` when it is up to date. Throws on network or parse
@@ -67,9 +73,13 @@ class UpdateService {
       currentVersion: VersionUtils.normalize(currentVersion),
       releaseTitle: data['name'] as String? ?? '',
       releaseNotes: data['body'] as String? ?? '',
-      releaseUrl: data['html_url'] as String? ??
+      releaseUrl:
+          data['html_url'] as String? ??
           'https://github.com/e69d8e/AquaMoon/releases',
-      apkUrl: _findApkAssetUrl(data['assets']),
+      apkUrl: _findApkAssetUrl(
+        data['assets'],
+        deviceAbis: await _abiProvider(),
+      ),
     );
   }
 
@@ -77,13 +87,21 @@ class UpdateService {
   /// the update in-app instead of leaving for the browser.
   ///
   /// Releases ship several per-ABI APKs plus a Universal one, and GitHub
-  /// returns assets in arbitrary order — blindly taking the first `.apk`
-  /// would hand e.g. an armeabi-v7a device an arm64-only package the
-  /// installer rejects. Prefer the Universal APK; fall back to the first
-  /// `.apk` only when no Universal asset exists.
-  static String? _findApkAssetUrl(Object? assets) {
+  /// returns assets in arbitrary order. Prefer the split APK matching one of
+  /// [deviceAbis] (Android reports them most-preferred first) so a 64-bit
+  /// device downloads the small arm64 package instead of the much larger
+  /// Universal one — and so the versionCode lineage stays consistent, since
+  /// split APKs carry an ABI offset on top of the base versionCode and the
+  /// installer rejects a Universal build as a downgrade after one was
+  /// installed. Fall back to the Universal APK when no per-ABI asset matches
+  /// (unknown ABI, naming changes), then to the first `.apk`.
+  static String? _findApkAssetUrl(
+    Object? assets, {
+    List<String> deviceAbis = const [],
+  }) {
     if (assets is! List) return null;
-    String? firstApk;
+
+    final apkAssets = <({String name, String url})>[];
     for (final asset in assets) {
       if (asset is! Map) continue;
       final name = asset['name'] as String? ?? '';
@@ -91,13 +109,23 @@ class UpdateService {
       if (name.toLowerCase().endsWith('.apk') &&
           url != null &&
           url.isNotEmpty) {
-        if (name.toLowerCase().contains('universal')) {
-          return url;
-        }
-        firstApk ??= url;
+        apkAssets.add((name: name.toLowerCase(), url: url));
       }
     }
-    return firstApk;
+    if (apkAssets.isEmpty) return null;
+
+    for (final abi in deviceAbis) {
+      for (final apk in apkAssets) {
+        if (apk.name.contains(abi.toLowerCase())) return apk.url;
+      }
+    }
+
+    return apkAssets
+        .firstWhere(
+          (apk) => apk.name.contains('universal'),
+          orElse: () => apkAssets.first,
+        )
+        .url;
   }
 
   /// Streams the release APK into the app cache directory, reporting progress

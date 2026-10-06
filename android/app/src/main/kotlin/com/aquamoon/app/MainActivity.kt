@@ -67,6 +67,9 @@ class MainActivity : AudioServiceActivity() {
                 "canInstallPackages" -> {
                     result.success(canRequestPackageInstalls())
                 }
+                "getSupportedAbis" -> {
+                    result.success(Build.SUPPORTED_ABIS.toList())
+                }
                 else -> result.notImplemented()
             }
         }

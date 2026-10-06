@@ -6,10 +6,11 @@ import 'package:http/testing.dart';
 
 import 'package:aquamoon/services/update_service.dart';
 
-http.Response _releaseResponse(Map<String, dynamic> release) =>
-    http.Response(json.encode(release), 200, headers: {
-      'content-type': 'application/json; charset=utf-8',
-    });
+http.Response _releaseResponse(Map<String, dynamic> release) => http.Response(
+  json.encode(release),
+  200,
+  headers: {'content-type': 'application/json; charset=utf-8'},
+);
 
 const _mockRelease = {
   'tag_name': 'v1.1.0',
@@ -49,27 +50,27 @@ void main() {
       expect(acceptHeader, 'application/vnd.github+json');
     });
 
-    test('returns null when versions are equal (build number ignored)',
-        () async {
-      final service = UpdateService(
-        client: MockClient(
-          (request) async => _releaseResponse(
-            {..._mockRelease, 'tag_name': 'v1.0.2'},
+    test(
+      'returns null when versions are equal (build number ignored)',
+      () async {
+        final service = UpdateService(
+          client: MockClient(
+            (request) async =>
+                _releaseResponse({..._mockRelease, 'tag_name': 'v1.0.2'}),
           ),
-        ),
-      );
+        );
 
-      final info = await service.checkForUpdate(currentVersion: '1.0.2+3');
+        final info = await service.checkForUpdate(currentVersion: '1.0.2+3');
 
-      expect(info, isNull);
-    });
+        expect(info, isNull);
+      },
+    );
 
     test('returns null when remote tag is older', () async {
       final service = UpdateService(
         client: MockClient(
-          (request) async => _releaseResponse(
-            {..._mockRelease, 'tag_name': 'v0.9.0'},
-          ),
+          (request) async =>
+              _releaseResponse({..._mockRelease, 'tag_name': 'v0.9.0'}),
         ),
       );
 
@@ -80,7 +81,9 @@ void main() {
 
     test('throws on non-200 response', () async {
       final service = UpdateService(
-        client: MockClient((request) async => http.Response('rate limited', 403)),
+        client: MockClient(
+          (request) async => http.Response('rate limited', 403),
+        ),
       );
 
       await expectLater(
@@ -117,21 +120,17 @@ void main() {
     test('falls back to releases page when html_url is missing', () async {
       final service = UpdateService(
         client: MockClient(
-          (request) async => _releaseResponse({
-            'tag_name': 'v2.0.0',
-            'name': 'v2.0.0',
-          }),
+          (request) async =>
+              _releaseResponse({'tag_name': 'v2.0.0', 'name': 'v2.0.0'}),
         ),
       );
 
       final info = await service.checkForUpdate(currentVersion: '1.0.2');
 
-      expect(info!.releaseUrl,
-          'https://github.com/e69d8e/AquaMoon/releases');
+      expect(info!.releaseUrl, 'https://github.com/e69d8e/AquaMoon/releases');
     });
 
-    test('prefers the Universal APK over per-ABI builds regardless of order',
-        () async {
+    test('falls back to Universal when the device reports no ABIs', () async {
       final service = UpdateService(
         client: MockClient(
           (request) async => _releaseResponse({
@@ -152,6 +151,7 @@ void main() {
             ],
           }),
         ),
+        abiProvider: () async => const [],
       );
 
       final info = await service.checkForUpdate(currentVersion: '1.0.2');
@@ -159,8 +159,43 @@ void main() {
       expect(info!.apkUrl, 'https://example.com/universal.apk');
     });
 
-    test('falls back to the first .apk when no Universal asset exists',
-        () async {
+    test(
+      'picks the split APK matching the device ABI regardless of order',
+      () async {
+        final service = UpdateService(
+          client: MockClient(
+            (request) async => _releaseResponse({
+              ..._mockRelease,
+              'assets': [
+                {
+                  'name': 'AquaMoon-Android-Universal.apk',
+                  'browser_download_url': 'https://example.com/universal.apk',
+                },
+                {
+                  'name': 'AquaMoon-Android-arm64-v8a.apk',
+                  'browser_download_url': 'https://example.com/arm64.apk',
+                },
+                {
+                  'name': 'AquaMoon-Android-armeabi-v7a.apk',
+                  'browser_download_url': 'https://example.com/armv7.apk',
+                },
+                {
+                  'name': 'AquaMoon-Android-x86_64.apk',
+                  'browser_download_url': 'https://example.com/x64.apk',
+                },
+              ],
+            }),
+          ),
+          abiProvider: () async => const ['arm64-v8a', 'armeabi-v7a'],
+        );
+
+        final info = await service.checkForUpdate(currentVersion: '1.0.2');
+
+        expect(info!.apkUrl, 'https://example.com/arm64.apk');
+      },
+    );
+
+    test('picks armeabi-v7a on a 32-bit-only device', () async {
       final service = UpdateService(
         client: MockClient(
           (request) async => _releaseResponse({
@@ -170,14 +205,74 @@ void main() {
                 'name': 'AquaMoon-Android-arm64-v8a.apk',
                 'browser_download_url': 'https://example.com/arm64.apk',
               },
+              {
+                'name': 'AquaMoon-Android-armeabi-v7a.apk',
+                'browser_download_url': 'https://example.com/armv7.apk',
+              },
+              {
+                'name': 'AquaMoon-Android-Universal.apk',
+                'browser_download_url': 'https://example.com/universal.apk',
+              },
             ],
           }),
         ),
+        abiProvider: () async => const ['armeabi-v7a', 'armeabi'],
       );
 
       final info = await service.checkForUpdate(currentVersion: '1.0.2');
 
-      expect(info!.apkUrl, 'https://example.com/arm64.apk');
+      expect(info!.apkUrl, 'https://example.com/armv7.apk');
     });
+
+    test(
+      'falls back to Universal when no asset matches the device ABI',
+      () async {
+        final service = UpdateService(
+          client: MockClient(
+            (request) async => _releaseResponse({
+              ..._mockRelease,
+              'assets': [
+                {
+                  'name': 'AquaMoon-Android-arm64-v8a.apk',
+                  'browser_download_url': 'https://example.com/arm64.apk',
+                },
+                {
+                  'name': 'AquaMoon-Android-Universal.apk',
+                  'browser_download_url': 'https://example.com/universal.apk',
+                },
+              ],
+            }),
+          ),
+          abiProvider: () async => const ['x86'],
+        );
+
+        final info = await service.checkForUpdate(currentVersion: '1.0.2');
+
+        expect(info!.apkUrl, 'https://example.com/universal.apk');
+      },
+    );
+
+    test(
+      'falls back to the first .apk when no Universal asset exists',
+      () async {
+        final service = UpdateService(
+          client: MockClient(
+            (request) async => _releaseResponse({
+              ..._mockRelease,
+              'assets': [
+                {
+                  'name': 'AquaMoon-Android-arm64-v8a.apk',
+                  'browser_download_url': 'https://example.com/arm64.apk',
+                },
+              ],
+            }),
+          ),
+        );
+
+        final info = await service.checkForUpdate(currentVersion: '1.0.2');
+
+        expect(info!.apkUrl, 'https://example.com/arm64.apk');
+      },
+    );
   });
 }
