@@ -922,7 +922,9 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                               final isCurrent = s.id == currentSong?.id;
 
                               return ListTile(
-                                key: ValueKey('queue_song_${s.id}_$index'),
+                                // key 不含 index：拖拽重排时行号会变，
+                                // 含 index 的 key 会让拖拽中的条目身份跳变。
+                                key: ValueKey('queue_song_${s.id}'),
                                 leading: SongArtwork(
                                   song: s,
                                   size: 40,

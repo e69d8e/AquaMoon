@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 
-import '../core/utils/formatters.dart';
 import 'file_export_service.dart';
 import 'storage_service.dart';
 
@@ -29,10 +30,14 @@ class BackupService {
   Future<ExportResult> exportBackup() async {
     try {
       final data = _storageService.exportBackup();
-      final json = const JsonEncoder.withIndent('  ').convert(data);
+      // 大曲库的全量 JSON 编码可能到 MB 级，放后台 isolate 避免冻结 UI。
+      final json = await Isolate.run(
+        () => const JsonEncoder.withIndent('  ').convert(data),
+      );
 
       final exportDir = await FileExportService.getExportDirectory();
-      final stamp = Formatters.formatDateKey(DateTime.now()).replaceAll('-', '');
+      // 带时分秒的时间戳：同一天多次导出不会互相覆盖。
+      final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       final fileName = 'aquamoon_backup_$stamp.json';
       final targetFile = File(p.join(exportDir.path, fileName));
       await targetFile.writeAsString(json, encoding: utf8, flush: true);

@@ -272,6 +272,8 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       );
     });
     if (applied == null) return;
+    // 封面下载/合并期间页面可能已被退出，后续 ref 读取必须先确认存活。
+    if (!mounted) return;
     final updated = applied;
 
     final currentSong = ref.read(currentSongProvider).valueOrNull;

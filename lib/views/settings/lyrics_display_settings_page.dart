@@ -66,18 +66,20 @@ class LyricsDisplaySettingsPage extends ConsumerWidget {
                           LyricsDisplaySettings.minBaseFontSize)
                           .round(),
                   valueLabel: '${settings.baseFontSize.round()} px',
+                  // 拖动中只更新内存状态，松手才落盘，避免每帧写 Hive。
                   onChanged: (value) {
                     // Keep the active line at least as large as base lines.
                     final active = settings.activeFontSize < value
                         ? value
                         : settings.activeFontSize;
-                    notifier.update(
+                    notifier.updateLive(
                       settings.copyWith(
                         baseFontSize: value,
                         activeFontSize: active,
                       ),
                     );
                   },
+                  onChangeEnd: (_) => notifier.persist(),
                 ),
                 const Divider(height: 1, indent: 56),
                 _SliderRow(
@@ -96,13 +98,14 @@ class LyricsDisplaySettingsPage extends ConsumerWidget {
                     final base = settings.baseFontSize > value
                         ? value
                         : settings.baseFontSize;
-                    notifier.update(
+                    notifier.updateLive(
                       settings.copyWith(
                         activeFontSize: value,
                         baseFontSize: base,
                       ),
                     );
                   },
+                  onChangeEnd: (_) => notifier.persist(),
                 ),
                 const Divider(height: 1, indent: 56),
                 _SliderRow(
@@ -119,7 +122,8 @@ class LyricsDisplaySettingsPage extends ConsumerWidget {
                           .round(),
                   valueLabel: '${settings.lineHeight.toStringAsFixed(1)} 倍',
                   onChanged: (value) =>
-                      notifier.update(settings.copyWith(lineHeight: value)),
+                      notifier.updateLive(settings.copyWith(lineHeight: value)),
+                  onChangeEnd: (_) => notifier.persist(),
                 ),
               ],
             ),
@@ -285,6 +289,7 @@ class _SliderRow extends StatelessWidget {
   final int divisions;
   final String valueLabel;
   final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChangeEnd;
 
   const _SliderRow({
     required this.icon,
@@ -296,6 +301,7 @@ class _SliderRow extends StatelessWidget {
     required this.divisions,
     required this.valueLabel,
     required this.onChanged,
+    this.onChangeEnd,
   });
 
   @override
@@ -347,6 +353,7 @@ class _SliderRow extends StatelessWidget {
                   divisions: divisions,
                   label: valueLabel,
                   onChanged: onChanged,
+                  onChangeEnd: onChangeEnd,
                 ),
               ],
             ),

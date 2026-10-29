@@ -112,6 +112,9 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
       if (mounted) setState(() => _hasNotificationPermission = true);
     }
 
+    // 权限弹窗期间页面可能已被销毁（根路由重建等），后续 setState / ref
+    // 都不能再碰。
+    if (!mounted) return;
     setState(() => _customEnabled = enable);
     await ref.read(audioHandlerProvider).setCustomNotificationEnabled(enable);
     if (mounted) {
@@ -327,7 +330,18 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                   isGood: _hasBatteryExemption,
                   goodText: '已豁免',
                   actionText: _hasBatteryExemption ? '已开启' : '去申请',
-                  onAction: () => _requestBatteryOptimization(),
+                  // 已在白名单时点击不再重复发起系统权限请求，只确认状态。
+                  onAction: () {
+                    if (_hasBatteryExemption) {
+                      AppToast.show(
+                        context,
+                        '已在电池优化白名单中，无需重复申请',
+                        icon: Icons.check_circle_rounded,
+                      );
+                    } else {
+                      _requestBatteryOptimization();
+                    }
+                  },
                 ),
                 const SizedBox(height: 10),
 

@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../core/utils/formatters.dart';
 import '../models/listening_stats.dart';
@@ -476,6 +480,97 @@ class StorageService {
       total += record.totalDurationSeconds;
     }
     return total;
+  }
+
+  // --- Cover Cache Migration (temp dir → application support dir) ---
+
+  /// 历史版本把封面缓存写进系统临时目录（covers/ 与 online_covers/）。系统
+  /// 清理应用缓存后，持久化记录里的 file:// URI 会永久失效且无从自愈。
+  /// 这里把仍存在的封面文件搬到应用支持目录并改写歌曲与歌单记录；已丢失
+  /// 的封面直接清空字段，交给“重新扫描曲库 / 智能补齐封面”重新获取。
+  /// 返回发生变更的记录数。
+  ///
+  /// [tempDir] / [supportDir] 可注入（测试用）；缺省时经 path_provider 解析，
+  /// 平台通道不可用时直接返回 0。
+  Future<int> migrateTempCoverCaches({
+    Directory? tempDir,
+    Directory? supportDir,
+  }) async {
+    tempDir ??= await _resolveDirOrNull(getTemporaryDirectory);
+    supportDir ??= await _resolveDirOrNull(getApplicationSupportDirectory);
+    if (tempDir == null || supportDir == null) {
+      // 平台通道不可用（如单元测试）且未注入目录——无事可做。
+      return 0;
+    }
+    // 闭包内做不了空提升（参数可能被重赋值），先固化成 final 局部量。
+    final tempRoot = tempDir;
+    final supportRoot = supportDir;
+    final tempPrefix = '${tempRoot.path}${Platform.pathSeparator}';
+
+    /// 返回 (是否有变动, 新 URI)；`touched && uri == null` 表示源文件已
+    /// 丢失、应清空字段。
+    Future<(bool, String?)> migrateCover(String? uri) async {
+      if (uri == null || !uri.startsWith('file://')) return (false, null);
+      final sourcePath = Uri.tryParse(uri)?.toFilePath();
+      if (sourcePath == null || !sourcePath.startsWith(tempPrefix)) {
+        return (false, null);
+      }
+      final source = File(sourcePath);
+      if (!await source.exists()) return (true, null);
+      final target = File(
+        p.join(
+          supportRoot.path,
+          p.relative(sourcePath, from: tempRoot.path),
+        ),
+      );
+      if (!await target.exists()) {
+        await target.create(recursive: true);
+        await source.copy(target.path);
+      }
+      return (true, target.uri.toString());
+    }
+
+    var changed = 0;
+    final changedSongs = <Song>[];
+    for (final raw in _songsBox.values) {
+      if (raw is! Map) continue;
+      final song = Song.fromMap(raw);
+      final (touched, newUri) = await migrateCover(song.albumArtUri);
+      if (!touched) continue;
+      changedSongs.add(
+        newUri == null
+            ? song.copyWith(clearAlbumArtUri: true)
+            : song.copyWith(albumArtUri: newUri),
+      );
+      changed++;
+    }
+    if (changedSongs.isNotEmpty) {
+      await saveSongs(changedSongs);
+    }
+
+    for (final raw in _playlistsBox.values) {
+      if (raw is! Map) continue;
+      final playlist = Playlist.fromMap(raw);
+      final (touched, newUri) = await migrateCover(playlist.coverArtUri);
+      if (!touched) continue;
+      await savePlaylist(
+        newUri == null
+            ? playlist.copyWith(clearCoverArtUri: true)
+            : playlist.copyWith(coverArtUri: newUri),
+      );
+      changed++;
+    }
+    return changed;
+  }
+
+  static Future<Directory?> _resolveDirOrNull(
+    Future<Directory> Function() resolve,
+  ) async {
+    try {
+      return await resolve();
+    } catch (_) {
+      return null;
+    }
   }
 
   // --- Backup & Restore ---

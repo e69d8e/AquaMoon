@@ -837,7 +837,7 @@ class SettingsPage extends ConsumerWidget {
                     if (context.mounted) {
                       AppToast.show(
                         context,
-                        result.success ? result.message : result.message,
+                        result.message,
                         icon: result.success
                             ? Icons.check_circle_outline_rounded
                             : Icons.error_outline_rounded,

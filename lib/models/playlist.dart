@@ -22,6 +22,7 @@ class Playlist {
     List<String>? songIds,
     DateTime? createdAt,
     String? coverArtUri,
+    bool clearCoverArtUri = false,
   }) {
     return Playlist(
       id: id ?? this.id,
@@ -29,7 +30,9 @@ class Playlist {
       description: description ?? this.description,
       songIds: songIds ?? this.songIds,
       createdAt: createdAt ?? this.createdAt,
-      coverArtUri: coverArtUri ?? this.coverArtUri,
+      coverArtUri: clearCoverArtUri
+          ? null
+          : (coverArtUri ?? this.coverArtUri),
     );
   }
 

@@ -872,8 +872,8 @@ class ListeningStatsPage extends ConsumerWidget {
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
     );
-    if (picked != null) {
-      ref.read(selectedStatsDateProvider.notifier).state = picked;
-    }
+    // 选日期期间页面可能被退出，ref 不能再使用。
+    if (picked == null || !context.mounted) return;
+    ref.read(selectedStatsDateProvider.notifier).state = picked;
   }
 }

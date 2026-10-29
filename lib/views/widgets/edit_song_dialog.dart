@@ -74,7 +74,16 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
           });
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      // 相册/文件选择器打开失败时给用户可见的反馈，而不是无声无息。
+      if (mounted) {
+        AppToast.show(
+          context,
+          '无法打开图片选择器',
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    }
   }
 
   Future<void> _searchOnlineCandidates() async {
@@ -194,27 +203,39 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
     // Merge onto the freshest stored copy: while this dialog is open the
     // song may gain a play count / favorite / auto-matched lyrics — saving
     // the snapshot taken at open time would silently revert those.
-    final updatedSong = await ref
-        .read(libraryNotifierProvider.notifier)
-        .updateSongMerged(widget.song.id, (current) {
-          return current.copyWith(
-            title: _titleController.text.trim().isNotEmpty
-                ? _titleController.text.trim()
-                : current.title,
-            artist: _artistController.text.trim().isNotEmpty
-                ? _artistController.text.trim()
-                : '未知歌手',
-            album: _albumController.text.trim().isNotEmpty
-                ? _albumController.text.trim()
-                : '未知专辑',
-            albumArtUri: _customAlbumArtUri,
-            // 清空输入框 = 真正清空字段（copyWith 传 null 只会保留旧值）。
-            lrcContent: lrcText.isNotEmpty ? lrcText : null,
-            clearLrcContent: lrcText.isEmpty,
-            year: int.tryParse(yearText),
-            clearYear: yearText.isEmpty,
-          );
-        });
+    final Song? updatedSong;
+    try {
+      updatedSong = await ref
+          .read(libraryNotifierProvider.notifier)
+          .updateSongMerged(widget.song.id, (current) {
+            return current.copyWith(
+              title: _titleController.text.trim().isNotEmpty
+                  ? _titleController.text.trim()
+                  : current.title,
+              artist: _artistController.text.trim().isNotEmpty
+                  ? _artistController.text.trim()
+                  : '未知歌手',
+              album: _albumController.text.trim().isNotEmpty
+                  ? _albumController.text.trim()
+                  : '未知专辑',
+              albumArtUri: _customAlbumArtUri,
+              // 清空输入框 = 真正清空字段（copyWith 传 null 只会保留旧值）。
+              lrcContent: lrcText.isNotEmpty ? lrcText : null,
+              clearLrcContent: lrcText.isEmpty,
+              year: int.tryParse(yearText),
+              clearYear: yearText.isEmpty,
+            );
+          });
+    } catch (_) {
+      if (mounted) {
+        AppToast.show(
+          context,
+          '保存失败，请重试',
+          icon: Icons.error_outline_rounded,
+        );
+      }
+      return;
+    }
     if (updatedSong == null || !mounted) return;
 
     // If currently playing, sync with AudioHandler & LyricsProvider

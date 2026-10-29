@@ -239,6 +239,15 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       ].where((s) => s.id.isNotEmpty && s.filePath.isNotEmpty).toList();
       if (songs.isEmpty) return;
 
+      // 会话快照可能落后于曲库记录（重启前的元数据编辑、封面缓存迁移等）：
+      // 曲库里还存在的歌一律换成最新记录，快照只兜底已删除的条目。
+      for (var i = 0; i < songs.length; i++) {
+        final stored = _storageService.getSong(songs[i].id);
+        if (stored != null && stored.filePath.isNotEmpty) {
+          songs[i] = stored;
+        }
+      }
+
       _playlist = songs;
       _currentIndex = session.index.clamp(0, songs.length - 1);
       final song = songs[_currentIndex];
@@ -490,6 +499,16 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> stop() async {
     _statsTracker.onStop();
+    // just_audio 的 stop() 会释放已加载的音源，之后 play() 若只调
+    // _player.play() 会静默无声。记下当前位置并复位 _audioLoaded，
+    // 让下一次 play() 走 playAtIndex 重新加载文件并从该位置继续
+    // （通知栏划掉卡片后再点播放正是这条路径）。
+    if (currentSong != null) {
+      final resumeAt = _player.position;
+      _storageService.saveLastPositionMs(resumeAt.inMilliseconds);
+      _pendingResumePosition = resumeAt > Duration.zero ? resumeAt : null;
+    }
+    _audioLoaded = false;
     await _player.stop();
     await CustomNotificationService.cancel();
     await super.stop();
@@ -752,6 +771,10 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _currentIndex = index;
     final song = _playlist[index];
     _shuffleHistory.add(index);
+    // 随机播放的回退只消费尾部，长会话里截断头部即可，避免无限增长。
+    if (_shuffleHistory.length > 100) {
+      _shuffleHistory.removeRange(0, _shuffleHistory.length - 100);
+    }
 
     // Persist play history & count BEFORE announcing the current song, so
     // listeners that read the songs box on song change see the incremented

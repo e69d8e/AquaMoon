@@ -13,6 +13,10 @@ Future<void> main() async {
   final storageService = StorageService();
   await storageService.init();
 
+  // 历史版本遗留在系统临时目录的封面缓存迁往应用支持目录（与
+  // AudioService 初始化并行，必须在任何 Provider 读盒之前完成）。
+  final coverCacheMigration = storageService.migrateTempCoverCaches();
+
   // Initialize AudioService Handler
   final audioHandler = await AudioService.init(
     builder: () => SoundCraftAudioHandler(storageService),
@@ -29,6 +33,11 @@ Future<void> main() async {
       artDownscaleHeight: 512,
     ),
   );
+
+  final migratedCovers = await coverCacheMigration;
+  if (migratedCovers > 0) {
+    debugPrint('[AquaMoon] migrated $migratedCovers cover cache records');
+  }
 
   runApp(
     ProviderScope(

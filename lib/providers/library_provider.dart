@@ -324,11 +324,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
           .toList();
       return await _processAudioFilePaths(validPaths);
     } finally {
-      state = state.copyWith(
-        isScanning: false,
-        scanProgressText: null,
-        scanProgressPercent: null,
-      );
+      // copyWith 的 null 参数语义是“保留旧值”，进度字段必须用全新状态
+      // 整体重置，否则扫描结束后文案/百分比仍残留在状态里。
+      state = LibraryState(songs: state.songs);
     }
   }
 
@@ -398,11 +396,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
 
       return await _processAudioFilePaths(audioFilePaths);
     } finally {
-      state = state.copyWith(
-        isScanning: false,
-        scanProgressText: null,
-        scanProgressPercent: null,
-      );
+      // copyWith 的 null 参数语义是“保留旧值”，进度字段必须用全新状态
+      // 整体重置，否则扫描结束后文案/百分比仍残留在状态里。
+      state = LibraryState(songs: state.songs);
     }
   }
 
@@ -432,11 +428,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
 
       return await _processAudioFilePaths(audioFilePaths);
     } finally {
-      state = state.copyWith(
-        isScanning: false,
-        scanProgressText: null,
-        scanProgressPercent: null,
-      );
+      // copyWith 的 null 参数语义是“保留旧值”，进度字段必须用全新状态
+      // 整体重置，否则扫描结束后文案/百分比仍残留在状态里。
+      state = LibraryState(songs: state.songs);
     }
   }
 
@@ -444,7 +438,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     final newSongs = <Song>[];
     final currentSongs = state.songs;
 
-    final existingPaths = {for (final s in currentSongs) s.filePath};
+    final existingByPath = <String, Song>{
+      for (final s in currentSongs) s.filePath: s,
+    };
     final existingMetaMap = <String, Song>{
       for (final s in currentSongs)
         if (s.title.trim().isNotEmpty &&
@@ -465,16 +461,23 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         scanProgressPercent: percent,
       );
 
+      // 第四个元素是“曲库中同路径的既有记录”：非空表示这次解析是为了
+      // 给缺封面的旧歌补数据（重扫的自愈入口），而不是新增歌曲。
       final chunkResults = await Future.wait(
         chunk.map((filePath) async {
-          if (existingPaths.contains(filePath)) return null;
+          final existing = existingByPath[filePath];
+          if (existing != null &&
+              existing.albumArtUri != null &&
+              existing.albumArtUri!.isNotEmpty) {
+            return null;
+          }
           final meta = await MetadataExtractor.extractFromFile(filePath);
           // 内嵌歌词缺失时再找同名 .lrc 侧车文件。
           var lyrics = meta.lyrics;
           if (lyrics == null || lyrics.trim().isEmpty) {
             lyrics = await _readSidecarLrc(filePath);
           }
-          return (filePath, meta, lyrics);
+          return (filePath, meta, lyrics, existing);
         }),
       );
 
@@ -483,6 +486,25 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         final filePath = item.$1;
         final metadata = item.$2;
         final lyrics = item.$3;
+        final existing = item.$4;
+
+        if (existing != null) {
+          // 曲库已有但缺封面：只补空缺，不覆盖既有歌词与元数据。
+          final needLrc = existing.lrcContent == null ||
+              existing.lrcContent!.trim().isEmpty;
+          final hasNewLrc = lyrics != null && lyrics.trim().isNotEmpty;
+          if (metadata.albumArtUri != null || (needLrc && hasNewLrc)) {
+            await updateSongMerged(existing.id, (current) {
+              final currentNeedLrc = current.lrcContent == null ||
+                  current.lrcContent!.trim().isEmpty;
+              return current.copyWith(
+                albumArtUri: current.albumArtUri ?? metadata.albumArtUri,
+                lrcContent: currentNeedLrc && hasNewLrc ? lyrics : null,
+              );
+            });
+          }
+          continue;
+        }
 
         final titleNorm = metadata.title.trim().toLowerCase();
         final artistNorm = metadata.artist.trim().toLowerCase();
@@ -520,7 +542,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
           year: metadata.year,
         );
 
-        existingPaths.add(filePath);
+        existingByPath[filePath] = song;
         if (artistNorm != '未知歌手') {
           existingMetaMap[metaKey] = song;
         }
@@ -606,11 +628,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         failed: failedCount,
       );
     } finally {
-      state = state.copyWith(
-        isScanning: false,
-        scanProgressText: null,
-        scanProgressPercent: null,
-      );
+      // copyWith 的 null 参数语义是“保留旧值”，进度字段必须用全新状态
+      // 整体重置，否则扫描结束后文案/百分比仍残留在状态里。
+      state = LibraryState(songs: state.songs);
     }
   }
 

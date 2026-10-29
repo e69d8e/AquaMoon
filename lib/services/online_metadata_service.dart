@@ -855,8 +855,10 @@ class OnlineMetadataService {
   /// Download and cache an online cover image locally
   Future<String?> cacheOnlineImage(String imageUrl) async {
     try {
-      final tempDir = await getTemporaryDirectory();
-      final coverDir = Directory(p.join(tempDir.path, 'online_covers'));
+      // 应用支持目录不会被系统当缓存清理；临时目录里的封面文件被清掉后，
+      // 持久化在曲库记录里的 file:// URI 就永久失效了。
+      final supportDir = await getApplicationSupportDirectory();
+      final coverDir = Directory(p.join(supportDir.path, 'online_covers'));
       if (!await coverDir.exists()) {
         await coverDir.create(recursive: true);
       }

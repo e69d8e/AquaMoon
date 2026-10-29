@@ -16,6 +16,18 @@ class LyricsDisplaySettingsNotifier
     _storageService.saveLyricsDisplaySettings(settings);
   }
 
+  /// 滑条拖动过程中的即时预览：只更新内存状态，不落盘。
+  /// 拖动每帧都调用 [update] 会对 Hive 产生几十次无谓写入；拖完由
+  /// [persist] 统一持久化。
+  void updateLive(LyricsDisplaySettings settings) {
+    state = settings;
+  }
+
+  /// 把当前状态写入磁盘（与 [updateLive] 配对使用）。
+  void persist() {
+    _storageService.saveLyricsDisplaySettings(state);
+  }
+
   void resetToDefaults() => update(LyricsDisplaySettings.defaults);
 }
 

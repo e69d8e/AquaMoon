@@ -35,7 +35,7 @@ class AudioMetadataResult {
 class MetadataExtractor {
   /// Extracts metadata and embedded artwork from a local audio file (.mp3, .flac, .m4a, .ogg, .wav, etc.)
   ///
-  /// Only the platform-channel lookup (temp directory) runs on the main
+  /// Only the platform-channel lookup (cover cache directory) runs on the main
   /// isolate; all byte-level parsing is delegated to a background isolate so
   /// a large library scan never blocks the UI thread.
   static Future<AudioMetadataResult> extractFromFile(String filePath) async {
@@ -44,22 +44,27 @@ class MetadataExtractor {
       return _fallbackFromFilename(filePath);
     }
 
-    String tempDirPath = '';
+    String coverCacheDirPath = '';
     try {
-      tempDirPath = (await getTemporaryDirectory()).path;
+      // 封面缓存放在应用支持目录：系统会随时清理临时目录，而这里返回的
+      // file:// URI 会被长期持久化在曲库记录里，临时文件一旦被清就永久失效。
+      final supportDir = await getApplicationSupportDirectory();
+      coverCacheDirPath = supportDir.path;
     } catch (_) {
       // Platform channel unavailable (e.g. unit tests): cover cache writes
       // will be skipped inside the isolate.
     }
-    return Isolate.run(() => extractFromFileIsolated(filePath, tempDirPath));
+    return Isolate.run(
+      () => extractFromFileIsolated(filePath, coverCacheDirPath),
+    );
   }
 
   /// CPU-heavy half of [extractFromFile]; always runs inside `Isolate.run`.
-  /// `tempDirPath` must be resolved by the caller beforehand because platform
-  /// channels are not available in a background isolate.
+  /// `coverCacheDirPath` must be resolved by the caller beforehand because
+  /// platform channels are not available in a background isolate.
   static Future<AudioMetadataResult> extractFromFileIsolated(
     String filePath,
-    String tempDirPath,
+    String coverCacheDirPath,
   ) async {
     final file = File(filePath);
 
@@ -84,7 +89,7 @@ class MetadataExtractor {
               uint8[1] == 0x4C &&
               uint8[2] == 0x61 &&
               uint8[3] == 0x43)) {
-        result = await _parseFlac(file, uint8, filePath, tempDirPath);
+        result = await _parseFlac(file, uint8, filePath, coverCacheDirPath);
       }
       // 2. MP4 / M4A / AAC container (contains 'ftyp' or 'moov' or ext .m4a/.aac)
       else if (ext == '.m4a' ||
@@ -95,14 +100,14 @@ class MetadataExtractor {
                   uint8[5] == 0x74 &&
                   uint8[6] == 0x79 &&
                   uint8[7] == 0x70))) {
-        result = await _parseM4a(file, uint8, filePath, tempDirPath);
+        result = await _parseM4a(file, uint8, filePath, coverCacheDirPath);
       }
       // 3. ID3v2 (MP3, WAV with ID3 chunk, or FLAC with ID3 wrapper)
       else if (uint8.length >= 10 &&
           uint8[0] == 0x49 &&
           uint8[1] == 0x44 &&
           uint8[2] == 0x33) {
-        result = await _parseId3v2(file, uint8, filePath, tempDirPath);
+        result = await _parseId3v2(file, uint8, filePath, coverCacheDirPath);
       }
       // 4. OGG / Opus container
       else if (ext == '.ogg' ||
@@ -112,7 +117,7 @@ class MetadataExtractor {
               uint8[1] == 0x67 &&
               uint8[2] == 0x67 &&
               uint8[3] == 0x53)) {
-        result = await _parseOgg(file, uint8, filePath, tempDirPath);
+        result = await _parseOgg(file, uint8, filePath, coverCacheDirPath);
       }
 
       // 5. Fallback to ID3v1 for MP3
@@ -221,7 +226,7 @@ class MetadataExtractor {
     File file,
     Uint8List data,
     String filePath,
-    String tempDirPath,
+    String coverCacheDirPath,
   ) async {
     try {
       if (data.length < 4 ||
@@ -319,7 +324,7 @@ class MetadataExtractor {
 
       String? artUri;
       if (artBytes != null && artBytes.isNotEmpty) {
-        artUri = await _saveCoverArtCache(filePath, artBytes, tempDirPath);
+        artUri = await _saveCoverArtCache(filePath, artBytes, coverCacheDirPath);
       }
 
       final fallback = _fallbackFromFilename(filePath);
@@ -452,7 +457,7 @@ class MetadataExtractor {
     File file,
     Uint8List data,
     String filePath,
-    String tempDirPath,
+    String coverCacheDirPath,
   ) async {
     try {
       String? title;
@@ -575,7 +580,7 @@ class MetadataExtractor {
 
       String? artUri;
       if (artBytes != null && artBytes.isNotEmpty) {
-        artUri = await _saveCoverArtCache(filePath, artBytes, tempDirPath);
+        artUri = await _saveCoverArtCache(filePath, artBytes, coverCacheDirPath);
       }
 
       final fallback = _fallbackFromFilename(filePath);
@@ -646,7 +651,7 @@ class MetadataExtractor {
     File file,
     Uint8List data,
     String filePath,
-    String tempDirPath,
+    String coverCacheDirPath,
   ) async {
     try {
       final comments = _parseOggVorbisComments(data);
@@ -666,7 +671,7 @@ class MetadataExtractor {
 
       String? artUri;
       if (artBytes != null && artBytes.isNotEmpty) {
-        artUri = await _saveCoverArtCache(filePath, artBytes, tempDirPath);
+        artUri = await _saveCoverArtCache(filePath, artBytes, coverCacheDirPath);
       }
 
       final fallback = _fallbackFromFilename(filePath);
@@ -732,7 +737,7 @@ class MetadataExtractor {
     File file,
     Uint8List headerBytes,
     String filePath,
-    String tempDirPath,
+    String coverCacheDirPath,
   ) async {
     final version = headerBytes[3];
     final tagSize = _readSynchsafeInt(headerBytes, 6);
@@ -826,7 +831,7 @@ class MetadataExtractor {
 
     String? artUri;
     if (artBytes != null && artBytes.isNotEmpty) {
-      artUri = await _saveCoverArtCache(filePath, artBytes, tempDirPath);
+      artUri = await _saveCoverArtCache(filePath, artBytes, coverCacheDirPath);
     }
 
     final fallback = _fallbackFromFilename(filePath);
@@ -1268,11 +1273,11 @@ class MetadataExtractor {
   static Future<String?> _saveCoverArtCache(
     String filePath,
     Uint8List artBytes,
-    String tempDirPath,
+    String coverCacheDirPath,
   ) async {
     try {
-      if (tempDirPath.isEmpty) return null;
-      final coverDir = Directory(p.join(tempDirPath, 'covers'));
+      if (coverCacheDirPath.isEmpty) return null;
+      final coverDir = Directory(p.join(coverCacheDirPath, 'covers'));
       if (!await coverDir.exists()) {
         await coverDir.create(recursive: true);
       }
