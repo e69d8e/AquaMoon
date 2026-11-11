@@ -5,6 +5,7 @@ import '../models/song.dart';
 import '../services/storage_service.dart';
 import 'audio_provider.dart';
 import 'library_provider.dart';
+import 'qq_music_provider.dart';
 
 class PlaylistNotifier extends StateNotifier<List<Playlist>> {
   final StorageService _storageService;
@@ -183,7 +184,27 @@ final playlistNotifierProvider = StateNotifierProvider<PlaylistNotifier, List<Pl
 });
 
 final favoritesSongsProvider = Provider<List<Song>>((ref) {
+  final qqFavState = ref.watch(qqMusicFavoritesProvider);
   final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+  if (qqFavState.isBound || qqFavState.mergedSongs.isNotEmpty) {
+    final merged = qqFavState.mergedSongs;
+    // 绑定后仍要保留「只在本地标了红心、不在 QQ 歌单里」的曲目，
+    // 否则绑定前收藏的本地歌曲会从收藏页消失。
+    final mergedIds = {for (final s in merged) s.id};
+    final mergedMids = {
+      for (final s in merged)
+        if (s.qqSongMid != null && s.qqSongMid!.isNotEmpty) s.qqSongMid!,
+    };
+    final localOnly = songs.where(
+      (s) =>
+          s.isFavorite &&
+          !mergedIds.contains(s.id) &&
+          (s.qqSongMid == null ||
+              s.qqSongMid!.isEmpty ||
+              !mergedMids.contains(s.qqSongMid!)),
+    );
+    return [...merged, ...localOnly];
+  }
   return songs.where((s) => s.isFavorite).toList();
 });
 
@@ -192,10 +213,16 @@ final historySongsProvider = Provider<List<Song>>((ref) {
   // normal playback already rebuilds this provider via playCount changes.
   ref.watch(historyRefreshTickProvider);
   final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+  final qqFavorites = ref.watch(
+    qqMusicFavoritesProvider.select((s) => s.mergedSongs),
+  );
   final storage = ref.watch(storageServiceProvider);
   final historyIds = storage.getHistoryIds();
 
-  final songMap = {for (final s in songs) s.id: s};
+  final songMap = {
+    for (final s in qqFavorites) s.id: s,
+    for (final s in songs) s.id: s,
+  };
   final result = <Song>[];
 
   for (final id in historyIds) {

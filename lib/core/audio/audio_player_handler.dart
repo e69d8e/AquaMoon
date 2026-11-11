@@ -12,7 +12,9 @@ import '../../models/audio_effects.dart';
 import '../../models/playback_mode.dart';
 import '../../models/playback_progress.dart';
 import '../../services/listening_stats_tracker.dart';
+import '../../services/qq_music_service.dart';
 import '../../services/storage_service.dart';
+import '../utils/song_matcher.dart';
 import 'audio_session_coordinator.dart';
 import 'custom_notification_service.dart';
 
@@ -31,6 +33,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   late final AudioPlayer _player = AudioPlayer(audioPipeline: _audioPipeline);
   final StorageService _storageService;
+  final QQMusicService _qqMusicService;
   late final ListeningStatsTracker _statsTracker;
   AudioSessionCoordinator? _sessionCoordinator;
 
@@ -130,8 +133,12 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
         ),
       );
 
-  SoundCraftAudioHandler(this._storageService) {
-    _statsTracker = ListeningStatsTracker(_storageService);
+  SoundCraftAudioHandler(this._storageService, {QQMusicService? qqMusicService})
+    : _qqMusicService = qqMusicService ?? QQMusicService() {
+    _statsTracker = ListeningStatsTracker(
+      _storageService,
+      onSongPlayStarted: _reportPlayStartToQQMusic,
+    );
     _customNotificationEnabled =
         _storageService.getCustomNotificationEnabled();
     _fadeEnabled = _storageService.getFadeEnabled();
@@ -194,6 +201,52 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _ready = _initAsync();
   }
 
+  /// 一首曲目开始播放时向 QQ 音乐云端上报一次「最近播放」。
+  ///
+  /// 官方客户端在播放开始时上报一次（`listenCnt` +1），而非按收听时长
+  /// 分段上报——分段上报会把云端累计次数灌水十余倍。
+  /// 上报需要 Cookie 与数字 [Song.qqSongId]，缺失时静默跳过
+  /// （同步云端历史后会自动补齐缺失的 songId）。
+  void _reportPlayStartToQQMusic(Song song) {
+    final mid = song.qqSongMid;
+    if (mid == null || mid.isEmpty) return;
+    final config = _storageService.getQQMusicConfig();
+    if (!config.hasCookie) return;
+
+    // 上报必须带数字 songId。播放列表里的 Song 可能是同步回填 id 之前的快照，
+    // 这里依次从曲库与「我喜欢」缓存按 mid 反查，避开额外的网络请求。
+    var songId = song.qqSongId ?? 0;
+    if (songId <= 0) {
+      songId = _lookupQQSongIdByMid(mid);
+    }
+    if (songId <= 0) return;
+
+    final reportable = songId == (song.qqSongId ?? 0)
+        ? song
+        : song.copyWith(qqSongId: songId);
+
+    _qqMusicService
+        .reportSongPlayback(song: reportable, config: config)
+        .then((reported) {
+          if (reported) {
+            _storageService.recordQQMusicPlaybackReport();
+          }
+        })
+        .catchError((_) {});
+  }
+
+  /// 按 `qqSongMid` 从本地曲库与云端收藏缓存中查数字 `songId`（同步、无网络）。
+  int _lookupQQSongIdByMid(String mid) {
+    final stored = _storageService.getAllSongs();
+    for (final s in stored) {
+      if (s.qqSongMid == mid && (s.qqSongId ?? 0) > 0) return s.qqSongId!;
+    }
+    for (final s in _storageService.getQQMusicFavoritesCache()) {
+      if (s.qqSongMid == mid && (s.qqSongId ?? 0) > 0) return s.qqSongId!;
+    }
+    return 0;
+  }
+
   Future<void> _initAsync() async {
     try {
       _playbackMode = _storageService.getSavedPlaybackMode();
@@ -236,8 +289,17 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       if (session == null) return;
       final songs = [
         for (final map in session.songMaps) Song.fromMap(map),
-      ].where((s) => s.id.isNotEmpty && s.filePath.isNotEmpty).toList();
+      ].where(
+        (s) =>
+            s.id.isNotEmpty &&
+            (s.filePath.isNotEmpty ||
+                (s.qqSongMid != null && s.qqSongMid!.isNotEmpty)),
+      ).toList();
       if (songs.isEmpty) return;
+
+      final qqCachedById = {
+        for (final s in _storageService.getQQMusicFavoritesCache()) s.id: s,
+      };
 
       // 会话快照可能落后于曲库记录（重启前的元数据编辑、封面缓存迁移等）：
       // 曲库里还存在的歌一律换成最新记录，快照只兜底已删除的条目。
@@ -245,6 +307,11 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
         final stored = _storageService.getSong(songs[i].id);
         if (stored != null && stored.filePath.isNotEmpty) {
           songs[i] = stored;
+        } else {
+          final qqCached = qqCachedById[songs[i].id];
+          if (qqCached != null) {
+            songs[i] = qqCached;
+          }
         }
       }
 
@@ -790,11 +857,59 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     this.mediaItem.add(mediaItem);
 
     try {
-      if (song.source == SongSource.local) {
-        await _player.setFilePath(song.filePath);
-      } else {
-        await _player.setUrl(song.filePath);
+      final hasQqMid = song.qqSongMid != null && song.qqSongMid!.isNotEmpty;
+      var loadedLocal = false;
+
+      if (song.hasLocalFile) {
+        final canLoadLocal = kIsWeb || await File(song.filePath).exists();
+        if (generation != _loadGeneration) return;
+        if (canLoadLocal) {
+          await _player.setFilePath(song.filePath);
+          loadedLocal = true;
+        }
       }
+
+      if (!loadedLocal) {
+        if (hasQqMid) {
+          final config = _storageService.getQQMusicConfig();
+          final streamUrl = await _qqMusicService.resolvePlayUrl(
+            songMid: song.qqSongMid!,
+            mediaMid: song.qqMediaMid,
+            config: config,
+          );
+          if (generation != _loadGeneration) return;
+          if (streamUrl == null || streamUrl.isEmpty) {
+            // 在线流拿不到（VIP/版权受限）时，再按标题/歌手在本地曲库里找一次：
+            // 用户本地明明有这首歌，不应该因为收藏合并没匹配上就报错。
+            // 只在失败路径扇描曲库，避免拖慢正常在线播放。
+            final localFallback = SongMatcher.findLocalMatch(
+              song,
+              _storageService.getAllSongs().where((s) => s.hasLocalFile),
+            );
+            if (localFallback != null &&
+                (kIsWeb || await File(localFallback.filePath).exists())) {
+              if (generation != _loadGeneration) return;
+              await _player.setFilePath(localFallback.filePath);
+              loadedLocal = true;
+            }
+          }
+          if (!loadedLocal) {
+            if (streamUrl == null || streamUrl.isEmpty) {
+              throw QQMusicApiException(
+                song.isVip && !config.hasCookie
+                    ? '《${song.title}》为 QQ 音乐 VIP 曲目，请配置绿钻 Cookie 或导入本地音频'
+                    : '《${song.title}》受 QQ 音乐 VIP 或版权限制无法在线播放，请配置绿钻 Cookie 或导入本地音频',
+              );
+            }
+            await _player.setUrl(streamUrl);
+          }
+        } else if (song.source == SongSource.local) {
+          await _player.setFilePath(song.filePath);
+        } else {
+          await _player.setUrl(song.filePath);
+        }
+      }
+
       if (generation != _loadGeneration) return;
       _audioLoaded = true;
       _consecutiveFailures = 0;
@@ -813,9 +928,15 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       }
     } catch (e) {
       if (generation != _loadGeneration) return;
-      // Audio playback failed (e.g. file missing or unreadable format)
+      // Audio playback failed (e.g. file missing, VIP stream restricted, or unreadable format)
       debugPrint('[AquaMoon] playback failed for "${song.title}": $e');
-      _playbackErrorController.add('无法播放「${song.title}」，文件可能已移动或损坏');
+      if (e is QQMusicApiException) {
+        _playbackErrorController.add(e.message);
+      } else if (song.isQQMusicOnline) {
+        _playbackErrorController.add('无法在线播放「${song.title}」，请检查网络或配置 Cookie');
+      } else {
+        _playbackErrorController.add('无法播放「${song.title}」，文件可能已移动或损坏');
+      }
       _consecutiveFailures++;
       if (_consecutiveFailures >= _playlist.length) {
         // 整个队列都放不出来：停下并提示，避免 repeatAll/shuffle 无限重试。
@@ -851,7 +972,9 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
     final item = _songToMediaItem(updated);
     mediaItem.add(item);
-    _storageService.saveSong(updated);
+    if (_storageService.getSong(updated.id) != null) {
+      _storageService.saveSong(updated);
+    }
     _syncCustomNotification(overrideSong: updated);
     _persistSessionSoon();
   }
@@ -1033,6 +1156,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _sleepRemainingSubject.close();
     _statsTracker.dispose();
     _sessionCoordinator?.dispose();
+    _qqMusicService.dispose();
     await _player.dispose();
     await _currentSongSubject.close();
     await _playbackModeSubject.close();

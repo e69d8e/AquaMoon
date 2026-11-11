@@ -18,6 +18,10 @@ class Song {
   final SongSource source;
   final int? trackNumber;
   final int? year;
+  final String? qqSongMid;
+  final int? qqSongId;
+  final String? qqMediaMid;
+  final bool isVip;
 
   const Song({
     required this.id,
@@ -35,9 +39,26 @@ class Song {
     this.source = SongSource.local,
     this.trackNumber,
     this.year,
+    this.qqSongMid,
+    this.qqSongId,
+    this.qqMediaMid,
+    this.isVip = false,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
+
+  /// True when backed by a local file path rather than a remote stream or
+  /// virtual QQ Music placeholder.
+  bool get hasLocalFile =>
+      source == SongSource.local &&
+      filePath.isNotEmpty &&
+      !filePath.startsWith('http://') &&
+      !filePath.startsWith('https://') &&
+      !filePath.startsWith('qqmusic://');
+
+  /// True when this song is streamed online from QQ Music without a local file.
+  bool get isQQMusicOnline =>
+      !hasLocalFile && qqSongMid != null && qqSongMid!.isNotEmpty;
 
   Song copyWith({
     String? id,
@@ -58,6 +79,10 @@ class Song {
     int? trackNumber,
     int? year,
     bool clearYear = false,
+    String? qqSongMid,
+    int? qqSongId,
+    String? qqMediaMid,
+    bool? isVip,
   }) {
     return Song(
       id: id ?? this.id,
@@ -75,6 +100,10 @@ class Song {
       source: source ?? this.source,
       trackNumber: trackNumber ?? this.trackNumber,
       year: clearYear ? null : (year ?? this.year),
+      qqSongMid: qqSongMid ?? this.qqSongMid,
+      qqSongId: qqSongId ?? this.qqSongId,
+      qqMediaMid: qqMediaMid ?? this.qqMediaMid,
+      isVip: isVip ?? this.isVip,
     );
   }
 
@@ -94,6 +123,10 @@ class Song {
       'source': source.name,
       'trackNumber': trackNumber,
       'year': year,
+      'qqSongMid': qqSongMid,
+      'qqSongId': qqSongId,
+      'qqMediaMid': qqMediaMid,
+      'isVip': isVip,
     };
   }
 
@@ -118,6 +151,10 @@ class Song {
       ),
       trackNumber: (map['trackNumber'] as num?)?.toInt(),
       year: (map['year'] as num?)?.toInt(),
+      qqSongMid: map['qqSongMid'] as String?,
+      qqSongId: (map['qqSongId'] as num?)?.toInt(),
+      qqMediaMid: map['qqMediaMid'] as String?,
+      isVip: map['isVip'] as bool? ?? false,
     );
   }
 

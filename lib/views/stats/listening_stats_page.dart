@@ -8,7 +8,9 @@ import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
+import '../../providers/qq_music_provider.dart';
 import '../widgets/glass_container.dart';
+import '../widgets/qq_music_auth_dialog.dart';
 import '../widgets/song_artwork.dart';
 import 'widgets/listening_chart.dart';
 import 'widgets/listening_heatmap.dart';
@@ -76,6 +78,11 @@ class ListeningStatsPage extends ConsumerWidget {
 
           // 3. Hero Summary Card
           StatsSummaryCard(stats: stats),
+
+          const SizedBox(height: 14),
+
+          // 3.5 QQ Music Cloud Stats Sync & Report Banner
+          _buildQQMusicCloudStatsCard(context, ref),
 
           const SizedBox(height: 20),
 
@@ -490,11 +497,21 @@ class ListeningStatsPage extends ConsumerWidget {
           SongArtwork(artUri: item.albumArtUri, size: 42, borderRadius: 8),
         ],
       ),
-      title: Text(
-        item.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              item.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (item.hasQQMusicLink) ...[
+            const SizedBox(width: 6),
+            _buildSourceBadge(context, item),
+          ],
+        ],
       ),
       subtitle: Text(
         item.artist,
@@ -531,36 +548,7 @@ class ListeningStatsPage extends ConsumerWidget {
           ],
         ],
       ),
-      onTap: () {
-        // Try finding the song from library and play it
-        final allSongs = ref.read(libraryNotifierProvider).songs;
-        final match = allSongs.where((s) => s.id == item.songId).firstOrNull;
-        if (match != null) {
-          ref.read(audioControllerProvider).playSong(match);
-          AppToast.show(
-            context,
-            '开始播放《${match.title}》',
-            icon: Icons.play_arrow_rounded,
-          );
-        } else {
-          // If song was an online or deleted track, create lightweight Song object
-          final song = Song(
-            id: item.songId,
-            title: item.title,
-            artist: item.artist,
-            album: item.album,
-            durationMs: item.durationSeconds * 1000,
-            filePath: '',
-            albumArtUri: item.albumArtUri,
-            dateAdded: DateTime.now(),
-          );
-          AppToast.show(
-            context,
-            '《${song.title}》为历史收听快照',
-            icon: Icons.history_rounded,
-          );
-        }
-      },
+      onTap: () => _playStatSongItem(context, ref, item),
     );
   }
 
@@ -747,14 +735,24 @@ class ListeningStatsPage extends ConsumerWidget {
                                 size: 42,
                                 borderRadius: 8,
                               ),
-                              title: Text(
-                                item.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              title: Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      item.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  if (item.hasQQMusicLink) ...[
+                                    const SizedBox(width: 6),
+                                    _buildSourceBadge(context, item),
+                                  ],
+                                ],
                               ),
                               subtitle: Text(
                                 item.playCount > 0
@@ -774,23 +772,13 @@ class ListeningStatsPage extends ConsumerWidget {
                                 ),
                               ),
                               onTap: () {
-                                final allSongs = ref
-                                    .read(libraryNotifierProvider)
-                                    .songs;
-                                final match = allSongs
-                                    .where((s) => s.id == item.songId)
-                                    .firstOrNull;
-                                if (match != null) {
-                                  ref
-                                      .read(audioControllerProvider)
-                                      .playSong(match);
+                                final played = _playStatSongItem(
+                                  context,
+                                  ref,
+                                  item,
+                                );
+                                if (played) {
                                   Navigator.pop(sheetContext);
-                                } else {
-                                  AppToast.show(
-                                    context,
-                                    '《${item.title}》不在当前曲库中',
-                                    icon: Icons.history_rounded,
-                                  );
                                 }
                               },
                             );
@@ -804,6 +792,243 @@ class ListeningStatsPage extends ConsumerWidget {
         );
       },
     );
+  }
+
+  Widget _buildQQMusicCloudStatsCard(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final qqState = ref.watch(qqMusicFavoritesProvider);
+    final summary = qqState.cloudStatsSummary;
+
+    if (!qqState.isBound) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.35,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.cloud_sync_rounded,
+              size: 22,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '接入 QQ 音乐听歌统计',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '同步 QQ 音乐播放次数与时长，并支持将听歌记录回传云端',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonal(
+              onPressed: () => QQMusicAuthDialog.show(context),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              child: const Text('去绑定', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final todayCloudText = Formatters.formatListeningDuration(
+      Duration(seconds: summary.todayListenSeconds),
+      short: true,
+    );
+    final subParts = <String>[
+      if (summary.todayListenSeconds > 0) '云端今日 $todayCloudText',
+      '云端累计 ${summary.importedSongCount} 首 · ${summary.importedPlayCount} 次',
+      if (qqState.config.hasCookie)
+        '已回传 ${summary.reportedPlayCount} 次'
+      else
+        '配置 Cookie 可回传播放与时长',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.35,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.cloud_done_rounded,
+            size: 20,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'QQ 音乐听歌统计 · ${qqState.config.displayLabel}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subParts.join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: qqState.isSyncing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync_rounded, size: 19),
+            tooltip: '同步云端听歌统计',
+            visualDensity: VisualDensity.compact,
+            onPressed: qqState.isSyncing
+                ? null
+                : () async {
+                    try {
+                      final msg = await ref
+                          .read(qqMusicFavoritesProvider.notifier)
+                          .syncFavorites(silent: false);
+                      if (context.mounted && msg.isNotEmpty) {
+                        AppToast.show(
+                          context,
+                          msg,
+                          icon: Icons.check_circle_outline_rounded,
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        AppToast.show(
+                          context,
+                          e.toString(),
+                          icon: Icons.error_outline_rounded,
+                        );
+                      }
+                    }
+                  },
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune_rounded, size: 18),
+            tooltip: 'QQ 音乐设置',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => QQMusicAuthDialog.show(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSourceBadge(BuildContext context, SongStatItem item) {
+    final theme = Theme.of(context);
+    final isOnline = item.isQQMusicOnline;
+    final badgeColor = isOnline
+        ? theme.colorScheme.primary
+        : theme.colorScheme.tertiary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: badgeColor.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        isOnline ? 'QQ音乐' : '本地',
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: FontWeight.w600,
+          color: badgeColor,
+        ),
+      ),
+    );
+  }
+
+  bool _playStatSongItem(
+    BuildContext context,
+    WidgetRef ref,
+    SongStatItem item,
+  ) {
+    final allSongs = ref.read(libraryNotifierProvider).songs;
+    Song? match = allSongs
+        .where(
+          (s) =>
+              s.id == item.songId ||
+              (item.qqSongMid != null &&
+                  item.qqSongMid!.isNotEmpty &&
+                  s.qqSongMid == item.qqSongMid),
+        )
+        .firstOrNull;
+
+    if (match == null) {
+      final qqSongs = ref.read(qqMusicFavoritesProvider).mergedSongs;
+      match = qqSongs
+          .where(
+            (s) =>
+                s.id == item.songId ||
+                (item.qqSongMid != null &&
+                    item.qqSongMid!.isNotEmpty &&
+                    s.qqSongMid == item.qqSongMid),
+          )
+          .firstOrNull;
+    }
+
+    match ??= item.toOnlinePlayableSong();
+
+    if (match != null) {
+      ref.read(audioControllerProvider).playSong(match);
+      AppToast.show(
+        context,
+        '开始播放《${match.title}》',
+        icon: Icons.play_arrow_rounded,
+      );
+      return true;
+    }
+
+    AppToast.show(
+      context,
+      '《${item.title}》为历史收听快照',
+      icon: Icons.history_rounded,
+    );
+    return false;
   }
 
   bool _isCurrentPeriod(PeriodType type, DateTime selected, DateTime now) {

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -7,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/utils/formatters.dart';
 import '../models/listening_stats.dart';
+import '../models/qq_music_config.dart';
 import '../models/song.dart';
 import '../models/playlist.dart';
 import '../models/playback_mode.dart';
@@ -43,6 +46,30 @@ class StorageService {
     _historyBox = boxes[2];
     _settingsBox = boxes[3];
     _statsBox = boxes[4];
+
+    // QQ 音乐 PC 私有通道需要稳定的设备标识：在启动时 await 落盘，
+    // 避开在 provider 构造/widget build 里做 fire-and-forget 的箱写盘。
+    await _ensureQQMusicDesktopGuid();
+  }
+
+  Future<void> _ensureQQMusicDesktopGuid() async {
+    final existing =
+        (_settingsBox.get('qq_music_desktop_guid') as String?)?.trim() ?? '';
+    if (existing.isNotEmpty) return;
+    await _settingsBox.put(
+      'qq_music_desktop_guid',
+      _generateQQMusicDesktopGuid(),
+    );
+  }
+
+  static String _generateQQMusicDesktopGuid() {
+    const hex = '0123456789ABCDEF';
+    final rnd = Random.secure();
+    final buf = StringBuffer();
+    for (var i = 0; i < 32; i++) {
+      buf.write(hex[rnd.nextInt(16)]);
+    }
+    return buf.toString();
   }
 
   // --- Song Operations ---
@@ -188,6 +215,115 @@ class StorageService {
     );
   }
 
+  // --- QQ Music Favorites Config & Cache ---
+
+  QQMusicConfig getQQMusicConfig() {
+    return QQMusicConfig.fromMap(_settingsBox.get('qq_music_config'));
+  }
+
+  /// PC 私有通道（最近播放读写）使用的设备标识；首次启动时已落盘，
+  /// 之后只做同步读取，避免每次启动换 guid 导致云端行为异常。
+  String getQQMusicDesktopGuid() {
+    final existing =
+        (_settingsBox.get('qq_music_desktop_guid') as String?)?.trim() ?? '';
+    if (existing.isNotEmpty) return existing;
+    // 理论上不会走到（init 已落盘）；兵底生成一个稳定值但不做写盘，
+    // 避开在 widget build 期间发起异步 I/O。
+    return _generateQQMusicDesktopGuid();
+  }
+
+  Future<void> saveQQMusicConfig(QQMusicConfig config) async {
+    await _settingsBox.put('qq_music_config', config.toMap());
+  }
+
+  Future<void> clearQQMusicConfig() async {
+    await _settingsBox.delete('qq_music_config');
+    await _settingsBox.delete('qq_favorites_cache');
+    await _settingsBox.delete('qq_cloud_imported_counts');
+    await _settingsBox.delete('qq_cloud_today_listen_seconds');
+    await _settingsBox.delete('qq_cloud_stats_summary');
+    await _settingsBox.delete('qq_manual_links');
+    await _settingsBox.delete('qq_manual_exclusions');
+  }
+
+  // --- QQ Music 手动关联（云端曲目 <-> 本地文件） ---
+
+  /// 用户手动指定的关联：`qqSongMid -> 本地 songId`。
+  ///
+  /// 自动匹配靠标题/歌手，难免有匹配不上或匹配错的情况；手动关联优先级
+  /// 高于自动匹配，且写回本地曲库的 `qqSongMid` 后重新同步也不会丢。
+  Map<String, String> getQQMusicManualLinks() {
+    final raw = _settingsBox.get('qq_manual_links');
+    if (raw is! Map) return const {};
+    final result = <String, String>{};
+    raw.forEach((k, v) {
+      if (k != null && v != null) {
+        result[k.toString()] = v.toString();
+      }
+    });
+    return result;
+  }
+
+  Future<void> saveQQMusicManualLink({
+    required String songMid,
+    required String songId,
+  }) async {
+    if (songMid.isEmpty || songId.isEmpty) return;
+    final links = Map<String, String>.from(getQQMusicManualLinks());
+    links[songMid] = songId;
+    await _settingsBox.put('qq_manual_links', links);
+    // 手动指定后不再是「排除」状态
+    final exclusions = getQQMusicManualExclusions();
+    if (exclusions.contains(songMid)) {
+      await _settingsBox.put(
+        'qq_manual_exclusions',
+        exclusions.difference({songMid}).toList(),
+      );
+    }
+  }
+
+  Future<void> removeQQMusicManualLink(String songMid) async {
+    if (songMid.isEmpty) return;
+    final links = Map<String, String>.from(getQQMusicManualLinks());
+    links.remove(songMid);
+    await _settingsBox.put('qq_manual_links', links);
+  }
+
+  /// 用户显式取消关联的 `qqSongMid`：后续同步不再自动匹配到任何本地文件，
+  /// 否则一取消就被自动匹配重新接上，用户会觉得「取消不掉」。
+  Set<String> getQQMusicManualExclusions() {
+    final raw = _settingsBox.get('qq_manual_exclusions');
+    if (raw is! List) return const {};
+    return raw.map((e) => e.toString()).toSet();
+  }
+
+  Future<void> addQQMusicManualExclusion(String songMid) async {
+    if (songMid.isEmpty) return;
+    final exclusions = {...getQQMusicManualExclusions(), songMid};
+    await _settingsBox.put('qq_manual_exclusions', exclusions.toList());
+  }
+
+  Future<void> removeQQMusicManualExclusion(String songMid) async {
+    if (songMid.isEmpty) return;
+    final exclusions = getQQMusicManualExclusions().difference({songMid});
+    await _settingsBox.put('qq_manual_exclusions', exclusions.toList());
+  }
+
+  List<Song> getQQMusicFavoritesCache() {
+    final raw = _settingsBox.get('qq_favorites_cache');
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map) Song.fromMap(item),
+    ];
+  }
+
+  Future<void> saveQQMusicFavoritesCache(List<Song> songs) async {
+    await _settingsBox.put('qq_favorites_cache', [
+      for (final song in songs) song.toMap(),
+    ]);
+  }
+
   // --- History Operations ---
 
   List<String> getHistoryIds() {
@@ -217,6 +353,28 @@ class StorageService {
       final song = Song.fromMap(songData);
       final updated = song.copyWith(playCount: song.playCount + 1);
       await _songsBox.put(songId, updated.toMap());
+      return;
+    }
+
+    // Also increment playCount in QQ Music favorites cache if it's an online track
+    final qqCacheRaw = _settingsBox.get('qq_favorites_cache');
+    if (qqCacheRaw is List) {
+      var changed = false;
+      final updatedList = <Map<String, dynamic>>[];
+      for (final item in qqCacheRaw) {
+        if (item is Map) {
+          final s = Song.fromMap(item);
+          if (s.id == songId) {
+            updatedList.add(s.copyWith(playCount: s.playCount + 1).toMap());
+            changed = true;
+          } else {
+            updatedList.add(s.toMap());
+          }
+        }
+      }
+      if (changed) {
+        await _settingsBox.put('qq_favorites_cache', updatedList);
+      }
     }
   }
 
@@ -396,9 +554,7 @@ class StorageService {
     final updatedMetaCache = Map<String, SongMetaSnapshot>.from(
       current.songMetaCache,
     );
-    if (!updatedMetaCache.containsKey(song.id)) {
-      updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
-    }
+    updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
 
     final updatedRecord = current.copyWith(
       totalDurationSeconds: current.totalDurationSeconds + seconds,
@@ -424,9 +580,7 @@ class StorageService {
     final updatedMetaCache = Map<String, SongMetaSnapshot>.from(
       current.songMetaCache,
     );
-    if (!updatedMetaCache.containsKey(song.id)) {
-      updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
-    }
+    updatedMetaCache[song.id] = SongMetaSnapshot.fromSong(song);
 
     final updatedRecord = current.copyWith(
       songPlayCounts: updatedPlayCounts,
@@ -434,6 +588,222 @@ class StorageService {
     );
 
     await saveDailyListeningRecord(updatedRecord);
+  }
+
+  /// 获取 QQ 音乐云端听歌统计同步与上报摘要。
+  QQMusicCloudStatsSummary getQQMusicCloudStatsSummary() {
+    return QQMusicCloudStatsSummary.fromMap(
+      _settingsBox.get('qq_cloud_stats_summary'),
+    );
+  }
+
+  /// 记录一次向 QQ 音乐云端成功上报的播放。
+  Future<void> recordQQMusicPlaybackReport() async {
+    final current = getQQMusicCloudStatsSummary();
+    final updated = current.copyWith(
+      reportedPlayCount: current.reportedPlayCount + 1,
+      lastSyncTime: DateTime.now(),
+    );
+    await _settingsBox.put('qq_cloud_stats_summary', updated.toMap());
+  }
+
+  /// 幂等合并 QQ 音乐云端听歌历史与今日有效听歌时长。
+  ///
+  /// - 每首曲目的云端累计播放次数 ([QQMusicCloudHistoryEntry.playCount]，即
+  ///   接口的 `listenCnt`) 只升不降地写回本地曲库与「我喜欢」缓存的
+  ///   [Song.playCount]，同时补齐缺失的数字 [Song.qqSongId]；
+  /// - [todayListenSeconds] 是云端「今日累计有效听歌时间」，按日期基准做差值，
+  ///   只把新增部分并入当天统计，因此反复同步不会重复累加；
+  /// - 云端「最近播放」是累计历史，不能当作当天播放次数灌进当天统计，否则
+  ///   每日榜与今日时长会被历史数据污染。
+  ///
+  /// 返回本次播放次数有所提升（或补齐了 songId）的曲目数。
+  Future<int> mergeQQMusicCloudListeningSongs(
+    List<QQMusicCloudHistoryEntry> entries, {
+    DateTime? timestamp,
+    int? todayListenSeconds,
+  }) async {
+    final now = timestamp ?? DateTime.now();
+    final dateStr = Formatters.formatDateKey(now);
+
+    // 本地曲库按 qqSongMid / id 建索引，云端曲目对到本地时沿用本地 id。
+    final localByMid = <String, Song>{};
+    final localById = <String, Song>{};
+    for (final s in getAllSongs()) {
+      localById[s.id] = s;
+      final mid = s.qqSongMid;
+      if (mid != null && mid.isNotEmpty) localByMid[mid] = s;
+    }
+
+    var updatedSongCount = 0;
+
+    // 1) 每首曲目的云端累计播放次数
+    final favCache = getQQMusicFavoritesCache();
+    final favIndexById = <String, int>{};
+    final favIndexByMid = <String, int>{};
+    for (var i = 0; i < favCache.length; i++) {
+      favIndexById[favCache[i].id] = i;
+      final mid = favCache[i].qqSongMid;
+      if (mid != null && mid.isNotEmpty) favIndexByMid[mid] = i;
+    }
+    var cacheChanged = false;
+    final updatedCache = [...favCache];
+
+    for (final entry in entries) {
+      final cloudSong = entry.song;
+      final mid = entry.songMid;
+      final targetPlays = entry.playCount > 0 ? entry.playCount : 1;
+      final cloudSongId = cloudSong.qqSongId;
+
+      final local = (mid.isNotEmpty ? localByMid[mid] : null) ?? localById[cloudSong.id];
+      if (local != null) {
+        final needsPlays = local.playCount < targetPlays;
+        final needsId = (local.qqSongId ?? 0) <= 0 && (cloudSongId ?? 0) > 0;
+        if (needsPlays || needsId) {
+          final updated = local.copyWith(
+            playCount: needsPlays ? targetPlays : local.playCount,
+            qqSongId: needsId ? cloudSongId : local.qqSongId,
+          );
+          await saveSong(updated);
+          localByMid[mid] = updated;
+          localById[updated.id] = updated;
+          updatedSongCount++;
+        }
+      }
+
+      final idx = favIndexById[cloudSong.id] ?? (mid.isNotEmpty ? favIndexByMid[mid] : null);
+      if (idx != null) {
+        final cached = updatedCache[idx];
+        final needsPlays = cached.playCount < targetPlays;
+        final needsId = (cached.qqSongId ?? 0) <= 0 && (cloudSongId ?? 0) > 0;
+        if (needsPlays || needsId) {
+          updatedCache[idx] = cached.copyWith(
+            playCount: needsPlays ? targetPlays : cached.playCount,
+            qqSongId: needsId ? cloudSongId : cached.qqSongId,
+          );
+          cacheChanged = true;
+          updatedSongCount++;
+        }
+      }
+    }
+    if (cacheChanged) {
+      await saveQQMusicFavoritesCache(updatedCache);
+    }
+
+    // 2) 今日有效听歌时长：按日期基准做增量，避免重复累加
+    final rawBaseline = _settingsBox.get('qq_cloud_today_listen_seconds');
+    final baseline = <String, int>{};
+    if (rawBaseline is Map) {
+      rawBaseline.forEach((k, v) {
+        if (v is num) baseline[k.toString()] = v.toInt();
+      });
+    }
+
+    final currentRecord = getDailyListeningRecord(dateStr);
+    var addedSeconds = 0;
+    var addedPlays = 0;
+    final updatedSongDurations = Map<String, int>.from(
+      currentRecord.songDurationSeconds,
+    );
+    final updatedPlayCounts = Map<String, int>.from(
+      currentRecord.songPlayCounts,
+    );
+    final updatedHourly = Map<int, int>.from(currentRecord.hourlyDurationSeconds);
+    final updatedMetaCache = Map<String, SongMetaSnapshot>.from(
+      currentRecord.songMetaCache,
+    );
+
+    // 今天（按云端 lastTime）听过的曲目：无论本次时长增量是否为 0 都要收集，
+    // 否则会出现「收听曲目 N 首但播放次数为 0」的自相矛盾统计。
+    final todayEntries = <({String songId, Song song})>[];
+    for (final entry in entries) {
+      final playedAt = entry.lastPlayedAt;
+      if (playedAt == null) continue;
+      if (Formatters.formatDateKey(playedAt) != dateStr) continue;
+      final mid = entry.songMid;
+      final local =
+          (mid.isNotEmpty ? localByMid[mid] : null) ?? localById[entry.song.id];
+      final song = local ?? entry.song;
+      todayEntries.add((songId: song.id, song: song));
+    }
+
+    if (todayListenSeconds != null) {
+      final previous = baseline[dateStr] ?? 0;
+      final delta = todayListenSeconds - previous;
+      if (delta > 0) {
+        addedSeconds = delta;
+        updatedHourly[now.hour] = (updatedHourly[now.hour] ?? 0) + delta;
+
+        // 今天在云端听过的曲目平分这段时长，让当天歌曲榜也能看到它们。
+        if (todayEntries.isNotEmpty) {
+          final share = delta ~/ todayEntries.length;
+          var remainder = delta - share * todayEntries.length;
+          for (final item in todayEntries) {
+            var extra = share;
+            if (remainder > 0) {
+              extra += 1;
+              remainder -= 1;
+            }
+            if (extra <= 0) continue;
+            updatedSongDurations[item.songId] =
+                (updatedSongDurations[item.songId] ?? 0) + extra;
+          }
+        }
+      }
+      baseline[dateStr] = todayListenSeconds;
+
+      // 只保留最近 14 天的基准，避免设置项无限增长。
+      if (baseline.length > 14) {
+        final keep = baseline.keys.toList()..sort();
+        for (final key in keep.take(baseline.length - 14)) {
+          baseline.remove(key);
+        }
+      }
+      await _settingsBox.put('qq_cloud_today_listen_seconds', baseline);
+    }
+
+    // 云端「最近播放」只提供累计 listenCnt，没有「今日单曲次数」，
+    // 因此今天在云端听过的曲目按「至少一次」计入，保证
+    // 「收听曲目 N 首」与「播放次数」自洽。已存在计数（本地播放或上次同步
+    // 已记）的曲目不重复累加，因此反复同步仍然幂等。
+    for (final item in todayEntries) {
+      updatedMetaCache[item.songId] = SongMetaSnapshot.fromSong(item.song);
+      if (updatedPlayCounts[item.songId] == null) {
+        updatedPlayCounts[item.songId] = 1;
+        addedPlays++;
+      }
+    }
+
+    if (addedSeconds > 0 || addedPlays > 0) {
+      await saveDailyListeningRecord(
+        currentRecord.copyWith(
+          totalDurationSeconds:
+              currentRecord.totalDurationSeconds + addedSeconds,
+          songDurationSeconds: updatedSongDurations,
+          songPlayCounts: updatedPlayCounts,
+          hourlyDurationSeconds: updatedHourly,
+          songMetaCache: updatedMetaCache,
+        ),
+      );
+    }
+
+    // 3) 同步摘要（展示云端累计次数与今日时长）
+    var cloudPlays = 0;
+    for (final entry in entries) {
+      cloudPlays += entry.playCount > 0 ? entry.playCount : 1;
+    }
+    final prevSummary = getQQMusicCloudStatsSummary();
+    final nextSummary = prevSummary.copyWith(
+      importedSongCount: entries.length,
+      importedPlayCount: cloudPlays,
+      importedDurationSeconds:
+          prevSummary.importedDurationSeconds + addedSeconds,
+      todayListenSeconds: todayListenSeconds ?? prevSummary.todayListenSeconds,
+      lastSyncTime: now,
+    );
+    await _settingsBox.put('qq_cloud_stats_summary', nextSummary.toMap());
+
+    return updatedSongCount;
   }
 
   /// Retrieve all records within the [startDate, endDate] range (inclusive of days)

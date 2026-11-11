@@ -3,10 +3,16 @@ import 'package:rxdart/rxdart.dart';
 import '../models/song.dart';
 import 'storage_service.dart';
 
-/// Service responsible for tracking music playback duration at 1-minute intervals
-/// and persisting statistics to StorageService.
+/// Service responsible for tracking music playback duration (both local and
+/// QQ Music online streams), persisting statistics to StorageService, and
+/// optionally reporting playback segments to QQ Music cloud.
 class ListeningStatsTracker {
   final StorageService _storageService;
+
+  /// 一首曲目开始播放时触发一次（与本地播放计数同源）。
+  /// 用于向 QQ 音乐云端上报「最近播放」——官方客户端也是每次播放开始
+  /// 上报一次，而不是按收听时长分段上报。
+  final void Function(Song song)? onSongPlayStarted;
 
   Timer? _ticker;
   Song? _activeSong;
@@ -16,16 +22,16 @@ class ListeningStatsTracker {
 
   final BehaviorSubject<int> _liveTickSubject = BehaviorSubject<int>.seeded(0);
 
-  /// Stream that emits whenever listening minutes are recorded (for live UI update)
+  /// Stream that emits whenever listening seconds are recorded (for live UI update)
   Stream<int> get liveTickStream => _liveTickSubject.stream;
 
-  ListeningStatsTracker(this._storageService);
+  ListeningStatsTracker(this._storageService, {this.onSongPlayStarted});
 
   /// Called when playback starts or resumes
   void onPlay(Song song) {
     if (_activeSong?.id != song.id) {
-      // Switching song: flush previous full minutes
-      _flushMinutes();
+      // Switching song: flush all remaining buffered seconds for previous song
+      _flushBufferedSeconds(minSeconds: 1);
       _bufferedSeconds = 0;
       _activeSong = song;
       // Record song play count on startup
@@ -33,6 +39,7 @@ class ListeningStatsTracker {
         song: song,
         timestamp: DateTime.now(),
       );
+      onSongPlayStarted?.call(song);
     } else {
       _activeSong = song;
     }
@@ -48,7 +55,7 @@ class ListeningStatsTracker {
     _accumulateCurrentElapsed();
     _isTracking = false;
     _stopTicker();
-    _flushMinutes();
+    _flushBufferedSeconds(minSeconds: 1);
   }
 
   /// Called when playback stops
@@ -56,7 +63,7 @@ class ListeningStatsTracker {
     _accumulateCurrentElapsed();
     _isTracking = false;
     _stopTicker();
-    _flushMinutes();
+    _flushBufferedSeconds(minSeconds: 1);
     _bufferedSeconds = 0;
     _activeSong = null;
   }
@@ -64,7 +71,7 @@ class ListeningStatsTracker {
   /// Called when the current song completes or skips
   void onSongChanged(Song? newSong) {
     _accumulateCurrentElapsed();
-    _flushMinutes();
+    _flushBufferedSeconds(minSeconds: 1);
     _bufferedSeconds = 0;
     _activeSong = newSong;
     if (newSong != null && _isTracking) {
@@ -72,7 +79,17 @@ class ListeningStatsTracker {
         song: newSong,
         timestamp: DateTime.now(),
       );
+      onSongPlayStarted?.call(newSong);
       _lastTickTime = DateTime.now();
+    }
+  }
+
+  /// Simulate elapsed seconds (used in unit tests to verify sub-minute flushing).
+  void recordSimulatedSeconds(int seconds) {
+    if (seconds <= 0 || _activeSong == null) return;
+    _bufferedSeconds += seconds;
+    if (_bufferedSeconds >= 15) {
+      _flushBufferedSeconds(minSeconds: 15);
     }
   }
 
@@ -107,9 +124,9 @@ class ListeningStatsTracker {
 
     _lastTickTime = now;
 
-    // Record once every 1 minute (60 seconds)
-    if (_bufferedSeconds >= 60) {
-      _flushMinutes();
+    // Periodically flush every 15 seconds for responsive live updates
+    if (_bufferedSeconds >= 15) {
+      _flushBufferedSeconds(minSeconds: 15);
     }
   }
 
@@ -126,15 +143,14 @@ class ListeningStatsTracker {
     _lastTickTime = now;
   }
 
-  /// Write accumulated full minutes into StorageService (1-minute intervals)
-  void _flushMinutes() {
-    if (_bufferedSeconds < 60 || _activeSong == null) {
+  /// Write accumulated seconds into StorageService.
+  void _flushBufferedSeconds({required int minSeconds}) {
+    if (_bufferedSeconds < minSeconds || _activeSong == null) {
       return;
     }
 
-    final minutesToRecord = _bufferedSeconds ~/ 60;
-    final secondsToRecord = minutesToRecord * 60;
-    _bufferedSeconds %= 60;
+    final secondsToRecord = _bufferedSeconds;
+    _bufferedSeconds = 0;
 
     final songToSave = _activeSong!;
     final timestamp = DateTime.now();
@@ -150,7 +166,7 @@ class ListeningStatsTracker {
 
   void dispose() {
     _accumulateCurrentElapsed();
-    _flushMinutes();
+    _flushBufferedSeconds(minSeconds: 1);
     _stopTicker();
     _liveTickSubject.close();
   }

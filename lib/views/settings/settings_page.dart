@@ -11,10 +11,13 @@ import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
 import '../../providers/lyrics_provider.dart';
+import '../../providers/qq_music_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../services/backup_service.dart';
+import '../../services/qq_music_service.dart';
 import '../stats/listening_stats_page.dart';
+import '../widgets/qq_music_auth_dialog.dart';
 import '../widgets/update_dialog.dart';
 import 'audio_effects_settings_page.dart';
 import 'lyrics_display_settings_page.dart';
@@ -187,6 +190,7 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final libraryState = ref.watch(libraryNotifierProvider);
+    final qqFavState = ref.watch(qqMusicFavoritesProvider);
     final todayStats = ref.watch(todayListeningSummaryProvider);
     final themeMode = ref.watch(themeModeProvider);
     final palette = ref.watch(themePaletteProvider);
@@ -245,6 +249,125 @@ class SettingsPage extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // QQ Music Favorites Sync Card
+          Card(
+            elevation: 0,
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.22),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => QQMusicAuthDialog.show(context),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.16,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.favorite_rounded,
+                        color: theme.colorScheme.primary,
+                        size: 25,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'QQ 音乐「我喜欢」收藏同步',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            qqFavState.isBound
+                                ? '已连接 ${qqFavState.config.displayLabel} · 已同步 ${qqFavState.mergedSongs.length} 首'
+                                      '${qqFavState.localMatchedCount > 0 ? ' (关联本地 ${qqFavState.localMatchedCount} 首)' : ''}'
+                                : '未绑定 · 点击配置 QQ 号、歌单链接或 Cookie 同步收藏',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (qqFavState.isBound)
+                      IconButton(
+                        icon: qqFavState.isSyncing
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              )
+                            : Icon(
+                                Icons.sync_rounded,
+                                color: theme.colorScheme.primary,
+                              ),
+                        tooltip: '立即同步',
+                        onPressed: qqFavState.isSyncing
+                            ? null
+                            : () async {
+                                try {
+                                  final msg = await ref
+                                      .read(qqMusicFavoritesProvider.notifier)
+                                      .syncFavorites(silent: false);
+                                  if (context.mounted && msg.isNotEmpty) {
+                                    AppToast.show(
+                                      context,
+                                      msg,
+                                      icon: Icons.check_circle_outline_rounded,
+                                    );
+                                  }
+                                } on QQMusicApiException catch (e) {
+                                  if (context.mounted) {
+                                    AppToast.show(
+                                      context,
+                                      e.message,
+                                      icon: Icons.error_outline_rounded,
+                                    );
+                                  }
+                                } catch (_) {
+                                  if (context.mounted) {
+                                    AppToast.show(
+                                      context,
+                                      '同步失败，请检查网络后重试',
+                                      icon: Icons.error_outline_rounded,
+                                    );
+                                  }
+                                }
+                              },
+                      )
+                    else
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.6,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),

@@ -8,7 +8,9 @@ import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../providers/qq_music_provider.dart';
 import 'edit_song_dialog.dart';
+import 'local_song_link_dialog.dart';
 import 'online_candidate_dialog.dart';
 import 'song_artwork.dart';
 
@@ -54,6 +56,16 @@ class SongTile extends ConsumerWidget {
         : false;
 
     final theme = Theme.of(context);
+    // 只依赖 isBound 这一个 bool，避免云端同步引发整个列表重建。
+    // 未注入 storageService 时（如纯渲染的 widget 测试）降级为未绑定，
+    // 与 qq_music_provider 里对 audioHandlerProvider 的处理保持一致。
+    var isQQBound = false;
+    try {
+      isQQBound = ref.watch(
+        qqMusicFavoritesProvider.select((s) => s.isBound),
+      );
+    } catch (_) {}
+    final hasQqMid = song.qqSongMid != null && song.qqSongMid!.isNotEmpty;
 
     return Material(
       color: isSelected
@@ -129,20 +141,38 @@ class SongTile extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      song.album.isNotEmpty &&
-                              song.album != song.title &&
-                              song.album != song.artist
-                          ? '${song.artist} · ${song.album}'
-                          : song.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.8,
+                    Row(
+                      children: [
+                        if (song.qqSongMid != null &&
+                            song.qqSongMid!.isNotEmpty) ...[
+                          _buildSourceBadge(
+                            theme,
+                            label: song.hasLocalFile ? '本地' : 'QQ音乐',
+                            isLocal: song.hasLocalFile,
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        if (song.isVip && song.isQQMusicOnline) ...[
+                          _buildVipBadge(theme),
+                          const SizedBox(width: 4),
+                        ],
+                        Expanded(
+                          child: Text(
+                            song.album.isNotEmpty &&
+                                    song.album != song.title &&
+                                    song.album != song.artist
+                                ? '${song.artist} · ${song.album}'
+                                : song.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.8),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
@@ -245,16 +275,40 @@ class SongTile extends ConsumerWidget {
                         ],
                       ),
                     ),
-                  const PopupMenuItem(
-                    value: 'edit_song',
-                    child: Row(
-                      children: [
-                        Icon(Icons.edit_note_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('编辑歌曲信息'),
-                      ],
+                  if (!song.isQQMusicOnline)
+                    const PopupMenuItem(
+                      value: 'edit_song',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_note_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('编辑歌曲信息'),
+                        ],
+                      ),
                     ),
-                  ),
+                  // 云端曲目没匹配到本地文件时，允许用户自己指定
+                  if (isQQBound && !song.hasLocalFile && hasQqMid)
+                    const PopupMenuItem(
+                      value: 'link_local_song',
+                      child: Row(
+                        children: [
+                          Icon(Icons.link_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('关联本地音频'),
+                        ],
+                      ),
+                    ),
+                  if (isQQBound && song.hasLocalFile && hasQqMid)
+                    const PopupMenuItem(
+                      value: 'unlink_local_song',
+                      child: Row(
+                        children: [
+                          Icon(Icons.link_off_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('取消本地关联'),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
                     value: 'online_candidate_select',
                     child: Row(
@@ -275,23 +329,24 @@ class SongTile extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.delete_outline_rounded,
-                          size: 18,
-                          color: Colors.redAccent,
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          '从曲库移除',
-                          style: TextStyle(color: Colors.redAccent),
-                        ),
-                      ],
+                  if (!song.isQQMusicOnline || onDelete != null)
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.delete_outline_rounded,
+                            size: 18,
+                            color: Colors.redAccent,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            '从曲库移除',
+                            style: TextStyle(color: Colors.redAccent),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
                 ],
               ),
             ],
@@ -301,10 +356,86 @@ class SongTile extends ConsumerWidget {
     );
   }
 
+  Widget _buildSourceBadge(
+    ThemeData theme, {
+    required String label,
+    required bool isLocal,
+  }) {
+    final badgeColor = isLocal ? theme.colorScheme.primary : Colors.teal;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0.5),
+      decoration: BoxDecoration(
+        color: badgeColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(3.5),
+        border: Border.all(
+          color: badgeColor.withValues(alpha: 0.35),
+          width: 0.6,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: badgeColor,
+          height: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVipBadge(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 3.5, vertical: 0.5),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(3.5),
+        border: Border.all(
+          color: Colors.amber.shade700.withValues(alpha: 0.45),
+          width: 0.6,
+        ),
+      ),
+      child: Text(
+        'VIP',
+        style: TextStyle(
+          fontSize: 8.5,
+          fontWeight: FontWeight.w700,
+          color: Colors.amber.shade800,
+          height: 1.2,
+        ),
+      ),
+    );
+  }
+
   void _handleAction(BuildContext context, WidgetRef ref, String action) async {
     switch (action) {
+      case 'link_local_song':
+        final message = await LocalSongLinkDialog.show(context, song);
+        if (context.mounted && message != null && message.isNotEmpty) {
+          AppToast.show(context, message, icon: Icons.link_rounded);
+        }
+        break;
+      case 'unlink_local_song':
+        final message = await ref
+            .read(qqMusicFavoritesProvider.notifier)
+            .unlinkLocalSong(song);
+        if (context.mounted) {
+          AppToast.show(context, message, icon: Icons.link_off_rounded);
+        }
+        break;
       case 'toggle_favorite':
-        ref.read(libraryNotifierProvider.notifier).toggleFavorite(song);
+        final res = await ref
+            .read(qqMusicFavoritesProvider.notifier)
+            .toggleFavorite(song);
+        if (context.mounted && res.toastMessage != null) {
+          AppToast.show(
+            context,
+            res.toastMessage!,
+            icon: res.isFavorite
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+          );
+        }
         break;
       case 'play_next':
         await ref.read(audioControllerProvider).playNext(song);

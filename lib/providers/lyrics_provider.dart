@@ -7,6 +7,7 @@ import '../models/song.dart';
 import '../services/online_metadata_service.dart';
 import 'audio_provider.dart';
 import 'library_provider.dart';
+import 'qq_music_provider.dart';
 
 final onlineMetadataServiceProvider = Provider<OnlineMetadataService>((ref) {
   final service = OnlineMetadataService();
@@ -120,7 +121,63 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       }
     }
 
-    // 2. Fetch online
+    // 2. If song carries a QQ Music songMid, fetch directly by songMid first
+    if (song.qqSongMid != null && song.qqSongMid!.isNotEmpty) {
+      try {
+        final qqService = _ref.read(qqMusicServiceProvider);
+        final qqConfig = _ref.read(qqMusicFavoritesProvider).config;
+        final directLrc = await qqService.fetchLyricsBySongMid(
+          song.qqSongMid!,
+          config: qqConfig,
+        );
+        if (directLrc != null && directLrc.trim().isNotEmpty) {
+          await _ref
+              .read(libraryNotifierProvider.notifier)
+              .updateSongMerged(
+                song.id,
+                (current) => current.copyWith(lrcContent: directLrc),
+              );
+          if (song.isQQMusicOnline) {
+            await _ref
+                .read(qqMusicFavoritesProvider.notifier)
+                .cacheOnlineSongMetadata(song.id, lrcContent: directLrc);
+          }
+
+          if (!isDisplayTarget || state.songId != song.id) {
+            return null;
+          }
+
+          SoundCraftAudioHandler? handler;
+          try {
+            handler = _ref.read(audioHandlerProvider);
+          } catch (_) {}
+          final currentActiveNow = _ref.read(currentSongProvider).valueOrNull;
+          if (currentActiveNow?.id == song.id) {
+            handler?.updateCurrentSongMetadata(lrcContent: directLrc);
+          }
+
+          final parsed = LrcParser.parse(directLrc);
+          if (parsed.isNotEmpty) {
+            state = LyricsState(
+              lines: parsed,
+              isLoading: false,
+              isSynced: true,
+              songId: song.id,
+            );
+          } else {
+            state = LyricsState(
+              plainText: directLrc,
+              isLoading: false,
+              isSynced: false,
+              songId: song.id,
+            );
+          }
+          return null;
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fetch online across multi-platform search
     try {
       final result = await _onlineService.fetchMetadata(
         title: song.title,
@@ -164,6 +221,15 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
                   albumArtUri: current.albumArtUri ?? newArtUri,
                 ),
               );
+          if (song.isQQMusicOnline) {
+            await _ref
+                .read(qqMusicFavoritesProvider.notifier)
+                .cacheOnlineSongMetadata(
+                  song.id,
+                  lrcContent: lrcContent,
+                  albumArtUri: newArtUri,
+                );
+          }
         }
 
         // The UI state (and handler metadata) only follows the fetch while

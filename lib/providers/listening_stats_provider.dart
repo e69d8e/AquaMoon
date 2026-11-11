@@ -4,6 +4,7 @@ import '../core/utils/formatters.dart';
 import '../models/listening_stats.dart';
 import '../services/storage_service.dart';
 import 'audio_provider.dart';
+import 'qq_music_provider.dart';
 
 /// Currently selected statistics period tab (Day, Week, Month, Year)
 final statsPeriodTypeProvider = StateProvider<PeriodType>((ref) => PeriodType.day);
@@ -23,8 +24,10 @@ final statsLiveTickStreamProvider = StreamProvider.autoDispose<int>((ref) {
 /// autoDispose: aggregation walks every stored daily record, so it must only
 /// run while the stats page is actually visible.
 final listeningPeriodStatsProvider = Provider.autoDispose<ListeningPeriodStats>((ref) {
-  // Trigger rebuild on live audio playback tick
+  // Trigger rebuild on live audio playback tick or QQ Music stats sync
   ref.watch(statsLiveTickStreamProvider);
+  ref.watch(qqMusicFavoritesProvider.select((s) => s.cloudStatsSummary));
+  ref.watch(qqMusicFavoritesProvider.select((s) => s.config.lastSyncMs));
 
   final storage = ref.watch(storageServiceProvider);
   final periodType = ref.watch(statsPeriodTypeProvider);
@@ -36,6 +39,7 @@ final listeningPeriodStatsProvider = Provider.autoDispose<ListeningPeriodStats>(
 /// Quick summary of today's listening for home / settings page
 final todayListeningSummaryProvider = Provider.autoDispose<DailyListeningRecord>((ref) {
   ref.watch(statsLiveTickStreamProvider);
+  ref.watch(qqMusicFavoritesProvider.select((s) => s.cloudStatsSummary));
   final storage = ref.watch(storageServiceProvider);
   final todayStr = Formatters.formatDateKey(DateTime.now());
   return storage.getDailyListeningRecord(todayStr);
@@ -44,6 +48,7 @@ final todayListeningSummaryProvider = Provider.autoDispose<DailyListeningRecord>
 /// Lifetime total listening seconds
 final totalLifetimeListeningSecondsProvider = Provider.autoDispose<int>((ref) {
   ref.watch(statsLiveTickStreamProvider);
+  ref.watch(qqMusicFavoritesProvider.select((s) => s.cloudStatsSummary));
   final storage = ref.watch(storageServiceProvider);
   return storage.getTotalLifetimeListeningSeconds();
 });
@@ -51,6 +56,7 @@ final totalLifetimeListeningSecondsProvider = Provider.autoDispose<int>((ref) {
 /// 年度热力图数据：dateStr -> 当日收听秒数。
 final yearHeatmapDataProvider = Provider.autoDispose<Map<String, int>>((ref) {
   ref.watch(statsLiveTickStreamProvider);
+  ref.watch(qqMusicFavoritesProvider.select((s) => s.cloudStatsSummary));
   final storage = ref.watch(storageServiceProvider);
   final year = ref.watch(selectedStatsDateProvider).year;
   final records = storage.getDailyRecordsInRange(
@@ -67,12 +73,17 @@ final yearHeatmapDataProvider = Provider.autoDispose<Map<String, int>>((ref) {
 final artistSongsInPeriodProvider =
     Provider.autoDispose.family<List<SongStatItem>, String>((ref, artist) {
   ref.watch(statsLiveTickStreamProvider);
+  ref.watch(qqMusicFavoritesProvider.select((s) => s.cloudStatsSummary));
   final storage = ref.watch(storageServiceProvider);
   final periodType = ref.watch(statsPeriodTypeProvider);
   final targetDate = ref.watch(selectedStatsDateProvider);
 
   final records = _recordsForPeriod(storage, periodType, targetDate);
-  final topSongs = _extractTopSongs(records);
+  final topSongs = _extractTopSongs(
+    records,
+    sortByPlayCount: periodType == PeriodType.all,
+    storage: storage,
+  );
   return topSongs.where((s) => s.artist == artist).toList();
 });
 
@@ -170,7 +181,11 @@ ListeningPeriodStats _computeAllStats(StorageService storage) {
     );
   }
 
-  final topSongs = _extractTopSongs(records, sortByPlayCount: true);
+  final topSongs = _extractTopSongs(
+    records,
+    sortByPlayCount: true,
+    storage: storage,
+  );
   final topArtists = _extractTopArtists(records);
   final totalPlayCount = topSongs.fold(0, (sum, item) => sum + item.playCount);
 
@@ -242,7 +257,7 @@ ListeningPeriodStats _computeDayStats(StorageService storage, DateTime date) {
     );
   }
 
-  final topSongs = _extractTopSongs([record]);
+  final topSongs = _extractTopSongs([record], storage: storage);
   final topArtists = _extractTopArtists([record]);
   final totalPlayCount = record.songPlayCounts.values.fold(0, (a, b) => a + b);
 
@@ -265,7 +280,7 @@ ListeningPeriodStats _computeDayStats(StorageService storage, DateTime date) {
     displayTitle: displayTitle,
     totalDurationSeconds: record.totalDurationSeconds,
     totalPlayCount: totalPlayCount,
-    distinctSongsCount: record.songDurationSeconds.keys.length,
+    distinctSongsCount: topSongs.length,
     distinctArtistsCount: topArtists.length,
     topSongs: topSongs,
     topArtists: topArtists,
@@ -323,7 +338,7 @@ ListeningPeriodStats _computeWeekStats(StorageService storage, DateTime date) {
     );
   }
 
-  final topSongs = _extractTopSongs(records);
+  final topSongs = _extractTopSongs(records, storage: storage);
   final topArtists = _extractTopArtists(records);
   int totalPlayCount = 0;
   for (final r in records) {
@@ -409,7 +424,7 @@ ListeningPeriodStats _computeMonthStats(StorageService storage, DateTime date) {
     );
   }
 
-  final topSongs = _extractTopSongs(records);
+  final topSongs = _extractTopSongs(records, storage: storage);
   final topArtists = _extractTopArtists(records);
   int totalPlayCount = 0;
   for (final r in records) {
@@ -490,7 +505,7 @@ ListeningPeriodStats _computeYearStats(StorageService storage, DateTime date) {
     );
   }
 
-  final topSongs = _extractTopSongs(records);
+  final topSongs = _extractTopSongs(records, storage: storage);
   final topArtists = _extractTopArtists(records);
   int totalPlayCount = 0;
   for (final r in records) {
@@ -529,6 +544,7 @@ ListeningPeriodStats _computeYearStats(StorageService storage, DateTime date) {
 List<SongStatItem> _extractTopSongs(
   List<DailyListeningRecord> records, {
   bool sortByPlayCount = false,
+  StorageService? storage,
 }) {
   final durationMap = <String, int>{};
   final playCountMap = <String, int>{};
@@ -542,12 +558,32 @@ List<SongStatItem> _extractTopSongs(
       playCountMap[songId] = (playCountMap[songId] ?? 0) + count;
     });
     rec.songMetaCache.forEach((songId, meta) {
-      metaMap.putIfAbsent(songId, () => meta);
+      metaMap[songId] = meta;
     });
   }
 
-  // A song can have a play count without flushed listening seconds yet
-  // (seconds are buffered and written in minute batches), so union the keys.
+  if (storage != null) {
+    // Enrich metadata from live library and QQ Music favorites cache, and for
+    // All-Time play count leaderboard ensure songs with higher persisted
+    // playCount are reflected.
+    final liveSongs = [
+      ...storage.getAllSongs(),
+      ...storage.getQQMusicFavoritesCache(),
+    ];
+    for (final s in liveSongs) {
+      final existingMeta = metaMap[s.id];
+      if (existingMeta == null ||
+          (existingMeta.qqSongMid == null && s.qqSongMid != null)) {
+        metaMap[s.id] = SongMetaSnapshot.fromSong(s);
+      }
+      if (sortByPlayCount && s.playCount > (playCountMap[s.id] ?? 0)) {
+        playCountMap[s.id] = s.playCount;
+      }
+    }
+  }
+
+  // A song can have a play count without flushed listening seconds yet,
+  // so union the keys.
   final songIds = <String>{...durationMap.keys, ...playCountMap.keys};
 
   final items = <SongStatItem>[];
@@ -565,6 +601,11 @@ List<SongStatItem> _extractTopSongs(
         albumArtUri: meta?.albumArtUri,
         durationSeconds: dur,
         playCount: count,
+        qqSongMid: meta?.qqSongMid,
+        qqSongId: meta?.qqSongId,
+        qqMediaMid: meta?.qqMediaMid,
+        isVip: meta?.isVip ?? false,
+        isQQMusicOnline: meta?.isQQMusicOnline ?? songId.startsWith('qq_'),
       ),
     );
   }
@@ -576,7 +617,11 @@ List<SongStatItem> _extractTopSongs(
       return b.durationSeconds.compareTo(a.durationSeconds);
     });
   } else {
-    items.sort((a, b) => b.durationSeconds.compareTo(a.durationSeconds));
+    items.sort((a, b) {
+      final byDur = b.durationSeconds.compareTo(a.durationSeconds);
+      if (byDur != 0) return byDur;
+      return b.playCount.compareTo(a.playCount);
+    });
   }
   return items;
 }
@@ -587,16 +632,23 @@ List<ArtistStatItem> _extractTopArtists(List<DailyListeningRecord> records) {
   final artistPlayCountMap = <String, int>{};
 
   for (final rec in records) {
-    rec.songDurationSeconds.forEach((songId, dur) {
+    final songIds = <String>{
+      ...rec.songDurationSeconds.keys,
+      ...rec.songPlayCounts.keys,
+    };
+    for (final songId in songIds) {
       final meta = rec.songMetaCache[songId];
-      final artist = (meta?.artist.trim().isNotEmpty ?? false) ? meta!.artist.trim() : '未知歌手';
-      if (artist == '未知歌手') return;
+      final artist = (meta?.artist.trim().isNotEmpty ?? false)
+          ? meta!.artist.trim()
+          : '未知歌手';
+      if (artist == '未知歌手') continue;
 
+      final dur = rec.songDurationSeconds[songId] ?? 0;
+      final pc = rec.songPlayCounts[songId] ?? 0;
       artistDurationMap[artist] = (artistDurationMap[artist] ?? 0) + dur;
       artistSongsMap.putIfAbsent(artist, () => <String>{}).add(songId);
-      final pc = rec.songPlayCounts[songId] ?? 0;
       artistPlayCountMap[artist] = (artistPlayCountMap[artist] ?? 0) + pc;
-    });
+    }
   }
 
   final items = <ArtistStatItem>[];
@@ -611,6 +663,10 @@ List<ArtistStatItem> _extractTopArtists(List<DailyListeningRecord> records) {
     );
   }
 
-  items.sort((a, b) => b.durationSeconds.compareTo(a.durationSeconds));
+  items.sort((a, b) {
+    final byDur = b.durationSeconds.compareTo(a.durationSeconds);
+    if (byDur != 0) return byDur;
+    return b.playCount.compareTo(a.playCount);
+  });
   return items;
 }

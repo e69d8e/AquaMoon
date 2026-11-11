@@ -12,6 +12,7 @@ import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/lyrics_provider.dart';
+import '../../providers/qq_music_provider.dart';
 import '../../services/file_export_service.dart';
 import '../online_search/online_search_page.dart';
 import '../widgets/custom_progress_bar.dart';
@@ -267,10 +268,20 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                     ? const Color(0xFFFF5252)
                                     : secondaryTextColor,
                               ),
-                              onPressed: () {
-                                ref
-                                    .read(libraryNotifierProvider.notifier)
+                              onPressed: () async {
+                                final res = await ref
+                                    .read(qqMusicFavoritesProvider.notifier)
                                     .toggleFavorite(song);
+                                if (context.mounted &&
+                                    res.toastMessage != null) {
+                                  AppToast.show(
+                                    context,
+                                    res.toastMessage!,
+                                    icon: res.isFavorite
+                                        ? Icons.favorite_rounded
+                                        : Icons.favorite_border_rounded,
+                                  );
+                                }
                               },
                             ),
                             PopupMenuButton<String>(

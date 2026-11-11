@@ -1,0 +1,17 @@
+{
+  "code": 0,
+  "req_0": {
+    "code": 0,
+    "data": {
+      "todayLT": 0,
+      "nick": "示例昵称",
+      "powerInfo": {
+        "level": 12,
+        "value": 148317,
+        "name": "S12",
+        "currentValue": 137500,
+        "nextValue": 240000
+      }
+    }
+  }
+}

@@ -235,6 +235,10 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       isFavorite: keep.isFavorite || drop.isFavorite,
       trackNumber: keep.trackNumber ?? drop.trackNumber,
       year: keep.year ?? drop.year,
+      qqSongMid: keep.qqSongMid ?? drop.qqSongMid,
+      qqSongId: keep.qqSongId ?? drop.qqSongId,
+      qqMediaMid: keep.qqMediaMid ?? drop.qqMediaMid,
+      isVip: keep.isVip || drop.isVip,
     );
   }
 
