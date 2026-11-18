@@ -107,6 +107,15 @@ void main() {
       }
     }
 
+    /// 等待 [predicate] 成立（最多约 2 秒）。Hive 写入是异步的，CI 机器较慢时
+    /// 仅pump几轮微任务不足以让落库完成，直接断言会偶发失败。
+    Future<void> waitFor(bool Function() predicate) async {
+      for (var i = 0; i < 100; i++) {
+        if (predicate()) return;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+
     test(
       'match completed after switching songs is still persisted to its song',
       () async {
@@ -133,6 +142,9 @@ void main() {
           ),
         );
         await settle();
+        await waitFor(
+          () => storageService.getSong('lyr-a')?.lrcContent != null,
+        );
 
         // Song A's record must carry the fetched lyrics even though the UI
         // has moved on — otherwise the next playback re-runs the match.

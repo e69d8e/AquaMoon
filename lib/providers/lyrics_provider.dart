@@ -61,7 +61,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       if (song != null && song.id != state.songId) {
         loadLyricsForSong(song);
       } else if (song == null) {
-        state = const LyricsState();
+        _emit(const LyricsState());
       }
     });
 
@@ -73,6 +73,13 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
     if (restored != null) {
       loadLyricsForSong(restored);
     }
+  }
+
+  /// 只在本 notifier 存活时写入界面状态：在线匹配要等网络回调，响应可能
+  /// 在页面关闭、provider 已释放之后才到达。
+  void _emit(LyricsState next) {
+    if (!mounted) return;
+    state = next;
   }
 
   /// Loads lyrics for [song]; when [forceOnline] is set, always fetches from
@@ -89,7 +96,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
     if (isDisplayTarget) {
       // copyWith 的 error: null 是 no-op，无法清掉上一首的错误/纯文本残留，
       // 这里直接用全新状态。
-      state = LyricsState(isLoading: true, songId: song.id);
+      _emit(LyricsState(isLoading: true, songId: song.id));
     }
 
     // 1. If song already has cached LRC content and not forcing online refresh
@@ -99,23 +106,23 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       final parsed = LrcParser.parse(song.lrcContent);
       if (parsed.isNotEmpty) {
         if (isDisplayTarget) {
-          state = LyricsState(
+          _emit(LyricsState(
             lines: parsed,
             isLoading: false,
             isSynced: true,
             songId: song.id,
-          );
+          ));
         }
         return null;
       } else {
         // May be plain lyrics
         if (isDisplayTarget) {
-          state = LyricsState(
+          _emit(LyricsState(
             plainText: song.lrcContent,
             isLoading: false,
             isSynced: false,
             songId: song.id,
-          );
+          ));
         }
         return null;
       }
@@ -158,19 +165,19 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
 
           final parsed = LrcParser.parse(directLrc);
           if (parsed.isNotEmpty) {
-            state = LyricsState(
+            _emit(LyricsState(
               lines: parsed,
               isLoading: false,
               isSynced: true,
               songId: song.id,
-            );
+            ));
           } else {
-            state = LyricsState(
+            _emit(LyricsState(
               plainText: directLrc,
               isLoading: false,
               isSynced: false,
               songId: song.id,
-            );
+            ));
           }
           return null;
         }
@@ -253,41 +260,41 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
 
         if (result.syncedLyrics != null) {
           final parsed = LrcParser.parse(result.syncedLyrics);
-          state = LyricsState(
+          _emit(LyricsState(
             lines: parsed,
             isLoading: false,
             isSynced: true,
             songId: song.id,
-          );
+          ));
           return null;
         } else if (result.plainLyrics != null) {
-          state = LyricsState(
+          _emit(LyricsState(
             plainText: result.plainLyrics,
             isLoading: false,
             isSynced: false,
             songId: song.id,
-          );
+          ));
           return null;
         }
       }
 
       if (isDisplayTarget && state.songId == song.id) {
-        state = LyricsState(
+        _emit(LyricsState(
           lines: const [],
           isLoading: false,
           error: '暂无歌词',
           songId: song.id,
-        );
+        ));
       }
       return '暂无歌词';
     } catch (_) {
       if (isDisplayTarget && state.songId == song.id) {
-        state = LyricsState(
+        _emit(LyricsState(
           lines: const [],
           isLoading: false,
           error: '网络异常，获取歌词失败',
           songId: song.id,
-        );
+        ));
       }
       return '网络异常，获取歌词失败';
     }
