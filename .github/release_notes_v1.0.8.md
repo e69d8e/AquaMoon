@@ -7,17 +7,6 @@
 
 ---
 
-### 📋 版本发布信息
-
-- **版本号**：`v1.0.8`（构建版本 `1.0.8+9`）
-- **发布日期**：2026-11-18
-- **Git 标签**：`v1.0.8` (`41c5603`)
-- **发布地址**：[GitHub Releases v1.0.8](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.8)
-- **代码对比**：[`v1.0.7...v1.0.8`](https://github.com/e69d8e/AquaMoon/compare/v1.0.7...v1.0.8)
-- **完整提交记录**：[`commits/v1.0.8`](https://github.com/e69d8e/AquaMoon/commits/v1.0.8)
-
----
-
 ## ✨ v1.0.8 核心更新亮点
 
 ### ⬇️ 1. QQ 音乐歌曲下载（新增）
@@ -59,3 +48,7 @@
 > 覆盖安装即可保留曲库、歌单与 QQ 音乐绑定信息；首次下载无损音质前，建议在「设置 → QQ 音乐下载」确认保存文件夹与默认音质。
 
 > iOS / macOS / Windows / Linux / Web 版本不再随 Releases 发布；如需使用请在本地自行编译（见仓库 README 的「打包构建」章节）。
+
+---
+
+**Full Changelog**: https://github.com/e69d8e/AquaMoon/compare/v1.0.7...v1.0.8

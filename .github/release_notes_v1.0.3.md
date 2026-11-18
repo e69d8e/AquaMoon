@@ -7,17 +7,6 @@
 
 ---
 
-### 📋 版本发布信息
-
-- **版本号**：`v1.0.3`（构建版本 `1.0.3+4`）
-- **发布日期**：2026-10-02
-- **Git 标签**：`v1.0.3` (`2721b4b`)
-- **发布地址**：[GitHub Releases v1.0.3](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.3)
-- **代码对比**：[`v1.0.2...v1.0.3`](https://github.com/e69d8e/AquaMoon/compare/v1.0.2...v1.0.3)
-- **完整提交记录**：[`commits/v1.0.3`](https://github.com/e69d8e/AquaMoon/commits/v1.0.3)
-
----
-
 ## ✨ v1.0.3 核心更新亮点
 
 ### 🔄 1. GitHub Release 检查更新
@@ -52,3 +41,7 @@
 | 🤖 `AquaMoon-Android-Universal.apk` | 全部架构（含 x86_64 模拟器） | 通用包，体积稍大 |
 
 > iOS / macOS / Windows / Linux / Web 版本不再随 Releases 发布；如需使用请在本地自行编译（见仓库 README 的「打包构建」章节）。
+
+---
+
+**Full Changelog**: https://github.com/e69d8e/AquaMoon/compare/v1.0.2...v1.0.3

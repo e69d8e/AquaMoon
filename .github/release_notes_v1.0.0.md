@@ -7,17 +7,6 @@
 
 ---
 
-### 📋 版本发布信息
-
-- **版本号**：`v1.0.0`（构建版本 `1.0.0+1`）
-- **发布日期**：2026-08-18
-- **Git 标签**：`v1.0.0` (`732f07f`)
-- **发布地址**：[GitHub Releases v1.0.0](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.0)
-- **代码对比**：首个版本（无对比基准）
-- **完整提交记录**：[`commits/v1.0.0`](https://github.com/e69d8e/AquaMoon/commits/v1.0.0)
-
----
-
 ## ✨ 核心特性亮点
 
 ### 🎨 1. 水墨禅意与现代交互美学
@@ -81,3 +70,7 @@
 | 🤖 `AquaMoon-Android-Universal.apk` | 全部架构（含 x86_64 模拟器） | 通用包，体积稍大 |
 
 > iOS / macOS / Windows / Linux / Web 版本不再随 Releases 发布；如需使用请在本地自行编译（见仓库 README 的「打包构建」章节）。
+
+---
+
+**Full Changelog**: https://github.com/e69d8e/AquaMoon/commits/v1.0.0
