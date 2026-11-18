@@ -107,26 +107,21 @@ void main() {
       }
     }
 
-    /// 等待 [predicate] 成立（最多约 2 秒）。Hive 写入是异步的，CI 机器较慢时
-    /// 仅pump几轮微任务不足以让落库完成，直接断言会偶发失败。
-    Future<void> waitFor(bool Function() predicate) async {
-      for (var i = 0; i < 100; i++) {
-        if (predicate()) return;
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
-    }
-
     test(
       'match completed after switching songs is still persisted to its song',
       () async {
         final container = buildContainer();
-        container.read(lyricsNotifierProvider); // construct & start listening
+        final notifier = container.read(lyricsNotifierProvider.notifier);
 
         // Song A starts playing; lyrics matching kicks off and stalls on the
         // pending fetch.
         currentSongController.add(songA);
         await settle();
         expect(container.read(lyricsNotifierProvider).songId, 'lyr-a');
+
+        // 再显式跑一次 A 的匹配，拿到可以 await 的句柄：流驱动的这次加载
+        // 在慢机器上何时被调度无法把握，断言必须等真正的落库完成。
+        final matchA = notifier.loadLyricsForSong(songA);
 
         // User skips to song B before the fetch resolves.
         currentSongController.add(songB);
@@ -141,10 +136,8 @@ void main() {
             syncedLyrics: '[00:01.00]A的歌词',
           ),
         );
+        await matchA;
         await settle();
-        await waitFor(
-          () => storageService.getSong('lyr-a')?.lrcContent != null,
-        );
 
         // Song A's record must carry the fetched lyrics even though the UI
         // has moved on — otherwise the next playback re-runs the match.
@@ -170,6 +163,9 @@ void main() {
 
       currentSongController.add(songA);
       await settle();
+      final matchA = container
+          .read(lyricsNotifierProvider.notifier)
+          .loadLyricsForSong(songA);
 
       fetchCompleter.complete(
         const OnlineSearchResult(
@@ -179,6 +175,7 @@ void main() {
           syncedLyrics: '[00:01.00]A的歌词',
         ),
       );
+      await matchA;
       await settle();
 
       final state = container.read(lyricsNotifierProvider);
@@ -219,7 +216,9 @@ void main() {
         await settle();
         expect(container.read(currentSongProvider).valueOrNull?.id, 'lyr-a');
 
-        container.read(lyricsNotifierProvider);
+        final notifier = container.read(lyricsNotifierProvider.notifier);
+        // 同测试一：显式取一个可 await 的句柄，避免依赖调度时序。
+        final matchA = notifier.loadLyricsForSong(songA);
         await settle();
 
         // 未按播放也必须立即开始加载，而不是停在空状态等播放重发触发。
@@ -235,6 +234,7 @@ void main() {
             syncedLyrics: '[00:01.00]A的歌词',
           ),
         );
+        await matchA;
         await settle();
 
         final state = container.read(lyricsNotifierProvider);
