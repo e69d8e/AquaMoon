@@ -127,6 +127,7 @@ void main() {
         currentSongController.add(songB);
         await settle();
         expect(container.read(lyricsNotifierProvider).songId, 'lyr-b');
+        final matchB = notifier.loadLyricsForSong(songB);
 
         fetchCompleter.complete(
           const OnlineSearchResult(
@@ -137,6 +138,7 @@ void main() {
           ),
         );
         await matchA;
+        await matchB;
         await settle();
 
         // Song A's record must carry the fetched lyrics even though the UI

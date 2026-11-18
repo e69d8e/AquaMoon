@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/audio/audio_player_handler.dart';
@@ -55,6 +57,9 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
   final OnlineMetadataService _onlineService;
   final Ref _ref;
 
+  /// song.id → 正在进行的匹配，见 [loadLyricsForSong]。
+  final Map<String, Future<String?>> _inFlight = {};
+
   LyricsNotifier(this._onlineService, this._ref) : super(const LyricsState()) {
     _ref.listen<AsyncValue<Song?>>(currentSongProvider, (prev, next) {
       final song = next.valueOrNull;
@@ -88,7 +93,28 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
   /// Returns an error message on failure, `null` on success — so callers
   /// triggering a manual match for a non-playing song can toast the outcome
   /// without reading (stale) shared state afterwards.
-  Future<String?> loadLyricsForSong(Song song, {bool forceOnline = false}) async {
+  /// 同一首歌的在线匹配去重：启动补载、播放事件与手动触发常常同时发生，
+  /// 复用同一个 Future 既省一次请求，也避免并发写库互相覆盖。
+  Future<String?> loadLyricsForSong(Song song, {bool forceOnline = false}) {
+    if (forceOnline) return _loadLyricsForSong(song, forceOnline: true);
+    final pending = _inFlight[song.id];
+    if (pending != null) return pending;
+    final future = _loadLyricsForSong(song);
+    _inFlight[song.id] = future;
+    unawaited(
+      future.then<void>(
+        (_) => _settleInFlight(song.id, future),
+        onError: (Object _) => _settleInFlight(song.id, future),
+      ),
+    );
+    return future;
+  }
+
+  void _settleInFlight(String songId, Future<String?> future) {
+    if (identical(_inFlight[songId], future)) _inFlight.remove(songId);
+  }
+
+  Future<String?> _loadLyricsForSong(Song song, {bool forceOnline = false}) async {
     // 只有正在播放（或尚未播放任何歌）时才接管共享的歌词状态；对曲库中
     // 其他歌手动“匹配歌词”不应把全屏播放器的歌词页换成那首歌的内容。
     final currentActive = _ref.read(currentSongProvider).valueOrNull;
@@ -199,7 +225,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         // Cache online cover art if local song lacks cover. Skipped when the
         // user already moved on to another song — don't pay for the download.
         String? newArtUri = song.albumArtUri;
-        if (state.songId == song.id &&
+        if (mounted && state.songId == song.id &&
             (newArtUri == null || newArtUri.isEmpty) &&
             result.coverUrl != null) {
           newArtUri = await _onlineService.cacheOnlineImage(result.coverUrl!);
@@ -278,7 +304,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         }
       }
 
-      if (isDisplayTarget && state.songId == song.id) {
+      if (mounted && isDisplayTarget && state.songId == song.id) {
         _emit(LyricsState(
           lines: const [],
           isLoading: false,
@@ -288,7 +314,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       }
       return '暂无歌词';
     } catch (_) {
-      if (isDisplayTarget && state.songId == song.id) {
+      if (mounted && isDisplayTarget && state.songId == song.id) {
         _emit(LyricsState(
           lines: const [],
           isLoading: false,
