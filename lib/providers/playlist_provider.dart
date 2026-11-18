@@ -183,6 +183,16 @@ final playlistNotifierProvider = StateNotifierProvider<PlaylistNotifier, List<Pl
   return PlaylistNotifier(storage);
 });
 
+/// 歌曲列表通用关键词匹配：按标题、歌手、专辑进行大小写不敏感子串过滤。
+bool songMatchesQuery(Song song, String normalizedQuery) {
+  if (normalizedQuery.isEmpty) return true;
+  return song.title.toLowerCase().contains(normalizedQuery) ||
+      song.artist.toLowerCase().contains(normalizedQuery) ||
+      song.album.toLowerCase().contains(normalizedQuery);
+}
+
+final favoritesSearchQueryProvider = StateProvider<String>((ref) => '');
+
 final favoritesSongsProvider = Provider<List<Song>>((ref) {
   final qqFavState = ref.watch(qqMusicFavoritesProvider);
   final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
@@ -206,6 +216,15 @@ final favoritesSongsProvider = Provider<List<Song>>((ref) {
     return [...merged, ...localOnly];
   }
   return songs.where((s) => s.isFavorite).toList();
+});
+
+final filteredFavoritesSongsProvider = Provider<List<Song>>((ref) {
+  final favorites = ref.watch(favoritesSongsProvider);
+  final query = ref.watch(favoritesSearchQueryProvider).trim().toLowerCase();
+  if (query.isEmpty) return favorites;
+  return favorites
+      .where((song) => songMatchesQuery(song, query))
+      .toList(growable: false);
 });
 
 final historySongsProvider = Provider<List<Song>>((ref) {

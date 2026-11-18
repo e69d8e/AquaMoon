@@ -112,6 +112,10 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
     );
     final candidates = _rankedCandidates(localSongs);
     final matchedCount = candidates.where((c) => c.score != null).length;
+    // AlertDialog wraps content in IntrinsicWidth; fix the width explicitly so
+    // it does not query intrinsic dimensions of the shrink-wrapping ListView.
+    final dialogWidth =
+        (MediaQuery.sizeOf(context).width - 128).clamp(240.0, 460.0);
 
     return AlertDialog(
       title: Row(
@@ -124,7 +128,11 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
         ],
       ),
       content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460, maxHeight: 520),
+        constraints: BoxConstraints(
+          minWidth: dialogWidth,
+          maxWidth: dialogWidth,
+          maxHeight: 520,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

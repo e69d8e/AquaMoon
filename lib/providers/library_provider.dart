@@ -754,6 +754,96 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     }
   }
 
+  /// 把刚下载到磁盘的音频登记进曲库。
+  ///
+  /// 解析元数据（含同目录 `.lrc` sidecar）并写入 QQ 音乐关联字段：有了
+  /// `qqSongMid` 后，「我喜欢」收藏页会自动把这首本地文件与云端曲目对上，
+  /// 不再显示为「仅在线」。同路径已有记录时只补关联字段，不重复入库。
+  Future<Song?> addDownloadedFile({
+    required String filePath,
+    String? qqSongMid,
+    int? qqSongId,
+    String? qqMediaMid,
+    String? fallbackTitle,
+    String? fallbackArtist,
+    String? fallbackAlbum,
+    String? lrcContent,
+  }) async {
+    if (filePath.trim().isEmpty) return null;
+    final file = File(filePath);
+    if (!await file.exists()) return null;
+
+    Song? existing;
+    for (final song in state.songs) {
+      if (song.filePath == filePath) {
+        existing = song;
+        break;
+      }
+    }
+    if (existing != null) {
+      final needsLink = (qqSongMid != null &&
+              qqSongMid.isNotEmpty &&
+              existing.qqSongMid != qqSongMid) ||
+          existing.source != SongSource.local;
+      if (!needsLink) return existing;
+      final linked = await updateSongMerged(
+        existing.id,
+        (current) => current.copyWith(
+          source: SongSource.local,
+          qqSongMid: qqSongMid ?? current.qqSongMid,
+          qqSongId: qqSongId ?? current.qqSongId,
+          qqMediaMid: qqMediaMid ?? current.qqMediaMid,
+        ),
+      );
+      return linked;
+    }
+
+    final metadata = await MetadataExtractor.extractFromFile(filePath);
+    var lyrics = lrcContent ?? metadata.lyrics;
+    if (lyrics == null || lyrics.trim().isEmpty) {
+      lyrics = await _readSidecarLrc(filePath);
+    }
+
+    // 标签缺失时（下载站音频常见）用调用方给的、或文件名兜底出的名字。
+    final metaTitle = metadata.title.trim();
+    final metaArtist = metadata.artist.trim();
+    final title = metaTitle.isEmpty || metaTitle == '未知曲目'
+        ? (fallbackTitle?.trim().isNotEmpty == true
+              ? fallbackTitle!.trim()
+              : p.basenameWithoutExtension(filePath))
+        : metadata.title;
+    final artist = metaArtist.isEmpty || metaArtist == '未知歌手'
+        ? (fallbackArtist?.trim() ?? '未知歌手')
+        : metadata.artist;
+    final album = metadata.album.trim().isEmpty || metadata.album == '未知专辑'
+        ? (fallbackAlbum?.trim().isNotEmpty == true
+              ? fallbackAlbum!.trim()
+              : '本地音乐')
+        : metadata.album;
+
+    final song = Song(
+      id: _uuid.v4(),
+      title: title,
+      artist: artist,
+      album: album,
+      durationMs: metadata.durationMs,
+      filePath: filePath,
+      albumArtUri: metadata.albumArtUri,
+      albumArtBytes: metadata.albumArtBytes,
+      lrcContent: (lyrics != null && lyrics.trim().isNotEmpty) ? lyrics : null,
+      dateAdded: DateTime.now(),
+      source: SongSource.local,
+      year: metadata.year,
+      qqSongMid: qqSongMid,
+      qqSongId: qqSongId,
+      qqMediaMid: qqMediaMid,
+    );
+
+    await _storageService.saveSong(song);
+    await _loadSongs();
+    return song;
+  }
+
   Future<void> toggleFavorite(Song song) async {
     final updated = await _storageService.toggleFavorite(song.id);
     if (updated != null) {

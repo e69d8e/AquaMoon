@@ -689,3 +689,11 @@ final qqMusicFavoritesProvider =
 
       return notifier;
     });
+
+/// QQ 音乐收藏中尚未匹配到本地音频文件的曲目列表（即仅有在线副本的收藏歌曲）。
+final unmatchedFavoritesProvider = Provider<List<Song>>((ref) {
+  final mergedSongs = ref.watch(
+    qqMusicFavoritesProvider.select((s) => s.mergedSongs),
+  );
+  return mergedSongs.where((s) => !s.hasLocalFile).toList(growable: false);
+});

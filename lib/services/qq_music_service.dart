@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../core/utils/qq_music_cookie_status.dart';
 import '../models/listening_stats.dart';
 import '../models/qq_music_config.dart';
+import '../models/qq_music_discovery.dart';
 import '../models/song.dart';
 
 /// 拉取 QQ 音乐「我喜欢」歌单的结果封装。
@@ -238,6 +240,56 @@ class QQMusicService {
     } catch (_) {}
 
     return null;
+  }
+
+  /// 校验当前 Cookie 的登录态是否仍被服务端认可。
+  ///
+  /// 用个人主页接口（公开接口，不依赖私有模块）：有效 Cookie 返回
+  /// `code == 0` 并带 `data.creator.nick`；被轮换或过期的 Cookie 返回
+  /// `code == 1000` 且 `data` 为空——这时资料可能还能读，但取流一律拿不到
+  /// purl，所以要提前提示用户重新绑定。
+  Future<QQMusicSessionCheck> checkSession(QQMusicConfig config) async {
+    if (!config.hasCookie) return const QQMusicSessionCheck.unbound();
+    final uin = config.effectiveUin;
+    if (uin.isEmpty) {
+      return const QQMusicSessionCheck.unbound('Cookie 中缺少 uin，无法校验登录态');
+    }
+
+    final gtk = calculateGtk(config.authKey);
+    final uri = Uri.parse(
+      'https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg'
+      '?plat=yqq.json&inCharset=utf8&outCharset=utf-8&cid=205360838'
+      '&userid=$uin&reqfrom=1&g_tk=$gtk&loginUin=$uin&hostUin=0&format=json',
+    );
+
+    try {
+      final resp = await _client
+          .get(uri, headers: _buildHeaders(config, isJson: false))
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode != 200) {
+        return const QQMusicSessionCheck.invalid('网络异常，暂时无法校验 Cookie');
+      }
+      final decoded = json.decode(
+        stripJsonp(utf8.decode(resp.bodyBytes, allowMalformed: true)),
+      );
+      if (decoded is! Map) {
+        return const QQMusicSessionCheck.invalid('Cookie 校验返回了无法解析的数据');
+      }
+      final code = decoded['code'];
+      if (code == 0) {
+        final data = decoded['data'];
+        final creator = data is Map ? data['creator'] : null;
+        final nick = creator is Map ? '${creator['nick'] ?? ''}'.trim() : '';
+        return QQMusicSessionCheck.ok(nick);
+      }
+      return QQMusicSessionCheck.invalid(
+        code == 1000
+            ? 'Cookie 已失效或登录态无法识别，请重新复制'
+            : 'Cookie 校验失败（code $code）',
+      );
+    } catch (_) {
+      return const QQMusicSessionCheck.invalid('网络异常，暂时无法校验 Cookie');
+    }
   }
 
   /// 按歌单 `dissid` 分页拉取完整曲目列表（依次尝试 `fcg_ucc_getcdinfo_byids_cp.fcg` 与 `musicu.fcg`）。
@@ -577,15 +629,20 @@ class QQMusicService {
     return songs;
   }
 
-  /// 实时解析 QQ 音乐歌曲的在线可播放流地址 (`https://.../C400...m4a?vkey=...`)。
+  /// 实时解析 QQ 音乐歌曲的在线可播放流地址 (`https://.../M800...mp3?vkey=...`)。
   ///
-  /// 若配置了 Cookie，优先尝试 `M800` (320kbps MP3) / `M500` (128kbps MP3)，
-  /// 否则或降级时请求标准 `C400` M4A 流。
-  /// 当因 VIP/版权受限无法获得 `purl` 时返回 `null`。
+  /// [quality] 来自 go-music-dl / music-lib 的音质档位（M500 / M800 / F000 …）。
+  /// 传入时先按该档位构造 filename 试探，失败后仍走既有回退链；不传 [quality]
+  /// 时保持原行为，避免影响收藏同步的既有调用。
+  ///
+  /// 注意 `前缀+media_mid` 这种「单 mid」命名已经不再指向真实文件：vkey 照样
+  /// 返回 purl，但 CDN 取流时报 `{"errorcode":-46628,"errormsg":"file not exist"}`。
+  /// 现在真正存在的是 music-lib 的 `前缀+mid+mid` 双写命名，所以必须优先试它。
   Future<String?> resolvePlayUrl({
     required String songMid,
     String? mediaMid,
     QQMusicConfig config = const QQMusicConfig(),
+    QQMusicStreamQuality? quality,
   }) async {
     final cleanMid = songMid.trim();
     if (cleanMid.isEmpty) return null;
@@ -594,16 +651,37 @@ class QQMusicService {
             ? mediaMid.trim()
             : cleanMid;
 
-    // 1. If Cookie is present, try higher quality MP3 first, then fallback to default C400.
-    if (config.hasCookie) {
-      for (final prefix in const [('M800', 'mp3'), ('M500', 'mp3')]) {
-        final filename = '${prefix.$1}$targetMediaMid.${prefix.$2}';
+    // 0. 用户选择的音质档位（go-music-dl / music-lib qqQualityCandidates）。
+    if (quality != null) {
+      for (final filename in _qualityFilenames(
+        cleanMid,
+        targetMediaMid,
+        quality,
+      )) {
         final url = await _requestVkeyUrl(
           songMid: cleanMid,
           filename: filename,
           config: config,
         );
         if (url != null && url.isNotEmpty) return url;
+      }
+    }
+
+    // 1. If Cookie is present, try higher quality MP3 first, then fallback to default C400.
+    if (config.hasCookie) {
+      for (final tier in const [
+        ('M800', 'mp3'),
+        ('M500', 'mp3'),
+        ('O801', 'ogg'),
+      ]) {
+        for (final filename in _midVariants(tier.$1, tier.$2, targetMediaMid)) {
+          final url = await _requestVkeyUrl(
+            songMid: cleanMid,
+            filename: filename,
+            config: config,
+          );
+          if (url != null && url.isNotEmpty) return url;
+        }
       }
     }
 
@@ -615,11 +693,43 @@ class QQMusicService {
     );
     if (defaultUrl != null && defaultUrl.isNotEmpty) return defaultUrl;
 
-    return _requestVkeyUrl(
-      songMid: cleanMid,
-      filename: 'C400$targetMediaMid.m4a',
-      config: config,
-    );
+    for (final filename in _midVariants('C400', 'm4a', targetMediaMid)) {
+      final url = await _requestVkeyUrl(
+        songMid: cleanMid,
+        filename: filename,
+        config: config,
+      );
+      if (url != null && url.isNotEmpty) return url;
+    }
+    return null;
+  }
+
+  /// 同一音质档位在 QQ 音乐服务端存在两种 filename 命名：
+  /// `前缀+mid+mid+后缀`（music-lib `qualityFilename`，真实存在的文件）与
+  /// `前缀+mid+后缀`（vkey 仍返回 purl 但 CDN 404，只能兜底）。
+  List<String> _midVariants(String prefix, String extension, String mid) {
+    return <String>{
+      '$prefix$mid$mid.$extension',
+      '$prefix$mid.$extension',
+    }.toList();
+  }
+
+  /// 同一音质档位在 QQ 音乐服务端存在两种 filename 命名：
+  /// music-lib `qualityFilename` 的 `前缀+mid+mid+后缀`（真实文件）与
+  /// 经典 `前缀+media_mid+后缀`。双写命名排在最前，避免拿到 404 的死链。
+  List<String> _qualityFilenames(
+    String songMid,
+    String mediaMid,
+    QQMusicStreamQuality quality,
+  ) {
+    final prefix = quality.filenamePrefix;
+    final ext = quality.extension;
+    return <String>{
+      '$prefix$mediaMid$mediaMid.$ext',
+      '$prefix$songMid$songMid.$ext',
+      '$prefix$mediaMid.$ext',
+      '$prefix$songMid.$ext',
+    }.toList();
   }
 
   Future<String?> _requestVkeyUrl({
@@ -649,7 +759,10 @@ class QQMusicService {
         if (config.authKey.isNotEmpty) 'authst': config.authKey,
       },
       'req_0': {
-        'module': 'music.vkey.GetVkey',
+        // 旧模块 vkey.GetVkeyServer 仍可用；新版 music.vkey.GetVkey 已被
+        // 服务端废弃，恒返回 {"code":500003,"subcode":860400001} 且不带
+        // midurlinfo，会让所有曲目（含免费曲）都取不到 purl。
+        'module': 'vkey.GetVkeyServer',
         'method': 'CgiGetVkey',
         'param': param,
       },

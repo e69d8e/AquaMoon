@@ -869,6 +869,15 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
         }
       }
 
+      if (!loadedLocal && !song.hasLocalFile) {
+        // 用户开启「本地优先」后，先按标题/歌手/时长在曲库里找同一首歌：
+        // 本地文件音质更稳、不耗流量，也不受 VIP / 版权下架的在线限制。
+        if (_storageService.getPreferLocalPlayback()) {
+          loadedLocal = await _tryLoadLocalMatch(song, generation);
+          if (generation != _loadGeneration) return;
+        }
+      }
+
       if (!loadedLocal) {
         if (hasQqMid) {
           final config = _storageService.getQQMusicConfig();
@@ -876,22 +885,15 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
             songMid: song.qqSongMid!,
             mediaMid: song.qqMediaMid,
             config: config,
+            quality: _storageService.getQQMusicStreamQuality(),
           );
           if (generation != _loadGeneration) return;
           if (streamUrl == null || streamUrl.isEmpty) {
             // 在线流拿不到（VIP/版权受限）时，再按标题/歌手在本地曲库里找一次：
             // 用户本地明明有这首歌，不应该因为收藏合并没匹配上就报错。
             // 只在失败路径扇描曲库，避免拖慢正常在线播放。
-            final localFallback = SongMatcher.findLocalMatch(
-              song,
-              _storageService.getAllSongs().where((s) => s.hasLocalFile),
-            );
-            if (localFallback != null &&
-                (kIsWeb || await File(localFallback.filePath).exists())) {
-              if (generation != _loadGeneration) return;
-              await _player.setFilePath(localFallback.filePath);
-              loadedLocal = true;
-            }
+            loadedLocal = await _tryLoadLocalMatch(song, generation);
+            if (generation != _loadGeneration) return;
           }
           if (!loadedLocal) {
             if (streamUrl == null || streamUrl.isEmpty) {
@@ -949,6 +951,22 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
         unawaited(skipToNext());
       }
     }
+  }
+
+  /// 在本地曲库中查找与 [song] 同一首的歌并载入播放器。
+  ///
+  /// 成功时返回 `true`，调用方据此跳过在线取流。文件不存在（被移动/删除）
+  /// 时返回 `false`，让播放回到网络或报错路径，而不是把队列卡死在这里。
+  Future<bool> _tryLoadLocalMatch(Song song, int generation) async {
+    final match = SongMatcher.findLocalMatch(
+      song,
+      _storageService.getAllSongs().where((s) => s.hasLocalFile),
+    );
+    if (match == null) return false;
+    if (!kIsWeb && !await File(match.filePath).exists()) return false;
+    if (generation != _loadGeneration) return false;
+    await _player.setFilePath(match.filePath);
+    return true;
   }
 
   void updateCurrentSongMetadata({

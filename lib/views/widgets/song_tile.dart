@@ -8,10 +8,12 @@ import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../providers/qq_music_download_provider.dart';
 import '../../providers/qq_music_provider.dart';
 import 'edit_song_dialog.dart';
 import 'local_song_link_dialog.dart';
 import 'online_candidate_dialog.dart';
+import 'qq_music_quality_picker.dart';
 import 'song_artwork.dart';
 
 class SongTile extends ConsumerWidget {
@@ -28,6 +30,9 @@ class SongTile extends ConsumerWidget {
   final VoidCallback? onSelectionToggle;
   final VoidCallback? onLongPress;
 
+  /// 在行尾显示直达「关联本地音频」的快捷按钮（用于未匹配歌曲页）。
+  final bool showQuickLinkAction;
+
   const SongTile({
     super.key,
     required this.song,
@@ -40,6 +45,7 @@ class SongTile extends ConsumerWidget {
     this.isSelected = false,
     this.onSelectionToggle,
     this.onLongPress,
+    this.showQuickLinkAction = false,
   });
 
   @override
@@ -209,7 +215,28 @@ class SongTile extends ConsumerWidget {
               const SizedBox(width: 2),
               if (selectionMode)
                 const SizedBox(width: 26)
-              else
+              else ...[
+                if (showQuickLinkAction &&
+                    isQQBound &&
+                    !song.hasLocalFile &&
+                    hasQqMid)
+                  IconButton(
+                    icon: Icon(
+                      Icons.link_rounded,
+                      size: 19,
+                      color: theme.colorScheme.primary,
+                    ),
+                    tooltip: '关联本地音频',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    style: IconButton.styleFrom(
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () => _linkLocalSong(context),
+                  ),
                 // Favorite toggle and all other per-song operations live in
                 // the overflow menu so each row carries a single trailing
                 // control.
@@ -298,6 +325,18 @@ class SongTile extends ConsumerWidget {
                         ],
                       ),
                     ),
+                  // 云端曲目尚未落地成本地文件时，直接提供下载入口。
+                  if (hasQqMid && !song.hasLocalFile)
+                    const PopupMenuItem(
+                      value: 'download_song',
+                      child: Row(
+                        children: [
+                          Icon(Icons.download_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('下载到本地'),
+                        ],
+                      ),
+                    ),
                   if (isQQBound && song.hasLocalFile && hasQqMid)
                     const PopupMenuItem(
                       value: 'unlink_local_song',
@@ -347,13 +386,61 @@ class SongTile extends ConsumerWidget {
                         ],
                       ),
                     ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// 选择音质 → 加入串行下载队列 → 完成/失败后提示结果。
+  Future<void> _downloadSong(BuildContext context, WidgetRef ref) async {
+    final settings = ref.read(qqMusicDownloadSettingsProvider);
+    var hasCookie = false;
+    try {
+      hasCookie =
+          ref.read(storageServiceProvider).getQQMusicConfig().hasCookie;
+    } catch (_) {}
+    final quality = await showQQMusicQualityPicker(
+      context,
+      title: '选择下载音质',
+      subtitle: '《${song.title}》· 保存到 ${settings.directoryLabel}',
+      selected: settings.quality,
+      hasCookie: hasCookie,
+    );
+    if (quality == null || !context.mounted) return;
+
+    AppToast.show(
+      context,
+      '已加入下载队列：${quality.label}',
+      icon: Icons.download_rounded,
+    );
+    final task = await ref
+        .read(qqMusicDownloadProvider.notifier)
+        .enqueue(song, quality: quality);
+    if (!context.mounted) return;
+    if (task.status == QQMusicDownloadStatus.completed) {
+      AppToast.show(
+        context,
+        '《${song.title}》已保存到 ${task.directory ?? settings.directoryLabel}',
+        icon: Icons.download_done_rounded,
+      );
+    } else if (task.isFailed) {
+      AppToast.show(
+        context,
+        task.message.isEmpty ? '下载失败，请稍后重试' : task.message,
+      );
+    }
+  }
+
+  Future<void> _linkLocalSong(BuildContext context) async {
+    final message = await LocalSongLinkDialog.show(context, song);
+    if (context.mounted && message != null && message.isNotEmpty) {
+      AppToast.show(context, message, icon: Icons.link_rounded);
+    }
   }
 
   Widget _buildSourceBadge(
@@ -410,10 +497,7 @@ class SongTile extends ConsumerWidget {
   void _handleAction(BuildContext context, WidgetRef ref, String action) async {
     switch (action) {
       case 'link_local_song':
-        final message = await LocalSongLinkDialog.show(context, song);
-        if (context.mounted && message != null && message.isNotEmpty) {
-          AppToast.show(context, message, icon: Icons.link_rounded);
-        }
+        await _linkLocalSong(context);
         break;
       case 'unlink_local_song':
         final message = await ref
@@ -449,6 +533,9 @@ class SongTile extends ConsumerWidget {
         break;
       case 'set_as_cover':
         onSetAsPlaylistCover?.call();
+        break;
+      case 'download_song':
+        await _downloadSong(context, ref);
         break;
       case 'edit_song':
         EditSongDialog.show(context, song);

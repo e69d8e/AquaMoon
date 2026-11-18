@@ -28,9 +28,12 @@ class AddSongsToPlaylistDialog extends ConsumerStatefulWidget {
       _AddSongsToPlaylistDialogState();
 }
 
+enum _SongSource { library, favorites }
+
 class _AddSongsToPlaylistDialogState
     extends ConsumerState<AddSongsToPlaylistDialog> {
   String _searchQuery = '';
+  _SongSource _source = _SongSource.library;
 
   @override
   Widget build(BuildContext context) {
@@ -42,11 +45,15 @@ class _AddSongsToPlaylistDialogState
     );
 
     final libraryState = ref.watch(libraryNotifierProvider);
-    final allSongs = libraryState.songs;
+    final librarySongs = libraryState.songs;
+    final favoriteSongs = ref.watch(favoritesSongsProvider);
+    final sourceSongs = _source == _SongSource.library
+        ? librarySongs
+        : favoriteSongs;
 
     final filteredSongs = _searchQuery.trim().isEmpty
-        ? allSongs
-        : allSongs.where((s) {
+        ? sourceSongs
+        : sourceSongs.where((s) {
             final q = _searchQuery.trim().toLowerCase();
             return s.title.toLowerCase().contains(q) ||
                 s.artist.toLowerCase().contains(q) ||
@@ -119,12 +126,43 @@ class _AddSongsToPlaylistDialogState
               ),
             ),
 
+            // Source selector: local library or the full favorites list
+            // (including QQ Music cloud favorites).
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: Text('曲库 (${librarySongs.length})'),
+                    selected: _source == _SongSource.library,
+                    showCheckmark: false,
+                    labelStyle: const TextStyle(fontSize: 12.5),
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (_) =>
+                        setState(() => _source = _SongSource.library),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: Text('收藏 (${favoriteSongs.length})'),
+                    selected: _source == _SongSource.favorites,
+                    showCheckmark: false,
+                    labelStyle: const TextStyle(fontSize: 12.5),
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (_) =>
+                        setState(() => _source = _SongSource.favorites),
+                  ),
+                ],
+              ),
+            ),
+
             // Search Bar
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: TextField(
                 decoration: InputDecoration(
-                  hintText: '搜索曲库中的歌曲、歌手...',
+                  hintText: _source == _SongSource.library
+                      ? '搜索曲库中的歌曲、歌手...'
+                      : '搜索收藏中的歌曲、歌手...',
                   hintStyle: TextStyle(
                     fontSize: 13,
                     color: theme.colorScheme.onSurfaceVariant.withValues(
@@ -157,20 +195,24 @@ class _AddSongsToPlaylistDialogState
 
             // Song List
             Expanded(
-              child: allSongs.isEmpty
+              child: sourceSongs.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Icons.music_off_rounded,
+                            _source == _SongSource.library
+                                ? Icons.music_off_rounded
+                                : Icons.favorite_border_rounded,
                             size: 48,
                             color: theme.colorScheme.onSurfaceVariant
                                 .withValues(alpha: 0.5),
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            '曲库暂无本地歌曲',
+                            _source == _SongSource.library
+                                ? '曲库暂无本地歌曲'
+                                : '收藏暂无歌曲',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -179,7 +221,9 @@ class _AddSongsToPlaylistDialogState
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '请先在曲库或设置中导入本地音乐',
+                            _source == _SongSource.library
+                                ? '请先在曲库或设置中导入本地音乐'
+                                : '在收藏页点亮红心或接入 QQ 音乐收藏后再来添加',
                             style: TextStyle(
                               fontSize: 12.5,
                               color: theme.colorScheme.onSurfaceVariant,

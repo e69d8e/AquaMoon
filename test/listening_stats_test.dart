@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -59,24 +60,64 @@ void main() {
   group('Formatters Duration & Date Tests', () {
     test('formatListeningDuration formats zero duration', () {
       expect(Formatters.formatListeningDuration(Duration.zero), '0 分钟');
-      expect(Formatters.formatListeningDuration(Duration.zero, short: true), '0分');
+      expect(
+        Formatters.formatListeningDuration(Duration.zero, short: true),
+        '0分',
+      );
     });
 
     test('formatListeningDuration formats sub-minute duration', () {
-      expect(Formatters.formatListeningDuration(const Duration(seconds: 45)), '0 分钟');
-      expect(Formatters.formatListeningDuration(const Duration(seconds: 45), short: true), '0分');
+      expect(
+        Formatters.formatListeningDuration(const Duration(seconds: 45)),
+        '0 分钟',
+      );
+      expect(
+        Formatters.formatListeningDuration(
+          const Duration(seconds: 45),
+          short: true,
+        ),
+        '0分',
+      );
     });
 
     test('formatListeningDuration formats minutes', () {
-      expect(Formatters.formatListeningDuration(const Duration(minutes: 15)), '15 分钟');
-      expect(Formatters.formatListeningDuration(const Duration(minutes: 15, seconds: 30)), '15 分钟');
-      expect(Formatters.formatListeningDuration(const Duration(minutes: 15, seconds: 30), short: true), '15分');
+      expect(
+        Formatters.formatListeningDuration(const Duration(minutes: 15)),
+        '15 分钟',
+      );
+      expect(
+        Formatters.formatListeningDuration(
+          const Duration(minutes: 15, seconds: 30),
+        ),
+        '15 分钟',
+      );
+      expect(
+        Formatters.formatListeningDuration(
+          const Duration(minutes: 15, seconds: 30),
+          short: true,
+        ),
+        '15分',
+      );
     });
 
     test('formatListeningDuration formats hours and minutes', () {
-      expect(Formatters.formatListeningDuration(const Duration(hours: 2, minutes: 35)), '2 小时 35 分钟');
-      expect(Formatters.formatListeningDuration(const Duration(hours: 2, minutes: 35), short: true), '2小时35分');
-      expect(Formatters.formatListeningDuration(const Duration(hours: 3)), '3 小时');
+      expect(
+        Formatters.formatListeningDuration(
+          const Duration(hours: 2, minutes: 35),
+        ),
+        '2 小时 35 分钟',
+      );
+      expect(
+        Formatters.formatListeningDuration(
+          const Duration(hours: 2, minutes: 35),
+          short: true,
+        ),
+        '2小时35分',
+      );
+      expect(
+        Formatters.formatListeningDuration(const Duration(hours: 3)),
+        '3 小时',
+      );
     });
 
     test('formatDateKey formats date correctly as yyyy-MM-dd', () {
@@ -121,10 +162,7 @@ void main() {
         timestamp: now,
       );
 
-      await storageService.recordSongPlayCount(
-        song: song1,
-        timestamp: now,
-      );
+      await storageService.recordSongPlayCount(song: song1, timestamp: now);
 
       final record = storageService.getDailyListeningRecord('2026-08-25');
       expect(record.totalDurationSeconds, 120);
@@ -145,61 +183,70 @@ void main() {
       expect(updated.songDurationSeconds['s1'], 200);
     });
 
-    test('getDailyRecordsInRange retrieves records across date range', () async {
-      final song = Song(
-        id: 's2',
-        title: '渔舟唱晚',
-        artist: '古筝大师',
-        album: '经典名曲',
-        durationMs: 180000,
-        filePath: '/music/yuzhou.mp3',
-        dateAdded: DateTime(2026, 1, 1),
-      );
+    test(
+      'getDailyRecordsInRange retrieves records across date range',
+      () async {
+        final song = Song(
+          id: 's2',
+          title: '渔舟唱晚',
+          artist: '古筝大师',
+          album: '经典名曲',
+          durationMs: 180000,
+          filePath: '/music/yuzhou.mp3',
+          dateAdded: DateTime(2026, 1, 1),
+        );
 
-      await storageService.recordListeningDuration(
-        song: song,
-        seconds: 300,
-        timestamp: DateTime(2026, 8, 24, 10, 0),
-      );
+        await storageService.recordListeningDuration(
+          song: song,
+          seconds: 300,
+          timestamp: DateTime(2026, 8, 24, 10, 0),
+        );
 
-      await storageService.recordListeningDuration(
-        song: song,
-        seconds: 500,
-        timestamp: DateTime(2026, 8, 25, 11, 0),
-      );
+        await storageService.recordListeningDuration(
+          song: song,
+          seconds: 500,
+          timestamp: DateTime(2026, 8, 25, 11, 0),
+        );
 
-      final records = storageService.getDailyRecordsInRange(
-        DateTime(2026, 8, 24),
-        DateTime(2026, 8, 25),
-      );
+        final records = storageService.getDailyRecordsInRange(
+          DateTime(2026, 8, 24),
+          DateTime(2026, 8, 25),
+        );
 
-      expect(records.length, 2);
-      expect(records.map((r) => r.dateStr).toList(), ['2026-08-24', '2026-08-25']);
-      expect(storageService.getTotalLifetimeListeningSeconds(), 800);
-    });
+        expect(records.length, 2);
+        expect(records.map((r) => r.dateStr).toList(), [
+          '2026-08-24',
+          '2026-08-25',
+        ]);
+        expect(storageService.getTotalLifetimeListeningSeconds(), 800);
+      },
+    );
 
-    test('ListeningStatsTracker buffers and flushes correctly on pause/stop', () async {
-      final tracker = ListeningStatsTracker(storageService);
+    test(
+      'ListeningStatsTracker buffers and flushes correctly on pause/stop',
+      () async {
+        final tracker = ListeningStatsTracker(storageService);
 
-      final song = Song(
-        id: 's3',
-        title: '梅花三弄',
-        artist: '笛子大家',
-        album: '水墨笛韵',
-        durationMs: 300000,
-        filePath: '/music/meihua.mp3',
-        dateAdded: DateTime(2026, 1, 1),
-      );
+        final song = Song(
+          id: 's3',
+          title: '梅花三弄',
+          artist: '笛子大家',
+          album: '水墨笛韵',
+          durationMs: 300000,
+          filePath: '/music/meihua.mp3',
+          dateAdded: DateTime(2026, 1, 1),
+        );
 
-      tracker.onPlay(song);
-      tracker.onPause();
+        tracker.onPlay(song);
+        tracker.onPause();
 
-      final todayKey = Formatters.formatDateKey(DateTime.now());
-      final record = storageService.getDailyListeningRecord(todayKey);
-      expect(record.songPlayCounts['s3'], 1);
+        final todayKey = Formatters.formatDateKey(DateTime.now());
+        final record = storageService.getDailyListeningRecord(todayKey);
+        expect(record.songPlayCounts['s3'], 1);
 
-      tracker.dispose();
-    });
+        tracker.dispose();
+      },
+    );
 
     test('listeningPeriodStatsProvider computes Day, Week, Month, Year, and All-Time statistics', () async {
       final songA = Song(
@@ -245,7 +292,9 @@ void main() {
         overrides: [
           storageServiceProvider.overrideWithValue(storageService),
           statsLiveTickStreamProvider.overrideWith((ref) => Stream.value(0)),
-          selectedStatsDateProvider.overrideWith((ref) => DateTime(2026, 8, 25)),
+          selectedStatsDateProvider.overrideWith(
+            (ref) => DateTime(2026, 8, 25),
+          ),
         ],
       );
 
@@ -309,320 +358,301 @@ void main() {
       container.dispose();
     });
 
-    test('all-time stats rank by play count and include count-only songs', () async {
-      final oftenPlayed = Song(
-        id: 's-freq',
-        title: '天天听',
-        artist: '常驻歌手',
-        album: '循环专辑',
-        durationMs: 200000,
-        filePath: '/music/freq.mp3',
-        dateAdded: DateTime(2026, 1, 1),
-      );
-
-      final oncePlayed = Song(
-        id: 's-once',
-        title: '偶尔听',
-        artist: '客串歌手',
-        album: '单曲专辑',
-        durationMs: 300000,
-        filePath: '/music/once.mp3',
-        dateAdded: DateTime(2026, 1, 1),
-      );
-
-      // 天天听: 5 plays, never any flushed listening seconds (count-only).
-      for (var i = 0; i < 5; i++) {
-        await storageService.recordSongPlayCount(
-          song: oftenPlayed,
-          timestamp: DateTime(2026, 8, 25, 12),
-        );
-      }
-      // 偶尔听: 1 play with 3000 flushed seconds (longer duration).
-      await storageService.recordListeningDuration(
-        song: oncePlayed,
-        seconds: 3000,
-        timestamp: DateTime(2026, 8, 25, 13),
-      );
-      await storageService.recordSongPlayCount(
-        song: oncePlayed,
-        timestamp: DateTime(2026, 8, 25, 13),
-      );
-
-      final container = ProviderContainer(
-        overrides: [
-          storageServiceProvider.overrideWithValue(storageService),
-          statsLiveTickStreamProvider.overrideWith((ref) => Stream.value(0)),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      container.read(statsPeriodTypeProvider.notifier).state = PeriodType.all;
-      final allStats = container.read(listeningPeriodStatsProvider);
-
-      // Ranked by play count, not by duration.
-      expect(allStats.topSongs.first.title, '天天听');
-      expect(allStats.topSongs.first.playCount, 5);
-      expect(allStats.topSongs.last.title, '偶尔听');
-      expect(allStats.topSongs.last.playCount, 1);
-
-      // The count-only song (no flushed seconds) is not dropped.
-      expect(allStats.topSongs.length, 2);
-      expect(allStats.totalPlayCount, 6);
-    });
-
     test(
-      'ListeningStatsTracker flushes 15s segments and reports song play starts to the cloud callback once per play',
+      'all-time stats rank by play count and include count-only songs',
       () async {
-        final reportedPlayStarts = <String>[];
-        final tracker = ListeningStatsTracker(
-          storageService,
-          onSongPlayStarted: (song) {
-            reportedPlayStarts.add(song.id);
-          },
-        );
-
-        final onlineSong = Song(
-          id: 'qq_001online',
-          title: '青花瓷',
-          artist: '周杰伦',
-          album: '我很忙',
-          durationMs: 239000,
-          filePath: 'qqmusic://001online',
+        final oftenPlayed = Song(
+          id: 's-freq',
+          title: '天天听',
+          artist: '常驻歌手',
+          album: '循环专辑',
+          durationMs: 200000,
+          filePath: '/music/freq.mp3',
           dateAdded: DateTime(2026, 1, 1),
-          source: SongSource.online,
-          qqSongMid: '001online',
         );
 
-        tracker.onPlay(onlineSong);
-        // Simulate 16 seconds -> flushes immediately at >= 15s threshold
-        tracker.recordSimulatedSeconds(16);
-        // Simulate 9 more seconds -> buffered (< 15s) until pause
-        tracker.recordSimulatedSeconds(9);
-        tracker.onPause();
-
-        // Allow async Hive writes to complete
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-
-        final todayKey = Formatters.formatDateKey(DateTime.now());
-        final record = storageService.getDailyListeningRecord(todayKey);
-        expect(record.songPlayCounts['qq_001online'], 1);
-        expect(record.songDurationSeconds['qq_001online'], 25);
-        expect(record.songMetaCache['qq_001online']?.qqSongMid, '001online');
-        expect(
-          record.songMetaCache['qq_001online']?.isQQMusicOnline,
-          isTrue,
+        final oncePlayed = Song(
+          id: 's-once',
+          title: '偶尔听',
+          artist: '客串歌手',
+          album: '单曲专辑',
+          durationMs: 300000,
+          filePath: '/music/once.mp3',
+          dateAdded: DateTime(2026, 1, 1),
         );
-        // 云端上报是「每次播放开始一次」，与 15 秒分段刷新无关。
-        expect(reportedPlayStarts, ['qq_001online']);
 
-        // 暂停后继续播放同一首：不重复触发上报。
-        tracker.onPlay(onlineSong);
-        tracker.onPause();
-        expect(reportedPlayStarts, ['qq_001online']);
-
-        // 切换到另一首歌再切回：两次新的播放各自触发一次。
-        final otherSong = onlineSong.copyWith(
-          id: 'qq_002online',
-          title: '东风破',
+        // 天天听: 5 plays, never any flushed listening seconds (count-only).
+        for (var i = 0; i < 5; i++) {
+          await storageService.recordSongPlayCount(
+            song: oftenPlayed,
+            timestamp: DateTime(2026, 8, 25, 12),
+          );
+        }
+        // 偶尔听: 1 play with 3000 flushed seconds (longer duration).
+        await storageService.recordListeningDuration(
+          song: oncePlayed,
+          seconds: 3000,
+          timestamp: DateTime(2026, 8, 25, 13),
         );
-        tracker.onPlay(otherSong);
-        tracker.onPlay(onlineSong);
-        expect(reportedPlayStarts, [
-          'qq_001online',
-          'qq_002online',
-          'qq_001online',
-        ]);
-
-        tracker.dispose();
-      },
-    );
-
-    test(
-      'mergeQQMusicCloudListeningSongs raises per-song cloud play counts and imports only today listen seconds',
-      () async {
-        final cloudSong = Song(
-          id: 'qq_002cloud',
-          title: '夜曲',
-          artist: '周杰伦',
-          album: '十一月的萧邦',
-          durationMs: 226000,
-          filePath: 'qqmusic://002cloud',
-          dateAdded: DateTime(2026, 8, 25),
-          playCount: 4,
-          isFavorite: true,
-          source: SongSource.online,
-          qqSongMid: '002cloud',
-          qqSongId: 9001,
+        await storageService.recordSongPlayCount(
+          song: oncePlayed,
+          timestamp: DateTime(2026, 8, 25, 13),
         );
-        final todayEntry = QQMusicCloudHistoryEntry(
-          song: cloudSong,
-          lastPlayedAt: DateTime(2026, 8, 25, 18, 30),
-        );
-        final refDate = DateTime(2026, 8, 25, 19, 0);
 
-        // 模拟「我喜欢」已同步：缓存里已有这首曲目，但本地还没有播放次数。
-        await storageService.saveQQMusicFavoritesCache([
-          cloudSong.copyWith(playCount: 0),
-        ]);
-
-        // 云端今日有效听歌时长 12 分钟；累计播放次数 4 次（历史累计，不是今天的）。
-        final firstMerged = await storageService.mergeQQMusicCloudListeningSongs(
-          [todayEntry],
-          timestamp: refDate,
-          todayListenSeconds: 720,
-        );
-        expect(firstMerged, 1);
-
-        // 重复同步同一份数据必须幂等：次数不涨，今日时长也不重复累加。
-        final secondMerged = await storageService.mergeQQMusicCloudListeningSongs(
-          [todayEntry],
-          timestamp: refDate,
-          todayListenSeconds: 720,
-        );
-        expect(secondMerged, 0);
-
-        final record = storageService.getDailyListeningRecord('2026-08-25');
-        // 累计次数（4 次，跳回 2020 年）不能被当成今天的播放次数灌进当日统计；
-        // 但「今天确实听过」要记 1 次，否则「收听曲目 N 首」会与「播放次数」矛盾。
-        expect(record.songPlayCounts['qq_002cloud'], 1);
-        // 今日时长按差值并入，并分摊到当天在云端听过的曲目。
-        expect(record.totalDurationSeconds, 720);
-        expect(record.songDurationSeconds['qq_002cloud'], 720);
-
-        var summary = storageService.getQQMusicCloudStatsSummary();
-        expect(summary.importedSongCount, 1);
-        expect(summary.importedPlayCount, 4);
-        expect(summary.importedDurationSeconds, 720);
-        expect(summary.todayListenSeconds, 720);
-
-        // 云端时长继续增长到 900 秒时只补 180 秒差值。
-        await storageService.mergeQQMusicCloudListeningSongs(
-          [todayEntry],
-          timestamp: refDate,
-          todayListenSeconds: 900,
-        );
-        final grown = storageService.getDailyListeningRecord('2026-08-25');
-        expect(grown.totalDurationSeconds, 900);
-        expect(grown.songDurationSeconds['qq_002cloud'], 900);
-
-        // 云端次数上涨到 6 次：写回缓存曲目的 playCount，但不改动今日统计。
-        final grownEntry = QQMusicCloudHistoryEntry(
-          song: cloudSong.copyWith(playCount: 6),
-          lastPlayedAt: DateTime(2026, 8, 25, 18, 30),
-        );
-        final thirdMerged = await storageService.mergeQQMusicCloudListeningSongs(
-          [grownEntry],
-          timestamp: refDate,
-          todayListenSeconds: 900,
-        );
-        expect(thirdMerged, 1);
-        // 云端累计次数上涨到 6 次：写回缓存曲目的 playCount，但当日次数仍是 1
-        // （不因累计值增长而重复计数）。
-        final afterCounts = storageService.getDailyListeningRecord(
-          '2026-08-25',
-        );
-        expect(afterCounts.songPlayCounts['qq_002cloud'], 1);
-        expect(afterCounts.totalDurationSeconds, 900);
-
-        summary = storageService.getQQMusicCloudStatsSummary();
-        expect(summary.importedPlayCount, 6);
-
-        // 每首曲目的累计次数体现在全时段榜与可播放 SongStatItem 上。
         final container = ProviderContainer(
           overrides: [
             storageServiceProvider.overrideWithValue(storageService),
             statsLiveTickStreamProvider.overrideWith((ref) => Stream.value(0)),
-            selectedStatsDateProvider.overrideWith(
-              (ref) => DateTime(2026, 8, 25),
-            ),
           ],
         );
         addTearDown(container.dispose);
 
-        container.read(statsPeriodTypeProvider.notifier).state = PeriodType.day;
-        final dayStats = container.read(listeningPeriodStatsProvider);
-        expect(dayStats.totalDurationSeconds, 900);
-        expect(dayStats.topSongs.length, 1);
-        final statItem = dayStats.topSongs.first;
-        expect(statItem.title, '夜曲');
-        expect(statItem.durationSeconds, 900);
-        expect(statItem.qqSongMid, '002cloud');
-        expect(statItem.isQQMusicOnline, isTrue);
+        container.read(statsPeriodTypeProvider.notifier).state = PeriodType.all;
+        final allStats = container.read(listeningPeriodStatsProvider);
 
-        final playable = statItem.toOnlinePlayableSong();
-        expect(playable, isNotNull);
-        expect(playable!.isQQMusicOnline, isTrue);
-        expect(playable.qqSongMid, '002cloud');
+        // Ranked by play count, not by duration.
+        expect(allStats.topSongs.first.title, '天天听');
+        expect(allStats.topSongs.first.playCount, 5);
+        expect(allStats.topSongs.last.title, '偶尔听');
+        expect(allStats.topSongs.last.playCount, 1);
 
-        // 云端累计播放次数写回了「我喜欢」缓存（song_tile 的次数徽标来源）。
-        final cache = storageService.getQQMusicFavoritesCache();
-        expect(cache.first.playCount, 6);
+        // The count-only song (no flushed seconds) is not dropped.
+        expect(allStats.topSongs.length, 2);
+        expect(allStats.totalPlayCount, 6);
       },
     );
 
-    test(
-      'mergeQQMusicCloudListeningSongs fills qqSongId on matched local songs without touching today stats',
-      () async {
-        final local = Song(
-          id: 'local-night',
-          title: '夜曲',
-          artist: '周杰伦',
-          album: '十一月的萧邦',
-          durationMs: 226000,
-          filePath: '/music/night.flac',
-          dateAdded: DateTime(2026, 1, 1),
-          source: SongSource.local,
-        );
-        await storageService.saveSong(local);
+    test('ListeningStatsTracker flushes 15s segments and reports song play starts to the cloud callback once per play', () async {
+      final reportedPlayStarts = <String>[];
+      final tracker = ListeningStatsTracker(
+        storageService,
+        onSongPlayStarted: (song) {
+          reportedPlayStarts.add(song.id);
+        },
+      );
 
-        final cloud = Song(
-          id: 'qq_002cloud2',
-          title: '夜曲',
-          artist: '周杰伦',
-          album: '十一月的萧邦',
-          durationMs: 226000,
-          filePath: 'qqmusic://002cloud2',
-          dateAdded: DateTime(2026, 8, 25),
-          playCount: 9,
-          source: SongSource.online,
-          qqSongMid: '002cloud2',
-          qqSongId: 9002,
-        );
+      final onlineSong = Song(
+        id: 'qq_001online',
+        title: '青花瓷',
+        artist: '周杰伦',
+        album: '我很忙',
+        durationMs: 239000,
+        filePath: 'qqmusic://001online',
+        dateAdded: DateTime(2026, 1, 1),
+        source: SongSource.online,
+        qqSongMid: '001online',
+      );
 
-        final updated = await storageService.mergeQQMusicCloudListeningSongs(
-          [
-            QQMusicCloudHistoryEntry(
-              song: cloud,
-              lastPlayedAt: DateTime(2026, 8, 20, 9, 0),
-            ),
-          ],
-          timestamp: DateTime(2026, 8, 25, 12, 0),
-        );
-        expect(updated, 0);
+      tracker.onPlay(onlineSong);
+      // Simulate 16 seconds -> flushes immediately at >= 15s threshold
+      tracker.recordSimulatedSeconds(16);
+      // Simulate 9 more seconds -> buffered (< 15s) until pause
+      tracker.recordSimulatedSeconds(9);
+      tracker.onPause();
 
-        final stored = storageService.getSong('local-night');
-        expect(stored?.playCount, 0);
-        expect(stored?.qqSongId, isNull);
+      // Allow async Hive writes to complete
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-        final record = storageService.getDailyListeningRecord('2026-08-25');
-        expect(record.totalDurationSeconds, 0);
-        expect(record.songDurationSeconds, isEmpty);
+      final todayKey = Formatters.formatDateKey(DateTime.now());
+      final record = storageService.getDailyListeningRecord(todayKey);
+      expect(record.songPlayCounts['qq_001online'], 1);
+      expect(record.songDurationSeconds['qq_001online'], 25);
+      expect(record.songMetaCache['qq_001online']?.qqSongMid, '001online');
+      expect(record.songMetaCache['qq_001online']?.isQQMusicOnline, isTrue);
+      // 云端上报是「每次播放开始一次」，与 15 秒分段刷新无关。
+      expect(reportedPlayStarts, ['qq_001online']);
 
-        // 匹配靠 qqSongMid：补写 mid 后再同步，才把云端次数与 songId 接上。
-        await storageService.saveSong(local.copyWith(qqSongMid: '002cloud2'));
-        await storageService.mergeQQMusicCloudListeningSongs(
-          [
-            QQMusicCloudHistoryEntry(
-              song: cloud,
-              lastPlayedAt: DateTime(2026, 8, 20, 9, 0),
-            ),
-          ],
-          timestamp: DateTime(2026, 8, 25, 12, 0),
-        );
-        final matched = storageService.getSong('local-night');
-        expect(matched?.playCount, 9);
-        expect(matched?.qqSongId, 9002);
-      },
-    );
+      // 暂停后继续播放同一首：不重复触发上报。
+      tracker.onPlay(onlineSong);
+      tracker.onPause();
+      expect(reportedPlayStarts, ['qq_001online']);
+
+      // 切换到另一首歌再切回：两次新的播放各自触发一次。
+      final otherSong = onlineSong.copyWith(id: 'qq_002online', title: '东风破');
+      tracker.onPlay(otherSong);
+      tracker.onPlay(onlineSong);
+      expect(reportedPlayStarts, [
+        'qq_001online',
+        'qq_002online',
+        'qq_001online',
+      ]);
+
+      tracker.dispose();
+    });
+
+    test('mergeQQMusicCloudListeningSongs raises per-song cloud play counts and imports only today listen seconds', () async {
+      final cloudSong = Song(
+        id: 'qq_002cloud',
+        title: '夜曲',
+        artist: '周杰伦',
+        album: '十一月的萧邦',
+        durationMs: 226000,
+        filePath: 'qqmusic://002cloud',
+        dateAdded: DateTime(2026, 8, 25),
+        playCount: 4,
+        isFavorite: true,
+        source: SongSource.online,
+        qqSongMid: '002cloud',
+        qqSongId: 9001,
+      );
+      final todayEntry = QQMusicCloudHistoryEntry(
+        song: cloudSong,
+        lastPlayedAt: DateTime(2026, 8, 25, 18, 30),
+      );
+      final refDate = DateTime(2026, 8, 25, 19, 0);
+
+      // 模拟「我喜欢」已同步：缓存里已有这首曲目，但本地还没有播放次数。
+      await storageService.saveQQMusicFavoritesCache([
+        cloudSong.copyWith(playCount: 0),
+      ]);
+
+      // 云端今日有效听歌时长 12 分钟；listenCnt 4 次，按 App 展示口径修正为 3 次
+      // （历史累计，不是今天的）。
+      final firstMerged = await storageService.mergeQQMusicCloudListeningSongs(
+        [todayEntry],
+        timestamp: refDate,
+        todayListenSeconds: 720,
+      );
+      expect(firstMerged, 1);
+
+      // 重复同步同一份数据必须幂等：次数不涨，今日时长也不重复累加。
+      final secondMerged = await storageService.mergeQQMusicCloudListeningSongs(
+        [todayEntry],
+        timestamp: refDate,
+        todayListenSeconds: 720,
+      );
+      expect(secondMerged, 0);
+
+      final record = storageService.getDailyListeningRecord('2026-08-25');
+      // 累计次数（4 次，跳回 2020 年）不能被当成今天的播放次数灌进当日统计；
+      // 但「今天确实听过」要记 1 次，否则「收听曲目 N 首」会与「播放次数」矛盾。
+      expect(record.songPlayCounts['qq_002cloud'], 1);
+      // 今日时长按差值并入，并分摊到当天在云端听过的曲目。
+      expect(record.totalDurationSeconds, 720);
+      expect(record.songDurationSeconds['qq_002cloud'], 720);
+
+      var summary = storageService.getQQMusicCloudStatsSummary();
+      expect(summary.importedSongCount, 1);
+      expect(summary.importedPlayCount, 4);
+      expect(summary.importedDurationSeconds, 720);
+      expect(summary.todayListenSeconds, 720);
+
+      // 云端时长继续增长到 900 秒时只补 180 秒差值。
+      await storageService.mergeQQMusicCloudListeningSongs(
+        [todayEntry],
+        timestamp: refDate,
+        todayListenSeconds: 900,
+      );
+      final grown = storageService.getDailyListeningRecord('2026-08-25');
+      expect(grown.totalDurationSeconds, 900);
+      expect(grown.songDurationSeconds['qq_002cloud'], 900);
+
+      // 云端 listenCnt 上涨到 6 次：修正为 5 次写回缓存，但不改动今日统计。
+      final grownEntry = QQMusicCloudHistoryEntry(
+        song: cloudSong.copyWith(playCount: 6),
+        lastPlayedAt: DateTime(2026, 8, 25, 18, 30),
+      );
+      final thirdMerged = await storageService.mergeQQMusicCloudListeningSongs(
+        [grownEntry],
+        timestamp: refDate,
+        todayListenSeconds: 900,
+      );
+      expect(thirdMerged, 1);
+      // 云端累计次数修正为 5 次：写回缓存曲目的 playCount，但当日次数仍是 1
+      // （不因累计值增长而重复计数）。
+      final afterCounts = storageService.getDailyListeningRecord('2026-08-25');
+      expect(afterCounts.songPlayCounts['qq_002cloud'], 1);
+      expect(afterCounts.totalDurationSeconds, 900);
+
+      summary = storageService.getQQMusicCloudStatsSummary();
+      expect(summary.importedPlayCount, 6);
+
+      // 每首曲目的累计次数体现在全时段榜与可播放 SongStatItem 上。
+      final container = ProviderContainer(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storageService),
+          statsLiveTickStreamProvider.overrideWith((ref) => Stream.value(0)),
+          selectedStatsDateProvider.overrideWith(
+            (ref) => DateTime(2026, 8, 25),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(statsPeriodTypeProvider.notifier).state = PeriodType.day;
+      final dayStats = container.read(listeningPeriodStatsProvider);
+      expect(dayStats.totalDurationSeconds, 900);
+      expect(dayStats.topSongs.length, 1);
+      final statItem = dayStats.topSongs.first;
+      expect(statItem.title, '夜曲');
+      expect(statItem.durationSeconds, 900);
+      expect(statItem.qqSongMid, '002cloud');
+      expect(statItem.isQQMusicOnline, isTrue);
+
+      final playable = statItem.toOnlinePlayableSong();
+      expect(playable, isNotNull);
+      expect(playable!.isQQMusicOnline, isTrue);
+      expect(playable.qqSongMid, '002cloud');
+
+      // 云端累计播放次数写回了「我喜欢」缓存（song_tile 的次数徽标来源）。
+      final cache = storageService.getQQMusicFavoritesCache();
+      expect(cache.first.playCount, 5);
+    });
+
+    test('mergeQQMusicCloudListeningSongs fills qqSongId on matched local songs without touching today stats', () async {
+      final local = Song(
+        id: 'local-night',
+        title: '夜曲',
+        artist: '周杰伦',
+        album: '十一月的萧邦',
+        durationMs: 226000,
+        filePath: '/music/night.flac',
+        dateAdded: DateTime(2026, 1, 1),
+        source: SongSource.local,
+      );
+      await storageService.saveSong(local);
+
+      final cloud = Song(
+        id: 'qq_002cloud2',
+        title: '夜曲',
+        artist: '周杰伦',
+        album: '十一月的萧邦',
+        durationMs: 226000,
+        filePath: 'qqmusic://002cloud2',
+        dateAdded: DateTime(2026, 8, 25),
+        playCount: 9,
+        source: SongSource.online,
+        qqSongMid: '002cloud2',
+        qqSongId: 9002,
+      );
+
+      final updated = await storageService.mergeQQMusicCloudListeningSongs([
+        QQMusicCloudHistoryEntry(
+          song: cloud,
+          lastPlayedAt: DateTime(2026, 8, 20, 9, 0),
+        ),
+      ], timestamp: DateTime(2026, 8, 25, 12, 0));
+      expect(updated, 0);
+
+      final stored = storageService.getSong('local-night');
+      expect(stored?.playCount, 0);
+      expect(stored?.qqSongId, isNull);
+
+      final record = storageService.getDailyListeningRecord('2026-08-25');
+      expect(record.totalDurationSeconds, 0);
+      expect(record.songDurationSeconds, isEmpty);
+
+      // 匹配靠 qqSongMid：补写 mid 后再同步，才把云端次数与 songId 接上。
+      await storageService.saveSong(local.copyWith(qqSongMid: '002cloud2'));
+      await storageService.mergeQQMusicCloudListeningSongs([
+        QQMusicCloudHistoryEntry(
+          song: cloud,
+          lastPlayedAt: DateTime(2026, 8, 20, 9, 0),
+        ),
+      ], timestamp: DateTime(2026, 8, 25, 12, 0));
+      final matched = storageService.getSong('local-night');
+      expect(matched?.playCount, 8);
+      expect(matched?.qqSongId, 9002);
+    });
   });
 }

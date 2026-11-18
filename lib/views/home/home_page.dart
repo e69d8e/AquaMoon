@@ -7,9 +7,12 @@ import 'package:flutter/services.dart';
 
 import '../../core/utils/app_toast.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/qq_music_provider.dart';
 import '../../providers/update_provider.dart';
+import '../favorites/unmatched_songs_page.dart';
 import '../online_search/online_search_page.dart';
 import '../player/mini_player.dart';
+import '../qq_music/qq_music_discovery_page.dart';
 import '../history/recent_plays_page.dart';
 import '../settings/settings_page.dart';
 import '../stats/listening_stats_page.dart';
@@ -48,7 +51,8 @@ class _HomePageState extends ConsumerState<HomePage>
       return;
     }
     _lastNavTime = now;
-    Navigator.of(context).push(MaterialPageRoute(builder: (context) => builder()));
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (context) => builder()));
   }
 
   @override
@@ -205,6 +209,8 @@ class _HomePageState extends ConsumerState<HomePage>
           : Brightness.light,
     );
 
+    final currentTabTitle = _tabTitles[currentTab];
+
     if (isDesktop) {
       // Desktop / Tablet Layout with NavigationRail
       return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -265,7 +271,7 @@ class _HomePageState extends ConsumerState<HomePage>
                     Column(
                       children: [
                         AppBar(
-                          title: Text(_tabTitles[currentTab]),
+                          title: Text(currentTabTitle),
                           automaticallyImplyLeading: false,
                           actions: [
                             IconButton(
@@ -279,6 +285,18 @@ class _HomePageState extends ConsumerState<HomePage>
                               tooltip: '最近播放',
                               onPressed: () =>
                                   _pushPage(() => const RecentPlaysPage()),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.link_off_rounded),
+                              tooltip: '本地未匹配歌曲',
+                              onPressed: () =>
+                                  _pushPage(() => const UnmatchedSongsPage()),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.radio_rounded),
+                              tooltip: 'QQ 音乐在线发现',
+                              onPressed: () =>
+                                  _pushPage(() => const QQMusicDiscoveryPage()),
                             ),
                             IconButton(
                               icon: const Icon(Icons.cloud_download_outlined),
@@ -339,7 +357,7 @@ class _HomePageState extends ConsumerState<HomePage>
               ),
               const SizedBox(width: 8),
               Text(
-                _tabTitles[currentTab],
+                currentTabTitle,
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 19,
@@ -359,43 +377,98 @@ class _HomePageState extends ConsumerState<HomePage>
                   case 'recent':
                     _pushPage(() => const RecentPlaysPage());
                     break;
+                  case 'unmatched':
+                    _pushPage(() => const UnmatchedSongsPage());
+                    break;
                   case 'online':
                     _pushPage(() => const OnlineSearchPage());
                     break;
+                  case 'qq_discovery':
+                    _pushPage(() => const QQMusicDiscoveryPage());
+                    break;
                 }
               },
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: 'stats',
-                  child: Row(
-                    children: [
-                      Icon(Icons.insights_rounded, size: 20),
-                      SizedBox(width: 10),
-                      Text('听歌统计'),
-                    ],
+              itemBuilder: (context) {
+                var unmatchedCount = 0;
+                try {
+                  unmatchedCount = ref.read(unmatchedFavoritesProvider).length;
+                } catch (_) {}
+                return [
+                  const PopupMenuItem(
+                    value: 'stats',
+                    child: Row(
+                      children: [
+                        Icon(Icons.insights_rounded, size: 20),
+                        SizedBox(width: 10),
+                        Text('听歌统计'),
+                      ],
+                    ),
                   ),
-                ),
-                PopupMenuItem(
-                  value: 'recent',
-                  child: Row(
-                    children: [
-                      Icon(Icons.history_rounded, size: 20),
-                      SizedBox(width: 10),
-                      Text('最近播放'),
-                    ],
+                  const PopupMenuItem(
+                    value: 'recent',
+                    child: Row(
+                      children: [
+                        Icon(Icons.history_rounded, size: 20),
+                        SizedBox(width: 10),
+                        Text('最近播放'),
+                      ],
+                    ),
                   ),
-                ),
-                PopupMenuItem(
-                  value: 'online',
-                  child: Row(
-                    children: [
-                      Icon(Icons.cloud_download_outlined, size: 20),
-                      SizedBox(width: 10),
-                      Text('全网检索与下载'),
-                    ],
+                  PopupMenuItem(
+                    value: 'unmatched',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.link_off_rounded, size: 20),
+                        const SizedBox(width: 10),
+                        const Text('本地未匹配歌曲'),
+                        if (unmatchedCount > 0) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.12,
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$unmatchedCount',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const PopupMenuItem(
+                    value: 'online',
+                    child: Row(
+                      children: [
+                        Icon(Icons.cloud_download_outlined, size: 20),
+                        SizedBox(width: 10),
+                        Text('全网检索与下载'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'qq_discovery',
+                    child: Row(
+                      children: [
+                        Icon(Icons.radio_rounded, size: 20),
+                        SizedBox(width: 10),
+                        Text('QQ 音乐在线发现'),
+                      ],
+                    ),
+                  ),
+                ];
+              },
             ),
             IconButton(
               icon: const Icon(Icons.settings_outlined, size: 22),
@@ -407,8 +480,9 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
         body: Builder(
           builder: (bodyContext) {
-            final bottomChromeHeight =
-                MediaQuery.of(bodyContext).padding.bottom;
+            final bottomChromeHeight = MediaQuery.of(bodyContext)
+                .padding
+                .bottom;
             return Stack(
               children: [
                 IndexedStack(index: currentTab, children: _tabs),
@@ -432,27 +506,27 @@ class _HomePageState extends ConsumerState<HomePage>
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
             selectedIndex: currentTab,
-          onDestinationSelected: (index) {
-            ref.read(currentTabProvider.notifier).state = index;
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.music_note_outlined),
-              selectedIcon: Icon(Icons.music_note_rounded),
-              label: '曲库',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.queue_music_outlined),
-              selectedIcon: Icon(Icons.queue_music_rounded),
-              label: '歌单',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.favorite_border_rounded),
-              selectedIcon: Icon(Icons.favorite_rounded),
-              label: '收藏',
-            ),
-          ],
-        ),
+            onDestinationSelected: (index) {
+              ref.read(currentTabProvider.notifier).state = index;
+            },
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.music_note_outlined),
+                selectedIcon: Icon(Icons.music_note_rounded),
+                label: '曲库',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.queue_music_outlined),
+                selectedIcon: Icon(Icons.queue_music_rounded),
+                label: '歌单',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.favorite_border_rounded),
+                selectedIcon: Icon(Icons.favorite_rounded),
+                label: '收藏',
+              ),
+            ],
+          ),
         ),
       ),
     );

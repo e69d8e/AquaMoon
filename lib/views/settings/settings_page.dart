@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -11,13 +12,18 @@ import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
 import '../../providers/lyrics_provider.dart';
+import '../../providers/playback_preferences_provider.dart';
+import '../../core/utils/qq_music_cookie_status.dart';
+import '../../providers/qq_music_download_provider.dart';
 import '../../providers/qq_music_provider.dart';
+import '../../providers/qq_music_session_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../services/backup_service.dart';
 import '../../services/qq_music_service.dart';
 import '../stats/listening_stats_page.dart';
 import '../widgets/qq_music_auth_dialog.dart';
+import '../widgets/qq_music_quality_picker.dart';
 import '../widgets/update_dialog.dart';
 import 'audio_effects_settings_page.dart';
 import 'lyrics_display_settings_page.dart';
@@ -26,6 +32,10 @@ import 'theme_settings_page.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
+
+  /// QQ 音乐下载只适配 Android：默认落在公共下载目录，并依赖原生媒体库登记。
+  static bool get _supportsQQMusicDownload =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   /// Shown when storage scans fail due to missing permission.
   void _showStoragePermissionGuide(BuildContext context) {
@@ -191,6 +201,7 @@ class SettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final libraryState = ref.watch(libraryNotifierProvider);
     final qqFavState = ref.watch(qqMusicFavoritesProvider);
+    final qqSession = ref.watch(qqMusicSessionProvider);
     final todayStats = ref.watch(todayListeningSummaryProvider);
     final themeMode = ref.watch(themeModeProvider);
     final palette = ref.watch(themePaletteProvider);
@@ -307,6 +318,20 @@ class SettingsPage extends ConsumerWidget {
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
+                          if (qqFavState.isBound &&
+                              qqSession.health !=
+                                  QQMusicCookieHealth.unknown) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              qqSession.summary,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: qqSession.health.needsAttention
+                                    ? theme.colorScheme.error
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -371,6 +396,11 @@ class SettingsPage extends ConsumerWidget {
               ),
             ),
           ),
+
+          if (_supportsQQMusicDownload) ...[
+            const SizedBox(height: 10),
+            const _QQMusicDownloadCard(),
+          ],
 
           const SizedBox(height: 10),
 
@@ -780,6 +810,12 @@ class SettingsPage extends ConsumerWidget {
                   ),
                   const Divider(height: 1, indent: 56),
                 ],
+                _PreferLocalPlaybackTile(
+                  localSongCount: libraryState.songs
+                      .where((song) => song.hasLocalFile)
+                      .length,
+                ),
+                const Divider(height: 1, indent: 56),
                 ListTile(
                   leading: const Icon(Icons.lyrics_rounded),
                   title: const Text(
@@ -1157,6 +1193,291 @@ class _UpdateSettingsCardState extends ConsumerState<_UpdateSettingsCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 「优先播放本地音频」开关（设置 → 播放与系统适配）。
+///
+/// 打开后，音频引擎在播放任何在线曲目之前，先按标题 / 歌手 / 时长在本地
+/// 曲库里找同一首歌；命中就播本地文件，省流量且不受在线版权下架影响。
+class _PreferLocalPlaybackTile extends ConsumerWidget {
+  const _PreferLocalPlaybackTile({required this.localSongCount});
+
+  /// 曲库中带真实本地文件的歌曲数量，用于告知用户可匹配的基数。
+  final int localSongCount;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(preferLocalPlaybackProvider);
+
+    return ListTile(
+      leading: const Icon(Icons.download_done_rounded),
+      title: const Text(
+        '优先播放本地音频',
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        enabled
+            ? localSongCount > 0
+                  ? '已开启 · 在线曲目若曲库中有同一首歌，直接播放本地文件（可匹配 $localSongCount 首）'
+                  : '已开启 · 曲库暂无本地音频，导入后会自动生效'
+            : '在线曲目若曲库中已有同一首歌，改为播放本地文件，省流量、音质更稳',
+        style: const TextStyle(fontSize: 12, height: 1.35),
+      ),
+      trailing: Switch(
+        value: enabled,
+        onChanged: (value) {
+          ref
+              .read(preferLocalPlaybackProvider.notifier)
+              .setPreferLocalPlayback(value);
+        },
+      ),
+      onTap: () {
+        ref
+            .read(preferLocalPlaybackProvider.notifier)
+            .setPreferLocalPlayback(!enabled);
+      },
+    );
+  }
+}
+
+/// QQ 音乐下载设置卡（仅 Android 展示）。
+///
+/// 三件事都收在这里：默认下载音质、保存文件夹、下载后是否自动进曲库。
+/// 音质与文件夹同时用于「发现页 → 更多 → 下载到本地」的选择面板，用户在
+/// 这里设好之后，下载时就不必每次重复选择。
+class _QQMusicDownloadCard extends ConsumerWidget {
+  const _QQMusicDownloadCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final settings = ref.watch(qqMusicDownloadSettingsProvider);
+    final downloadState = ref.watch(qqMusicDownloadProvider);
+    final hasCookie = ref.watch(qqMusicFavoritesProvider).config.hasCookie;
+    final activeTasks = downloadState.activeTasks;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.download_for_offline_rounded),
+            title: const Text(
+              'QQ 音乐下载',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              activeTasks.isEmpty
+                  ? '保存到 ${settings.directoryLabel}'
+                  : '正在下载 ${activeTasks.length} 首 · 保存到 ${settings.directoryLabel}',
+              maxLines: 2,
+              style: const TextStyle(fontSize: 12, height: 1.35),
+            ),
+          ),
+          if (activeTasks.isNotEmpty) ...[
+            const Divider(height: 1, indent: 56),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+              child: Column(
+                children: [
+                  for (final task in activeTasks.take(3))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  task.song.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                task.progress == null
+                                    ? '下载中'
+                                    : '${(task.progress! * 100).round()}%',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(3),
+                            child: LinearProgressIndicator(
+                              value: task.progress,
+                              minHeight: 3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+          const Divider(height: 1, indent: 56),
+          ListTile(
+            leading: const Icon(Icons.high_quality_rounded),
+            title: const Text(
+              '下载音质',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              settings.quality.requiresCookie && !hasCookie
+                  ? '${settings.quality.label} · 未绑定 Cookie 时将自动回退'
+                  : settings.quality.label,
+              style: const TextStyle(fontSize: 12),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () async {
+              final picked = await showQQMusicQualityPicker(
+                context,
+                title: '默认下载音质',
+                subtitle: '发现页下载时仍可临时改选其它音质',
+                selected: settings.quality,
+                hasCookie: hasCookie,
+              );
+              if (picked == null || !context.mounted) return;
+              await ref
+                  .read(qqMusicDownloadSettingsProvider.notifier)
+                  .setQuality(picked);
+              if (!context.mounted) return;
+              AppToast.show(
+                context,
+                '下载音质已设为 ${picked.label}',
+                icon: Icons.high_quality_rounded,
+              );
+            },
+          ),
+          const Divider(height: 1, indent: 56),
+          ListTile(
+            leading: const Icon(Icons.folder_outlined),
+            title: const Text(
+              '保存文件夹',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              settings.directoryLabel,
+              maxLines: 2,
+              style: const TextStyle(fontSize: 12, height: 1.3),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (settings.directory.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.restart_alt_rounded, size: 20),
+                    tooltip: '恢复默认文件夹',
+                    onPressed: () async {
+                      await ref
+                          .read(qqMusicDownloadSettingsProvider.notifier)
+                          .resetDirectory();
+                      if (!context.mounted) return;
+                      AppToast.show(context, '已恢复默认下载文件夹');
+                    },
+                  ),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+            onTap: () => _pickDirectory(context, ref),
+          ),
+          const Divider(height: 1, indent: 56),
+          SwitchListTile(
+            secondary: const Icon(Icons.playlist_add_check_rounded),
+            title: const Text(
+              '下载后自动加入曲库',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              '关闭后只写文件，需要时再到曲库手动导入',
+              style: TextStyle(fontSize: 12),
+            ),
+            value: settings.addToLibrary,
+            onChanged: (value) => ref
+                .read(qqMusicDownloadSettingsProvider.notifier)
+                .setAddToLibrary(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 选择下载文件夹：先确认目录真的可写，不可写就不保存这个设置，
+  /// 免得用户以为换了目录、下载却一直落在别处。
+  Future<void> _pickDirectory(BuildContext context, WidgetRef ref) async {
+    final storage = ref.read(storageServiceProvider);
+    final current = storage.getQQMusicDownloadDirectory();
+
+    String? picked;
+    try {
+      picked = await FilePicker.getDirectoryPath(
+        dialogTitle: '选择下载文件夹',
+        initialDirectory: current.isEmpty ? null : current,
+      );
+    } catch (_) {
+      if (context.mounted) AppToast.show(context, '无法打开文件夹选择器');
+      return;
+    }
+    if (picked == null || picked.trim().isEmpty || !context.mounted) return;
+
+    // 公共目录写入依赖存储权限；先尝试申请，被拒也会走下面的可写性探测。
+    try {
+      await ref.read(libraryNotifierProvider.notifier).requestStoragePermission();
+    } catch (_) {}
+    if (!context.mounted) return;
+
+    final resolved = await ref
+        .read(qqMusicDownloadServiceProvider)
+        .prepareDownloadDirectory(preferred: picked);
+    if (!context.mounted) return;
+
+    final normalized = picked.replaceFirst(RegExp(r'/+$'), '');
+    final resolvedNormalized = resolved.replaceFirst(RegExp(r'/+$'), '');
+    final writable =
+        resolvedNormalized == normalized || resolved == picked;
+
+    if (!writable) {
+      await ref.read(qqMusicDownloadSettingsProvider.notifier).resetDirectory();
+      if (!context.mounted) return;
+      AppToast.show(
+        context,
+        '该文件夹不可写，已改用默认目录；如需写入请授予「所有文件访问权限」',
+        icon: Icons.info_outline_rounded,
+        duration: const Duration(milliseconds: 3000),
+        maxLines: 2,
+      );
+      return;
+    }
+
+    await ref
+        .read(qqMusicDownloadSettingsProvider.notifier)
+        .setDirectory(picked);
+    if (!context.mounted) return;
+    AppToast.show(
+      context,
+      '下载文件夹已设为 $picked',
+      icon: Icons.folder_rounded,
+      duration: const Duration(milliseconds: 2200),
+      maxLines: 2,
     );
   }
 }

@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../core/utils/formatters.dart';
 import '../models/listening_stats.dart';
 import '../models/qq_music_config.dart';
+import '../models/qq_music_discovery.dart';
 import '../models/song.dart';
 import '../models/playlist.dart';
 import '../models/playback_mode.dart';
@@ -50,6 +51,28 @@ class StorageService {
     // QQ 音乐 PC 私有通道需要稳定的设备标识：在启动时 await 落盘，
     // 避开在 provider 构造/widget build 里做 fire-and-forget 的箱写盘。
     await _ensureQQMusicDesktopGuid();
+    await _correctQQMusicPlayCountOffset();
+  }
+
+  /// QQ Music App 显示的播放次数比私有接口的 `listenCnt` 少 1，早期版本把
+  /// `listenCnt` 原样写进了本地缓存，导致「我喜欢」列表的次数整体多 1。
+  /// 这里对存量缓存做一次性修正；之后的同步由 [mergeQQMusicCloudListeningSongs]
+  /// 统一按 `listenCnt - 1` 写入，不会重复递减。
+  Future<void> _correctQQMusicPlayCountOffset() async {
+    const flagKey = 'qq_play_count_offset_v1';
+    if (_settingsBox.get(flagKey) == true) return;
+
+    final cache = getQQMusicFavoritesCache();
+    if (cache.isNotEmpty) {
+      var changed = false;
+      final corrected = cache.map((song) {
+        if (song.playCount <= 0) return song;
+        changed = true;
+        return song.copyWith(playCount: song.playCount - 1);
+      }).toList();
+      if (changed) await saveQQMusicFavoritesCache(corrected);
+    }
+    await _settingsBox.put(flagKey, true);
   }
 
   Future<void> _ensureQQMusicDesktopGuid() async {
@@ -209,10 +232,7 @@ class StorageService {
   }
 
   Future<void> saveLyricsDisplaySettings(LyricsDisplaySettings settings) {
-    return _settingsBox.put(
-      'lyrics_display_settings',
-      settings.toMap(),
-    );
+    return _settingsBox.put('lyrics_display_settings', settings.toMap());
   }
 
   // --- QQ Music Favorites Config & Cache ---
@@ -244,6 +264,55 @@ class StorageService {
     await _settingsBox.delete('qq_cloud_stats_summary');
     await _settingsBox.delete('qq_manual_links');
     await _settingsBox.delete('qq_manual_exclusions');
+  }
+
+  // --- QQ Music 在线播放音质 ---
+
+  /// 发现页「即点即播」使用的音质档位，默认 320K MP3。
+  /// 用枚举名落盘，避免枚举顺序变化导致老用户的设置错位。
+  QQMusicStreamQuality getQQMusicStreamQuality() {
+    return QQMusicStreamQuality.fromName(
+      _settingsBox.get('qq_music_stream_quality') as String?,
+    );
+  }
+
+  Future<void> saveQQMusicStreamQuality(QQMusicStreamQuality quality) async {
+    await _settingsBox.put('qq_music_stream_quality', quality.name);
+  }
+
+  // --- QQ Music 歌曲下载 ---
+
+  /// 下载音质。与「在线播放音质」分开保存：播放想省流量，下载往往想留
+  /// 无损，两个偏好不能互相覆盖。
+  QQMusicStreamQuality getQQMusicDownloadQuality() {
+    return QQMusicStreamQuality.fromName(
+      _settingsBox.get('qq_music_download_quality') as String?,
+    );
+  }
+
+  Future<void> saveQQMusicDownloadQuality(QQMusicStreamQuality quality) async {
+    await _settingsBox.put('qq_music_download_quality', quality.name);
+  }
+
+  /// 用户自定义下载文件夹；空字符串表示使用默认目录。
+  String getQQMusicDownloadDirectory() {
+    final raw = _settingsBox.get('qq_music_download_dir');
+    if (raw is! String) return '';
+    return raw.trim();
+  }
+
+  Future<void> saveQQMusicDownloadDirectory(String path) async {
+    await _settingsBox.put('qq_music_download_dir', path.trim());
+  }
+
+  /// 下载完成后是否自动把文件登记进曲库。
+  bool getQQMusicDownloadAddToLibrary() {
+    final v = _settingsBox.get('qq_music_download_add_to_library', defaultValue: true);
+    return v is bool ? v : true;
+  }
+
+  Future<void> saveQQMusicDownloadAddToLibrary(bool enabled) async {
+    await _settingsBox.put('qq_music_download_add_to_library', enabled);
   }
 
   // --- QQ Music 手动关联（云端曲目 <-> 本地文件） ---
@@ -470,7 +539,10 @@ class StorageService {
   List<double> getEqualizerGains() {
     final raw = _settingsBox.get('equalizer_gains');
     if (raw is! List) return const [];
-    return [for (final v in raw) if (v is num) v.toDouble()];
+    return [
+      for (final v in raw)
+        if (v is num) v.toDouble(),
+    ];
   }
 
   Future<void> saveEqualizerGains(List<double> gains) async {
@@ -486,6 +558,18 @@ class StorageService {
     await _settingsBox.put('volume', volume);
   }
 
+  /// 在线曲目（QQ 音乐等）若在曲库中已有同一首歌的本地音频，是否优先播放
+  /// 本地文件。默认关闭：自动匹配只是标题/歌手/时长的模糊对齐，误配时会用
+  /// 另一版录音顶掉精确的在线音源，所以交给用户显式开启。
+  bool getPreferLocalPlayback() {
+    final v = _settingsBox.get('prefer_local_playback', defaultValue: false);
+    return v is bool ? v : false;
+  }
+
+  Future<void> savePreferLocalPlayback(bool enabled) async {
+    await _settingsBox.put('prefer_local_playback', enabled);
+  }
+
   bool getAutoCheckUpdates() {
     final v = _settingsBox.get('auto_check_updates', defaultValue: true);
     return v is bool ? v : true;
@@ -498,7 +582,10 @@ class StorageService {
   /// 水墨专属通知栏（自定义 RemoteViews 通知）开关，默认开启。
   /// 关闭后仅保留系统原生媒体通知（锁屏/控制中心/蓝牙）。
   bool getCustomNotificationEnabled() {
-    final v = _settingsBox.get('custom_notification_enabled', defaultValue: true);
+    final v = _settingsBox.get(
+      'custom_notification_enabled',
+      defaultValue: true,
+    );
     return v is bool ? v : true;
   }
 
@@ -611,7 +698,8 @@ class StorageService {
   ///
   /// - 每首曲目的云端累计播放次数 ([QQMusicCloudHistoryEntry.playCount]，即
   ///   接口的 `listenCnt`) 只升不降地写回本地曲库与「我喜欢」缓存的
-  ///   [Song.playCount]，同时补齐缺失的数字 [Song.qqSongId]；
+  ///   [Song.playCount]，同时补齐缺失的数字 [Song.qqSongId]。注意 QQ 音乐 App
+  ///   展示的次数比 `listenCnt` 少 1，因此写回前先减 1（最低为 0）；
   /// - [todayListenSeconds] 是云端「今日累计有效听歌时间」，按日期基准做差值，
   ///   只把新增部分并入当天统计，因此反复同步不会重复累加；
   /// - 云端「最近播放」是累计历史，不能当作当天播放次数灌进当天统计，否则
@@ -652,10 +740,12 @@ class StorageService {
     for (final entry in entries) {
       final cloudSong = entry.song;
       final mid = entry.songMid;
-      final targetPlays = entry.playCount > 0 ? entry.playCount : 1;
+      // QQ 音乐 App 的展示次数比 listenCnt 少 1；0 次播放不应显示为 1 次。
+      final targetPlays = entry.playCount > 1 ? entry.playCount - 1 : 0;
       final cloudSongId = cloudSong.qqSongId;
 
-      final local = (mid.isNotEmpty ? localByMid[mid] : null) ?? localById[cloudSong.id];
+      final local =
+          (mid.isNotEmpty ? localByMid[mid] : null) ?? localById[cloudSong.id];
       if (local != null) {
         final needsPlays = local.playCount < targetPlays;
         final needsId = (local.qqSongId ?? 0) <= 0 && (cloudSongId ?? 0) > 0;
@@ -671,7 +761,9 @@ class StorageService {
         }
       }
 
-      final idx = favIndexById[cloudSong.id] ?? (mid.isNotEmpty ? favIndexByMid[mid] : null);
+      final idx =
+          favIndexById[cloudSong.id] ??
+          (mid.isNotEmpty ? favIndexByMid[mid] : null);
       if (idx != null) {
         final cached = updatedCache[idx];
         final needsPlays = cached.playCount < targetPlays;
@@ -708,7 +800,9 @@ class StorageService {
     final updatedPlayCounts = Map<String, int>.from(
       currentRecord.songPlayCounts,
     );
-    final updatedHourly = Map<int, int>.from(currentRecord.hourlyDurationSeconds);
+    final updatedHourly = Map<int, int>.from(
+      currentRecord.hourlyDurationSeconds,
+    );
     final updatedMetaCache = Map<String, SongMetaSnapshot>.from(
       currentRecord.songMetaCache,
     );
@@ -888,10 +982,7 @@ class StorageService {
       final source = File(sourcePath);
       if (!await source.exists()) return (true, null);
       final target = File(
-        p.join(
-          supportRoot.path,
-          p.relative(sourcePath, from: tempRoot.path),
-        ),
+        p.join(supportRoot.path, p.relative(sourcePath, from: tempRoot.path)),
       );
       if (!await target.exists()) {
         await target.create(recursive: true);
@@ -973,10 +1064,7 @@ class StorageService {
     if (data['format'] != 'aquamoon-backup') {
       throw const FormatException('不是水月音备份文件');
     }
-    Future<void> restoreBox(
-      Box box,
-      Map<String, dynamic>? section,
-    ) async {
+    Future<void> restoreBox(Box box, Map<String, dynamic>? section) async {
       if (section == null) return;
       await box.clear();
       await box.putAll(section);
@@ -1043,7 +1131,10 @@ class StorageService {
     final ids = section['recent_song_ids'];
     return {
       'recent_song_ids': ids is List
-          ? [for (final e in ids) if (e != null) e.toString()]
+          ? [
+              for (final e in ids)
+                if (e != null) e.toString(),
+            ]
           : const <String>[],
     };
   }

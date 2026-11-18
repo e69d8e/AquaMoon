@@ -9,6 +9,7 @@ import '../../../core/utils/app_toast.dart';
 import '../../../models/song.dart';
 import '../../../providers/library_provider.dart';
 import '../../../providers/playlist_provider.dart';
+import '../../../providers/qq_music_provider.dart';
 import '../../../services/file_export_service.dart';
 import '../../playlists/playlist_detail_page.dart';
 import '../../widgets/song_artwork.dart';
@@ -20,7 +21,15 @@ class PlaylistsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final playlists = ref.watch(playlistNotifierProvider);
     final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+    final qqFavorites = ref.watch(
+      qqMusicFavoritesProvider.select((s) => s.mergedSongs),
+    );
     final songMap = {for (final s in songs) s.id: s};
+    // Playlist entries may be QQ Music cloud favorites; they are not in the
+    // library box, so merge the favorites cache in for artwork resolution.
+    for (final song in qqFavorites) {
+      songMap.putIfAbsent(song.id, () => song);
+    }
     final theme = Theme.of(context);
 
     return Column(
@@ -143,52 +152,53 @@ class PlaylistsTab extends ConsumerWidget {
                     final effectiveCover =
                         pl.coverArtUri ?? firstSongWithArt?.albumArtUri;
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
                         color: theme.colorScheme.surfaceContainerHighest
                             .withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        leading: SongArtwork(
-                          artUri: effectiveCover,
-                          size: 44,
-                          borderRadius: 10,
-                        ),
-                        title: Text(
-                          pl.name,
-                          style: const TextStyle(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w600,
+                        clipBehavior: Clip.antiAlias,
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                        ),
-                        subtitle: Text(
-                          pl.description.isNotEmpty
-                              ? pl.description
-                              : '${pl.songIds.length} 首歌曲',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurfaceVariant,
+                          leading: SongArtwork(
+                            artUri: effectiveCover,
+                            size: 44,
+                            borderRadius: 10,
                           ),
-                        ),
-                        trailing: Icon(
-                          Icons.chevron_right_rounded,
-                          size: 20,
-                          color: theme.colorScheme.onSurfaceVariant.withValues(
-                            alpha: 0.5,
-                          ),
-                        ),
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => PlaylistDetailPage(playlist: pl),
+                          title: Text(
+                            pl.name,
+                            style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w600,
                             ),
-                          );
-                        },
+                          ),
+                          subtitle: Text(
+                            pl.description.isNotEmpty
+                                ? pl.description
+                                : '${pl.songIds.length} 首歌曲',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          trailing: Icon(
+                            Icons.chevron_right_rounded,
+                            size: 20,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.5),
+                          ),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    PlaylistDetailPage(playlist: pl),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     );
                   },
@@ -200,10 +210,7 @@ class PlaylistsTab extends ConsumerWidget {
 
   /// 导入 m3u/m3u8 播放列表：解析文件条目并与本地曲库匹配，
   /// 新建歌单并按文件内顺序写入匹配到的歌曲。
-  Future<void> _importM3uPlaylist(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  Future<void> _importM3uPlaylist(BuildContext context, WidgetRef ref) async {
     List<PlatformFile>? picked;
     try {
       picked = await FilePicker.pickFiles(
@@ -218,8 +225,7 @@ class PlaylistsTab extends ConsumerWidget {
     final filePath = picked.first.path;
     if (filePath == null || !context.mounted) return;
 
-    final library =
-        ref.read(libraryNotifierProvider.select((s) => s.songs));
+    final library = ref.read(libraryNotifierProvider.select((s) => s.songs));
     final String content;
     try {
       content = await File(filePath).readAsString();
@@ -242,8 +248,8 @@ class PlaylistsTab extends ConsumerWidget {
       return;
     }
 
-    final name = _extractPlaylistName(content) ??
-        p.basenameWithoutExtension(filePath);
+    final name =
+        _extractPlaylistName(content) ?? p.basenameWithoutExtension(filePath);
 
     final playlist = await ref
         .read(playlistNotifierProvider.notifier)
@@ -275,71 +281,97 @@ class PlaylistsTab extends ConsumerWidget {
     return null;
   }
 
-  void _showCreatePlaylistDialog(BuildContext context, WidgetRef ref) {
-    final titleController = TextEditingController();
-    final descController = TextEditingController();
-
-    showDialog<void>(
+  Future<void> _showCreatePlaylistDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    // The dialog owns its controllers so they are disposed only when the
+    // dialog route is fully removed (disposing them in whenComplete runs
+    // while the route is still animating out and breaks TextField).
+    final result = await showDialog<({String name, String description})>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('新建歌单'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: '歌单名称',
-                hintText: '如：我的车载热歌、轻音乐',
-              ),
+      builder: (_) => const _CreatePlaylistDialog(),
+    );
+    if (result == null || !context.mounted) return;
+
+    await ref
+        .read(playlistNotifierProvider.notifier)
+        .createPlaylist(result.name, description: result.description);
+    if (!context.mounted) return;
+    AppToast.show(
+      context,
+      '已创建歌单「${result.name}」',
+      icon: Icons.check_circle_outline_rounded,
+    );
+  }
+}
+
+class _CreatePlaylistDialog extends StatefulWidget {
+  const _CreatePlaylistDialog();
+
+  @override
+  State<_CreatePlaylistDialog> createState() => _CreatePlaylistDialogState();
+}
+
+class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
+  final _titleController = TextEditingController();
+  final _descController = TextEditingController();
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _titleController.text.trim();
+    if (name.isEmpty) return;
+    Navigator.pop(context, (name: name, description: _descController.text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新建歌单'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _titleController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: '歌单名称',
+              hintText: '如：我的车载热歌、轻音乐',
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: descController,
-              decoration: const InputDecoration(
-                labelText: '描述 (可选)',
-                hintText: '写点关于这个歌单的故事...',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
           ),
-          // Create stays disabled until the name is non-blank.
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: titleController,
-            builder: (context, value, _) {
-              final name = value.text.trim();
-              return FilledButton(
-                onPressed: name.isEmpty
-                    ? null
-                    : () {
-                        ref
-                            .read(playlistNotifierProvider.notifier)
-                            .createPlaylist(
-                              name,
-                              description: descController.text,
-                            );
-                        AppToast.show(
-                          dialogContext,
-                          '已创建歌单「$name」',
-                          icon: Icons.check_circle_outline_rounded,
-                        );
-                        Navigator.pop(dialogContext);
-                      },
-                child: const Text('创建'),
-              );
-            },
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descController,
+            decoration: const InputDecoration(
+              labelText: '描述 (可选)',
+              hintText: '写点关于这个歌单的故事...',
+            ),
           ),
         ],
       ),
-    ).whenComplete(() {
-      titleController.dispose();
-      descController.dispose();
-    });
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        // Create stays disabled until the name is non-blank.
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _titleController,
+          builder: (context, value, _) {
+            final name = value.text.trim();
+            return FilledButton(
+              onPressed: name.isEmpty ? null : _submit,
+              child: const Text('创建'),
+            );
+          },
+        ),
+      ],
+    );
   }
 }

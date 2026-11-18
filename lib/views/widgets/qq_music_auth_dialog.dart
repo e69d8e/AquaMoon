@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/app_toast.dart';
 import '../../models/qq_music_config.dart';
 import '../../providers/qq_music_provider.dart';
+import '../../providers/qq_music_session_provider.dart';
 import '../../services/qq_music_service.dart';
 
 class QQMusicAuthDialog extends ConsumerStatefulWidget {
@@ -94,12 +97,10 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
           .read(qqMusicFavoritesProvider.notifier)
           .saveConfigAndSync(newConfig);
       if (!mounted) return;
+      // 新 Cookie 可能刚换了 key，立刻重验一次登录态，顺带清掉旧的过期提示。
+      unawaited(ref.read(qqMusicSessionProvider.notifier).refreshAfterBind());
       Navigator.of(context).pop();
-      AppToast.show(
-        context,
-        summary,
-        icon: Icons.check_circle_outline_rounded,
-      );
+      AppToast.show(context, summary, icon: Icons.check_circle_outline_rounded);
     } on QQMusicApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -141,11 +142,7 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
     await ref.read(qqMusicFavoritesProvider.notifier).unbind();
     if (!mounted) return;
     Navigator.of(context).pop();
-    AppToast.show(
-      context,
-      '已断开 QQ 音乐绑定',
-      icon: Icons.link_off_rounded,
-    );
+    AppToast.show(context, '已断开 QQ 音乐绑定', icon: Icons.link_off_rounded);
   }
 
   @override
@@ -270,6 +267,7 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Icon(
                         _showCookieSection
@@ -279,12 +277,14 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
                         color: theme.colorScheme.primary,
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        '配置 Cookie 凭证（可选 · 解锁私密歌单 / VIP音质 / 云端红心同步）',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.primary,
+                      Expanded(
+                        child: Text(
+                          '配置 Cookie 凭证（可选 · 解锁私密歌单 / VIP音质 / 云端红心同步）',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.primary,
+                          ),
                         ),
                       ),
                     ],
@@ -313,8 +313,7 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
                           minLines: 2,
                           style: const TextStyle(fontSize: 12.5),
                           decoration: InputDecoration(
-                            hintText:
-                                '粘贴网页版 y.qq.com 的 Cookie（包含 uin=...; qqmusic_key=... 或 qm_keyst=...）',
+                            hintText: '粘贴网页版 y.qq.com 的 Cookie（包含 uin=...; qqmusic_key=... 或 qm_keyst=...）',
                             hintStyle: TextStyle(
                               fontSize: 12,
                               color: theme.colorScheme.onSurfaceVariant

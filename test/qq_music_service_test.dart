@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:aquamoon/models/qq_music_config.dart';
+import 'package:aquamoon/models/qq_music_discovery.dart';
 import 'package:aquamoon/models/song.dart';
 import 'package:aquamoon/providers/audio_provider.dart';
 import 'package:aquamoon/providers/library_provider.dart';
@@ -189,9 +190,11 @@ void main() {
     test(
       'resolvePlayUrl assembles HTTPS stream URL and returns null on empty purl',
       () async {
+        final modules = <String>[];
         final client = MockClient((request) async {
           final body = json.decode(request.body) as Map<String, dynamic>;
           final req0 = body['req_0'] as Map<String, dynamic>;
+          modules.add(req0['module'] as String);
           final param = req0['param'] as Map<String, dynamic>;
           final mids = param['songmid'] as List<dynamic>;
           final mid = mids.first as String;
@@ -200,6 +203,7 @@ void main() {
             return http.Response(
               json.encode({
                 'req_0': {
+                  'code': 0,
                   'data': {
                     'sip': ['http://ws.stream.qqmusic.qq.com/'],
                     'midurlinfo': [
@@ -209,12 +213,14 @@ void main() {
                 },
               }),
               200,
+              headers: {'content-type': 'application/json'},
             );
           }
 
           return http.Response(
             json.encode({
               'req_0': {
+                'code': 0,
                 'data': {
                   'sip': ['http://ws.stream.qqmusic.qq.com/'],
                   'midurlinfo': [
@@ -227,6 +233,7 @@ void main() {
               },
             }),
             200,
+            headers: {'content-type': 'application/json'},
           );
         });
 
@@ -241,8 +248,187 @@ void main() {
           songMid: 'vip_blocked_mid',
         );
         expect(blockedUrl, isNull);
+
+        // 回归保护：music.vkey.GetVkey 已被服务端废弃（恒 500003），
+        // 必须走旧模块 vkey.GetVkeyServer，否则所有曲目都取不到流。
+        expect(modules, isNotEmpty);
+        expect(
+          modules.every((module) => module == 'vkey.GetVkeyServer'),
+          isTrue,
+          reason: '实际使用的 module：$modules',
+        );
       },
     );
+
+    test(
+      'resolvePlayUrl retries the next quality tier when the first purl is empty',
+      () async {
+        final filenames = <String>[];
+        final client = MockClient((request) async {
+          final body = json.decode(request.body) as Map<String, dynamic>;
+          final param =
+              body['req_0']['param'] as Map<String, dynamic>;
+          final requested = (param['filename'] as List<dynamic>?)
+                  ?.map((value) => '$value')
+                  .toList() ??
+              const <String>[];
+          filenames.addAll(requested);
+
+          // 只有 M500（128K）能取到流，模拟未登录 / 高音质不可用。
+          final hit = requested.firstWhere(
+            (name) => name.startsWith('M500'),
+            orElse: () => '',
+          );
+          return http.Response(
+            json.encode({
+              'req_0': {
+                'code': 0,
+                'data': {
+                  'sip': ['http://ws.stream.qqmusic.qq.com/'],
+                  'midurlinfo': [
+                    {
+                      'songmid': '001abc',
+                      'purl': hit.isEmpty
+                          ? ''
+                          : '$hit?guid=10000&vkey=MOCK_VKEY',
+                    },
+                  ],
+                },
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final service = QQMusicService(client: client);
+        final url = await service.resolvePlayUrl(
+          songMid: '001abc',
+          mediaMid: '002media',
+          config: const QQMusicConfig(
+            cookie: 'uin=o1234567; qqmusic_key=MOCK_KEY',
+          ),
+          quality: QQMusicStreamQuality.lossless,
+        );
+
+        expect(
+          filenames,
+          contains('F000002media.flac'),
+          reason: '应先按所选无损档位试探',
+        );
+        expect(url, isNotNull);
+        expect(url, contains('M500'));
+      },
+    );
+
+    test(
+      'resolvePlayUrl prefers the doubled-mid filename the CDN actually hosts',
+      () async {
+        final filenames = <String>[];
+        final client = MockClient((request) async {
+          final body = json.decode(request.body) as Map<String, dynamic>;
+          final param = body['req_0']['param'] as Map<String, dynamic>;
+          final requested = (param['filename'] as List<dynamic>?)
+                  ?.map((value) => '$value')
+                  .toList() ??
+              const <String>[];
+          filenames.addAll(requested);
+          // 「前缀+mid」的单写命名 vkey 也给 purl，但 CDN 取流报
+          // {"errorcode":-46628,"errormsg":"file not exist"}，只有双写命名
+          // (`M800002media002media.mp3`) 才是真实文件。
+          final hit = requested.where((name) => name.startsWith('M800')).firstWhere(
+                (name) => name.split('.').first.endsWith('002media002media'),
+                orElse: () => '',
+              );
+          return http.Response(
+            json.encode({
+              'req_0': {
+                'code': 0,
+                'data': {
+                  'sip': ['http://ws.stream.qqmusic.qq.com/'],
+                  'midurlinfo': [
+                    {
+                      'songmid': '001abc',
+                      'purl': hit.isEmpty ? '' : '$hit?guid=10000&vkey=MOCK_VKEY',
+                    },
+                  ],
+                },
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final service = QQMusicService(client: client);
+        final url = await service.resolvePlayUrl(
+          songMid: '001abc',
+          mediaMid: '002media',
+          config: const QQMusicConfig(
+            cookie: 'uin=o1234567; qqmusic_key=MOCK_KEY',
+          ),
+          quality: QQMusicStreamQuality.high,
+        );
+
+        expect(
+          filenames.first,
+          'M800002media002media.mp3',
+          reason: '双写命名必须最先试探，否则会拿到 404 的死链',
+        );
+        expect(url, contains('M800002media002media.mp3'));
+      },
+    );
+
+    test('checkSession reports invalid cookie when profile endpoint returns 1000',
+        () async {
+      final client = MockClient((request) async {
+        expect(request.url.host, 'c.y.qq.com');
+        return http.Response(
+          json.encode({'code': 1000, 'subcode': 1000, 'data': {}}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final service = QQMusicService(client: client);
+      final result = await service.checkSession(
+        const QQMusicConfig(cookie: 'uin=o1234567; qm_keyst=MOCK_KEY'),
+      );
+      expect(result.valid, isFalse);
+      expect(result.message, contains('已失效'));
+    });
+
+    test('checkSession returns nickname when cookie is still recognized', () async {
+      final client = MockClient((request) async {
+        return http.Response(
+          json.encode({
+            'code': 0,
+            'data': {
+              'creator': {'nick': 'l'},
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final service = QQMusicService(client: client);
+      final result = await service.checkSession(
+        const QQMusicConfig(cookie: 'uin=o1234567; qm_keyst=MOCK_KEY'),
+      );
+      expect(result.valid, isTrue);
+      expect(result.nickname, 'l');
+    });
+
+    test('checkSession skips the network call without a cookie', () async {
+      var requested = false;
+      final client = MockClient((request) async {
+        requested = true;
+        return http.Response('{}', 200);
+      });
+      final service = QQMusicService(client: client);
+      final result = await service.checkSession(const QQMusicConfig());
+      expect(result.valid, isFalse);
+      expect(requested, isFalse);
+    });
 
     test('fetchLyricsBySongMid decodes Base64 LRC content', () async {
       const sampleLrc = '[00:01.00]天青色等烟雨\n[00:05.00]而我在等你';

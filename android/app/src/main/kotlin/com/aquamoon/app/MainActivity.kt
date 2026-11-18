@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,6 +22,7 @@ class MainActivity : AudioServiceActivity() {
     private var customNotificationManager: CustomNotificationManager? = null
     private var methodChannel: MethodChannel? = null
     private var updaterChannel: MethodChannel? = null
+    private var downloadsChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +71,29 @@ class MainActivity : AudioServiceActivity() {
                 }
                 "getSupportedAbis" -> {
                     result.success(Build.SUPPORTED_ABIS.toList())
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // 下载完成后的媒体库登记：Flutter 侧用 dart:io 直接写文件，
+        // MediaStore 不会自动索引，需要主动触发一次扫描。
+        downloadsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.aquamoon.app/downloads")
+        downloadsChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "scanAudioFile" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.success(false)
+                    } else {
+                        try {
+                            MediaScannerConnection.scanFile(this, arrayOf(path), arrayOf("audio/*")) { _, uri ->
+                                runOnUiThread { result.success(uri != null) }
+                            }
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
                 }
                 else -> result.notImplemented()
             }

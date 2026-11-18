@@ -6,6 +6,7 @@ import '../../models/playlist.dart';
 import '../../models/song.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../providers/qq_music_provider.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/song_artwork.dart';
 
@@ -42,7 +43,15 @@ class _SelectPlaylistCoverDialogState
     );
 
     final libraryState = ref.watch(libraryNotifierProvider);
+    final qqFavorites = ref.watch(
+      qqMusicFavoritesProvider.select((s) => s.mergedSongs),
+    );
     final songMap = {for (final s in libraryState.songs) s.id: s};
+    // Playlist entries can be QQ Music cloud favorites; merge the favorites
+    // cache so their artwork is selectable too.
+    for (final song in qqFavorites) {
+      songMap.putIfAbsent(song.id, () => song);
+    }
 
     // Songs from current playlist
     final playlistSongs = currentPlaylist.songIds

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,6 +9,8 @@ import '../../../providers/library_provider.dart';
 import '../../../providers/playlist_provider.dart';
 import '../../online_search/online_search_page.dart';
 import '../../settings/settings_page.dart';
+import '../../widgets/debounced_search_field.dart';
+import '../../widgets/locate_playing_button.dart';
 import '../../widgets/song_tile.dart';
 
 class AllSongsTab extends ConsumerStatefulWidget {
@@ -20,20 +20,70 @@ class AllSongsTab extends ConsumerStatefulWidget {
   ConsumerState<AllSongsTab> createState() => _AllSongsTabState();
 }
 
-class _AllSongsTabState extends ConsumerState<AllSongsTab> {
+class _AllSongsTabState extends ConsumerState<AllSongsTab>
+    with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocusNode = FocusNode();
-  Timer? _searchDebounce;
   final Set<String> _selectedIds = {};
 
+  /// 列表向前滚动时收起搜索框，回滑或回到顶部时恢复；
+  /// 用 AnimationController 驱动 SizeTransition，让搜索框 State（文本、焦点）
+  /// 始终保留在树中，不会被销毁。
+  late final AnimationController _searchBarController;
+  late final CurvedAnimation _searchBarAnimation;
+  bool _searchCollapsed = false;
+  double _lastScrollOffset = 0;
+
   bool get _selectionMode => _selectedIds.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchBarController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+      value: 1,
+    );
+    _searchBarAnimation = CurvedAnimation(
+      parent: _searchBarController,
+      curve: Curves.easeOutCubic,
+    );
+    _scrollController.addListener(_handleScroll);
+  }
+
+  void _handleScroll() {
+    if (!_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    final delta = offset - _lastScrollOffset;
+    _lastScrollOffset = offset;
+
+    // 多选模式下顶部换成操作栏，搜索框本就不可见，不参与折叠。
+    if (_selectionMode) return;
+
+    if (offset <= 12) {
+      _setSearchCollapsed(false);
+    } else if (delta > 6 && offset > 24) {
+      _setSearchCollapsed(true);
+    } else if (delta < -6) {
+      _setSearchCollapsed(false);
+    }
+  }
+
+  void _setSearchCollapsed(bool collapsed) {
+    if (_searchCollapsed == collapsed) return;
+    _searchCollapsed = collapsed;
+    if (collapsed) {
+      _searchBarController.reverse();
+    } else {
+      _searchBarController.forward();
+    }
+  }
 
   void _enterSelectionMode(String songId) {
     setState(() => _selectedIds.add(songId));
   }
 
   void _exitSelectionMode() {
+    _setSearchCollapsed(false);
     setState(() => _selectedIds.clear());
   }
 
@@ -100,9 +150,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
       AppToast.show(
         context,
         favorite ? '已收藏 $count 首歌曲' : '已取消收藏 $count 首歌曲',
-        icon: favorite
-            ? Icons.favorite_rounded
-            : Icons.favorite_border_rounded,
+        icon: favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
       );
       _exitSelectionMode();
     }
@@ -163,19 +211,10 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    // searchQueryProvider outlives this State (tab switches, desktop layout
-    // toggle): restore it into the fresh field, otherwise a cancelled-look
-    // empty search box would keep filtering with no visible way to reset it.
-    _searchController.text = ref.read(searchQueryProvider);
-  }
-
-  @override
   void dispose() {
-    _searchDebounce?.cancel();
-    _searchController.dispose();
-    _searchFocusNode.dispose();
+    _scrollController.removeListener(_handleScroll);
+    _searchBarAnimation.dispose();
+    _searchBarController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -251,23 +290,11 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
             ),
             tooltip: '从曲库移除',
             visualDensity: VisualDensity.compact,
-            onPressed: selectedSongs.isEmpty
-                ? null
-                : () => _batchDelete(songs),
+            onPressed: selectedSongs.isEmpty ? null : () => _batchDelete(songs),
           ),
         ],
       ),
     );
-  }
-
-  /// Cancels the active search: text, filter and IME session all at once.
-  /// Unfocusing first closes the input connection, so an in-flight IME
-  /// composition commit cannot re-insert the just-cleared query afterwards.
-  void _clearSearch() {
-    _searchDebounce?.cancel();
-    _searchFocusNode.unfocus();
-    _searchController.clear();
-    ref.read(searchQueryProvider.notifier).state = '';
   }
 
   void _scrollToCurrentPlaying(String currentSongId, List<Song> songs) {
@@ -341,8 +368,9 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
         (t) => 'sort_${t.name}' == value,
       );
       if (ref.read(sortTypeProvider) == type) {
-        ref.read(sortAscendingProvider.notifier).state =
-            !ref.read(sortAscendingProvider);
+        ref.read(sortAscendingProvider.notifier).state = !ref.read(
+          sortAscendingProvider,
+        );
       } else {
         ref.read(sortTypeProvider.notifier).state = type;
       }
@@ -360,10 +388,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
             .playSong(shuffled.first, queue: shuffled);
         break;
       case 'locate':
-        final currentSongId = ref
-            .read(currentSongProvider)
-            .valueOrNull
-            ?.id;
+        final currentSongId = ref.read(currentSongProvider).valueOrNull?.id;
         if (currentSongId != null) {
           _scrollToCurrentPlaying(currentSongId, songs);
         }
@@ -410,6 +435,9 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
       libraryNotifierProvider.select((s) => s.scanProgressPercent),
     );
     final songs = ref.watch(filteredSongsProvider);
+    final totalSongCount = ref.watch(
+      libraryNotifierProvider.select((s) => s.songs.length),
+    );
     final searchQuery = ref.watch(searchQueryProvider);
     final sortType = ref.watch(sortTypeProvider);
     final sortAscending = ref.watch(sortAscendingProvider);
@@ -428,190 +456,164 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
         if (_selectionMode)
           _buildSelectionBar(context, songs)
         else
-          Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
-          child: Row(
-            children: [
-              Expanded(
-                // Listen to the controller locally so keystrokes only rebuild
-                // the field (suffix icon visibility), not the whole tab — the
-                // clear button must be tappable the moment text exists, not
-                // only after the debounce has settled.
-                child: ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _searchController,
-                  builder: (context, value, _) {
-                    return TextField(
-                      controller: _searchController,
-                      focusNode: _searchFocusNode,
-                      decoration: InputDecoration(
-                        hintText: '搜索音乐、歌手、专辑...',
-                        hintStyle: TextStyle(
-                          fontSize: 13,
-                          color: theme.colorScheme.onSurfaceVariant.withValues(
-                            alpha: 0.65,
+          SizeTransition(
+            sizeFactor: _searchBarAnimation,
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: DebouncedSearchField(
+                      initialQuery: searchQuery,
+                      hintText: '搜索音乐、歌手、专辑...',
+                      onQueryChanged: (val) {
+                        ref.read(searchQueryProvider.notifier).state = val;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+
+                  // 歌曲数量与收藏页保持一致：紧挨搜索框和操作菜单，
+                  // 搜索时显示「匹配数/总数」。
+                  Icon(
+                    Icons.library_music_rounded,
+                    size: 14,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    searchQuery.isNotEmpty
+                        ? '${songs.length}/$totalSongCount'
+                        : '$totalSongCount',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+
+                  // Unified overflow menu: count header, playback actions, rescan
+                  // and sorting — keeps the toolbar to search + one button.
+                  PopupMenuButton<String>(
+                    icon: Icon(
+                      Icons.more_vert_rounded,
+                      size: 20,
+                      color: theme.colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.8,
+                      ),
+                    ),
+                    tooltip: '排序与更多操作',
+                    position: PopupMenuPosition.under,
+                    onSelected: (value) => _handleMenuSelection(value, songs),
+                    itemBuilder: (context) => [
+                      PopupMenuItem<String>(
+                        enabled: false,
+                        child: Text(
+                          searchQuery.isNotEmpty
+                              ? '匹配到 ${songs.length} 首'
+                              : '曲库共 ${songs.length} 首',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
-                        prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                        suffixIcon: value.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear_rounded, size: 16),
-                                onPressed: _clearSearch,
-                              )
-                            : null,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 12,
+                      ),
+                      const PopupMenuDivider(),
+                      if (songs.isNotEmpty) ...[
+                        const PopupMenuItem(
+                          value: 'play_all',
+                          child: Row(
+                            children: [
+                              Icon(Icons.play_arrow_rounded, size: 18),
+                              SizedBox(width: 10),
+                              Text('播放全部'),
+                            ],
+                          ),
                         ),
-                        filled: true,
-                        fillColor: theme.colorScheme.surfaceContainerHighest
-                            .withValues(alpha: 0.5),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
+                        const PopupMenuItem(
+                          value: 'play_shuffled',
+                          child: Row(
+                            children: [
+                              Icon(Icons.shuffle_rounded, size: 18),
+                              SizedBox(width: 10),
+                              Text('随机播放'),
+                            ],
+                          ),
                         ),
-                      ),
-                      onChanged: (val) {
-                        _searchDebounce?.cancel();
-                        _searchDebounce = Timer(
-                          const Duration(milliseconds: 300),
-                          () {
-                            if (mounted) {
-                              ref.read(searchQueryProvider.notifier).state =
-                                  val;
-                            }
-                          },
-                        );
-                      },
-                      // Flutter's default leaves touch taps outside the field
-                      // focused on mobile, so the IME stays attached and gets
-                      // re-summoned every time a menu or page hands focus
-                      // back. Any other operation should end input mode for
-                      // good — unfocus on every outside tap, all platforms.
-                      onTapOutside: (_) => _searchFocusNode.unfocus(),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 4),
-
-              // Unified overflow menu: count header, playback actions, rescan
-              // and sorting — keeps the toolbar to search + one button.
-              PopupMenuButton<String>(
-                icon: Icon(
-                  Icons.more_vert_rounded,
-                  size: 20,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.8,
-                  ),
-                ),
-                tooltip: '排序与更多操作',
-                position: PopupMenuPosition.under,
-                onSelected: (value) => _handleMenuSelection(value, songs),
-                itemBuilder: (context) => [
-                  PopupMenuItem<String>(
-                    enabled: false,
-                    child: Text(
-                      searchQuery.isNotEmpty
-                          ? '匹配到 ${songs.length} 首'
-                          : '曲库共 ${songs.length} 首',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  if (songs.isNotEmpty) ...[
-                    const PopupMenuItem(
-                      value: 'play_all',
-                      child: Row(
-                        children: [
-                          Icon(Icons.play_arrow_rounded, size: 18),
-                          SizedBox(width: 10),
-                          Text('播放全部'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'play_shuffled',
-                      child: Row(
-                        children: [
-                          Icon(Icons.shuffle_rounded, size: 18),
-                          SizedBox(width: 10),
-                          Text('随机播放'),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (isCurrentSongInList)
-                    const PopupMenuItem(
-                      value: 'locate',
-                      child: Row(
-                        children: [
-                          Icon(Icons.my_location_rounded, size: 18),
-                          SizedBox(width: 10),
-                          Text('定位当前播放'),
-                        ],
-                      ),
-                    ),
-                  if (songs.isNotEmpty)
-                    const PopupMenuItem(
-                      value: 'multi_select',
-                      child: Row(
-                        children: [
-                          Icon(Icons.checklist_rounded, size: 18),
-                          SizedBox(width: 10),
-                          Text('批量管理（多选）'),
-                        ],
-                      ),
-                    ),
-                  const PopupMenuItem(
-                    value: 'rescan',
-                    child: Row(
-                      children: [
-                        Icon(Icons.refresh_rounded, size: 18),
-                        SizedBox(width: 10),
-                        Text('重新扫描曲库'),
                       ],
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  _buildSortItem(
-                    SongSortType.dateAdded,
-                    '按添加时间',
-                    sortType,
-                    sortAscending,
-                  ),
-                  _buildSortItem(
-                    SongSortType.playCount,
-                    '按播放次数',
-                    sortType,
-                    sortAscending,
-                  ),
-                  _buildSortItem(
-                    SongSortType.title,
-                    '按歌曲名称',
-                    sortType,
-                    sortAscending,
-                  ),
-                  _buildSortItem(
-                    SongSortType.artist,
-                    '按歌手名字',
-                    sortType,
-                    sortAscending,
-                  ),
-                  _buildSortItem(
-                    SongSortType.duration,
-                    '按歌曲时长',
-                    sortType,
-                    sortAscending,
+                      if (isCurrentSongInList)
+                        const PopupMenuItem(
+                          value: 'locate',
+                          child: Row(
+                            children: [
+                              Icon(Icons.my_location_rounded, size: 18),
+                              SizedBox(width: 10),
+                              Text('定位当前播放'),
+                            ],
+                          ),
+                        ),
+                      if (songs.isNotEmpty)
+                        const PopupMenuItem(
+                          value: 'multi_select',
+                          child: Row(
+                            children: [
+                              Icon(Icons.checklist_rounded, size: 18),
+                              SizedBox(width: 10),
+                              Text('批量管理（多选）'),
+                            ],
+                          ),
+                        ),
+                      const PopupMenuItem(
+                        value: 'rescan',
+                        child: Row(
+                          children: [
+                            Icon(Icons.refresh_rounded, size: 18),
+                            SizedBox(width: 10),
+                            Text('重新扫描曲库'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
+                      _buildSortItem(
+                        SongSortType.dateAdded,
+                        '按添加时间',
+                        sortType,
+                        sortAscending,
+                      ),
+                      _buildSortItem(
+                        SongSortType.playCount,
+                        '按播放次数',
+                        sortType,
+                        sortAscending,
+                      ),
+                      _buildSortItem(
+                        SongSortType.title,
+                        '按歌曲名称',
+                        sortType,
+                        sortAscending,
+                      ),
+                      _buildSortItem(
+                        SongSortType.artist,
+                        '按歌手名字',
+                        sortType,
+                        sortAscending,
+                      ),
+                      _buildSortItem(
+                        SongSortType.duration,
+                        '按歌曲时长',
+                        sortType,
+                        sortAscending,
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
 
         // Scanning Indicator Bar
         if (isScanning)
@@ -659,9 +661,12 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
 
         // Songs List
         Expanded(
-          child: songs.isEmpty
-              ? _buildEmptyState(context, ref, searchQuery.isNotEmpty)
-              : RefreshIndicator(
+          child: Stack(
+            children: [
+              if (songs.isEmpty)
+                _buildEmptyState(context, ref, searchQuery.isNotEmpty)
+              else
+                RefreshIndicator(
                   onRefresh: _rescanLibrary,
                   child: ListView.builder(
                     controller: _scrollController,
@@ -685,6 +690,17 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab> {
                     },
                   ),
                 ),
+              if (isCurrentSongInList)
+                Positioned(
+                  right: 16,
+                  bottom: MediaQuery.of(context).padding.bottom + 96,
+                  child: LocatePlayingButton(
+                    onPressed: () =>
+                        _scrollToCurrentPlaying(currentSongId, songs),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );

@@ -7,6 +7,7 @@ import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../providers/qq_music_provider.dart';
 import '../../services/file_export_service.dart';
 import '../widgets/song_artwork.dart';
 import '../widgets/song_tile.dart';
@@ -29,7 +30,15 @@ class PlaylistDetailPage extends ConsumerWidget {
     final songsInLibrary = ref.watch(
       libraryNotifierProvider.select((s) => s.songs),
     );
+    final qqFavorites = ref.watch(
+      qqMusicFavoritesProvider.select((s) => s.mergedSongs),
+    );
     final songMap = {for (final s in songsInLibrary) s.id: s};
+    // Playlists may also contain QQ Music cloud favorites, which are not in
+    // the local library box; resolve them from the favorites cache as well.
+    for (final song in qqFavorites) {
+      songMap.putIfAbsent(song.id, () => song);
+    }
 
     final songs = currentPlaylist.songIds
         .map((id) => songMap[id])
@@ -228,12 +237,15 @@ class PlaylistDetailPage extends ConsumerWidget {
                                 : () {
                                     final shuffled = List<Song>.from(songs)
                                       ..shuffle();
+                                    final first = shuffled.first;
                                     ref
                                         .read(audioControllerProvider)
-                                        .playSong(
-                                          shuffled.first,
-                                          queue: shuffled,
-                                        );
+                                        .playSong(first, queue: shuffled);
+                                    AppToast.show(
+                                      context,
+                                      '随机播放《${first.title}》',
+                                      icon: Icons.shuffle_rounded,
+                                    );
                                   },
                             icon: const Icon(Icons.shuffle_rounded, size: 17),
                             label: const Text('随机'),
@@ -294,7 +306,7 @@ class PlaylistDetailPage extends ConsumerWidget {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            '您可以直接点击下方按钮从本地曲库添加歌曲',
+                            '您可以直接点击下方按钮从曲库或收藏添加歌曲',
                             style: TextStyle(
                               fontSize: 13,
                               color: theme.colorScheme.onSurfaceVariant,
@@ -339,19 +351,20 @@ class PlaylistDetailPage extends ConsumerWidget {
                             newIndex,
                           );
                     },
-                    proxyDecorator: (child, index, animation) => AnimatedBuilder(
-                      animation: animation,
-                      builder: (context, _) {
-                        final t = Curves.easeInOut.transform(
-                          animation.value.clamp(0.0, 1.0),
-                        );
-                        return Material(
-                          elevation: t * 6,
-                          borderRadius: BorderRadius.circular(12),
-                          child: child,
-                        );
-                      },
-                    ),
+                    proxyDecorator: (child, index, animation) =>
+                        AnimatedBuilder(
+                          animation: animation,
+                          builder: (context, _) {
+                            final t = Curves.easeInOut.transform(
+                              animation.value.clamp(0.0, 1.0),
+                            );
+                            return Material(
+                              elevation: t * 6,
+                              borderRadius: BorderRadius.circular(12),
+                              child: child,
+                            );
+                          },
+                        ),
                     itemBuilder: (context, index) {
                       final song = songs[index];
                       // 长按整行启动拖拽排序；普通滑动仍用于列表滚动。
@@ -398,8 +411,9 @@ class PlaylistDetailPage extends ConsumerWidget {
                                     onPressed: () {
                                       Navigator.of(ctx).pop();
                                       ref
-                                          .read(playlistNotifierProvider
-                                              .notifier)
+                                          .read(
+                                            playlistNotifierProvider.notifier,
+                                          )
                                           .removeSongFromPlaylist(
                                             currentPlaylist.id,
                                             song.id,
@@ -508,7 +522,11 @@ class PlaylistDetailPage extends ConsumerWidget {
     }
   }
 
-  void _confirmDelete(BuildContext context, WidgetRef ref, Playlist currentPlaylist) {
+  void _confirmDelete(
+    BuildContext context,
+    WidgetRef ref,
+    Playlist currentPlaylist,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

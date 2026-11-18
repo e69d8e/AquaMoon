@@ -228,6 +228,30 @@ void main() {
       expect(storage.getPlaybackSession(), isNull);
     });
 
+    test('优先播放本地开关默认关闭，落盘后跨备份保留', () async {
+      // 新装用户不应被默认开启的模糊匹配改变既有播放行为。
+      expect(storage.getPreferLocalPlayback(), isFalse);
+
+      await storage.savePreferLocalPlayback(true);
+      expect(storage.getPreferLocalPlayback(), isTrue);
+
+      final backup = storage.exportBackup();
+      await storage.savePreferLocalPlayback(false);
+      await storage.restoreBackup(backup);
+      expect(storage.getPreferLocalPlayback(), isTrue);
+
+      await storage.savePreferLocalPlayback(false);
+      expect(storage.getPreferLocalPlayback(), isFalse);
+    });
+
+    test('优先播放本地开关遇到脏数据时退回默认关闭', () async {
+      await storage.restoreBackup({
+        'format': 'aquamoon-backup',
+        'settings': {'prefer_local_playback': 'yes'},
+      });
+      expect(storage.getPreferLocalPlayback(), isFalse);
+    });
+
     test('deleteSongs 同步清理歌单中失效的 songIds', () async {
       final song = Song(
         id: 'gone',
