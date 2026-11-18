@@ -207,20 +207,31 @@ flutter run -d chrome
 
 ---
 
+## 📦 下载与安装 / Download
+
+前往 [GitHub Releases](https://github.com/e69d8e/AquaMoon/releases/latest) 获取最新版本。发布流水线只构建以下三个 Android 安装包：
+
+| 安装包 | 适用设备 | 说明 |
+| :--- | :--- | :--- |
+| `AquaMoon-Android-arm64-v8a.apk` | 绝大多数现代 64 位 Android 手机 | **推荐**，体积最小 |
+| `AquaMoon-Android-armeabi-v7a.apk` | 老旧 32 位 ARM 设备 | 兼容性优先 |
+| `AquaMoon-Android-Universal.apk` | 全部架构（含 x86_64 模拟器） | 通用包，体积稍大 |
+
+> iOS / macOS / Windows / Linux / Web 版本不再随 Releases 发布，如需使用请参考下一节在本地自行编译。
+
+---
+
 ## 📦 打包构建 / Build & Release
 
-您可以使用以下命令在本地或借助 GitHub Actions 为各平台构建对应格式的安装与发布包：
+以下命令均可在本地执行；GitHub Actions 发布流水线只产出上面列出的三个 Android APK。
 
-### 🤖 Android (APK & AAB)
+### 🤖 Android (APK)
 ```bash
-# 构建拆分架构的 APK (包体积更小)
-flutter build apk --release --split-per-abi
+# 构建分架构 APK（生成 arm64-v8a 与 armeabi-v7a，与发布流水线一致）
+flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
 
 # 构建通用全架构 APK
 flutter build apk --release
-
-# 构建 Google Play 上架 AppBundle
-flutter build appbundle --release
 ```
 
 ### 🍎 iOS (IPA)
@@ -264,21 +275,18 @@ flutter build web --release
 
 ---
 
-## 🤖 GitHub Actions 自动化 CI/CD 与多格式全平台 Release
+## 🤖 GitHub Actions 自动化 CI/CD 与 Android Release
 
 本项目已预配置全自动化的 GitHub Actions 工作流：
 
 1. **持续集成 (CI)**：每次提交代码或提交 PR 时，自动触发代码规范分析 (`flutter analyze`) 与单元测试 (`flutter test`)。
-2. **多格式全平台自动构建发布 (Release)**：
-   - 当向仓库推送版本标签（如 `git tag v1.0.1 && git push origin v1.0.1`）时，会自动触发 `.github/workflows/release.yml`。
-   - 自动在 GitHub Actions 云端并行编译并输出以下丰富格式产物：
-     - 🤖 **Android**：`AquaMoon-Android-arm64-v8a.apk`, `AquaMoon-Android-armeabi-v7a.apk`, `AquaMoon-Android-Universal.apk`, `AquaMoon-Android.aab`
-     - 🍎 **iOS**：`AquaMoon-iOS-Unsigned.ipa`（支持 TrollStore 免越狱直装、AltStore / Sideloadly / 爱思助手个人 Apple ID 7 天免费自签侧载）
-     - 🍎 **macOS**：`AquaMoon-macOS.dmg`（内置 Applications 拖拽软链）与 `AquaMoon-macOS.zip`
-     - 🪟 **Windows**：`AquaMoon-Windows-x64-Setup.exe`（Inno Setup 专业向导安装程序）与 `AquaMoon-Windows-x64-Portable.zip`
-     - 🐧 **Linux**：`AquaMoon-Linux-x64.deb`（标准 deb 双击安装包）与 `AquaMoon-Linux-x64.tar.gz`
-     - 🌐 **Web**：`AquaMoon-Web.zip`
-   - 自动在 GitHub Releases 发布新版本并上传所有格式的安装包，附带自动生成的更新日志。
+2. **Android 自动构建发布 (Release)**：
+   - 推送版本标签（如 `git tag v1.0.1 && git push origin v1.0.1`）或在 Actions 页面手动触发 `Build & Release` 工作流，即可运行 `.github/workflows/release.yml`。
+   - 云端编译并只产出以下三个 Android 安装包（`--split-per-abi --target-platform android-arm,android-arm64` + 通用包）：
+     - 🤖 `AquaMoon-Android-arm64-v8a.apk`（主流 64 位手机）
+     - 🤖 `AquaMoon-Android-armeabi-v7a.apk`（老旧 32 位设备）
+     - 🤖 `AquaMoon-Android-Universal.apk`（全架构通用包）
+   - 打包完成后先校验 APK 签名指纹，再自动创建 GitHub Release 并上传这三个 APK。
 
 ---
 
