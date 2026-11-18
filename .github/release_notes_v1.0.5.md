@@ -7,6 +7,17 @@
 
 ---
 
+### 📋 版本发布信息
+
+- **版本号**：`v1.0.5`（构建版本 `1.0.5+6`）
+- **发布日期**：2026-10-04
+- **Git 标签**：`v1.0.5` (`8003836`)
+- **发布地址**：[GitHub Releases v1.0.5](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.5)
+- **代码对比**：[`v1.0.4...v1.0.5`](https://github.com/e69d8e/AquaMoon/compare/v1.0.4...v1.0.5)
+- **完整提交记录**：[`commits/v1.0.5`](https://github.com/e69d8e/AquaMoon/commits/v1.0.5)
+
+---
+
 ## ✨ v1.0.5 核心更新亮点
 
 ### 🎚️ 1. 音频效果 — 均衡器与淡入淡出

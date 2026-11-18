@@ -1,9 +1,20 @@
 # 🎵 AquaMoon (水月音) v1.0.3 正式发布
 
-> **水墨禅意 · 跨平台现代音乐播放器**  
+> **水墨禅意 · 跨平台现代音乐播放器**
 > *A modern, cross-platform music player blending Zen ink aesthetics with an industrial-grade audio core.*
 
 很高兴向大家宣布 **AquaMoon (水月音) v1.0.3** 正式发布！本次更新带来了全新的 **GitHub Release 自动检查更新**与**每首歌曲播放次数统计**，并修复了播放页手势冲突、精简了首页交互，进一步收敛了冗余重建，让播放器更快、更稳、更省心。
+
+---
+
+### 📋 版本发布信息
+
+- **版本号**：`v1.0.3`（构建版本 `1.0.3+4`）
+- **发布日期**：2026-10-02
+- **Git 标签**：`v1.0.3` (`2721b4b`)
+- **发布地址**：[GitHub Releases v1.0.3](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.3)
+- **代码对比**：[`v1.0.2...v1.0.3`](https://github.com/e69d8e/AquaMoon/compare/v1.0.2...v1.0.3)
+- **完整提交记录**：[`commits/v1.0.3`](https://github.com/e69d8e/AquaMoon/commits/v1.0.3)
 
 ---
 

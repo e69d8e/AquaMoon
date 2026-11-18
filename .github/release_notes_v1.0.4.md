@@ -7,6 +7,17 @@
 
 ---
 
+### 📋 版本发布信息
+
+- **版本号**：`v1.0.4`（构建版本 `1.0.4+5`）
+- **发布日期**：2026-10-02
+- **Git 标签**：`v1.0.4` (`b608896`)
+- **发布地址**：[GitHub Releases v1.0.4](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.4)
+- **代码对比**：[`v1.0.3...v1.0.4`](https://github.com/e69d8e/AquaMoon/compare/v1.0.3...v1.0.4)
+- **完整提交记录**：[`commits/v1.0.4`](https://github.com/e69d8e/AquaMoon/commits/v1.0.4)
+
+---
+
 ## ✨ v1.0.4 核心更新亮点
 
 ### 🔧 1. 在线多源检索修复 — QQ 音乐恢复可用

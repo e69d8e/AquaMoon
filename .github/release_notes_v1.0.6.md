@@ -7,6 +7,17 @@
 
 ---
 
+### 📋 版本发布信息
+
+- **版本号**：`v1.0.6`（构建版本 `1.0.6+7`）
+- **发布日期**：2026-10-05
+- **Git 标签**：`v1.0.6` (`ef9c93a`)
+- **发布地址**：[GitHub Releases v1.0.6](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.6)
+- **代码对比**：[`v1.0.5...v1.0.6`](https://github.com/e69d8e/AquaMoon/compare/v1.0.5...v1.0.6)
+- **完整提交记录**：[`commits/v1.0.6`](https://github.com/e69d8e/AquaMoon/commits/v1.0.6)
+
+---
+
 ## ✨ v1.0.6 核心更新亮点
 
 ### 🪟 1. 播放器磨砂玻璃化
@@ -21,13 +32,14 @@
 
 ---
 
-## 📦 各平台安装与使用指引
+## 📦 安装与下载（仅 Android）
 
-| 平台 | 推荐安装包 | 说明与安装方法 |
+发布流水线只构建以下三个 Android 安装包：
+
+| 安装包 | 适用设备 | 说明 |
 | :--- | :--- | :--- |
-| 🪟 **Windows** | `AquaMoon-Windows-x64-Setup.exe` | **推荐**：Inno Setup 标准向导安装程序，包含开始菜单与桌面快捷方式。亦可下载 `AquaMoon-Windows-x64-Portable.zip` 便携免安装版。 |
-| 🍎 **macOS** | `AquaMoon-macOS.dmg` | **推荐**：双击打开 DMG 磁盘镜像，将 `水月音.app` 拖入 `Applications` 文件夹即可完成安装。亦提供 `AquaMoon-macOS.zip`。 |
-| 🍎 **iOS** | `AquaMoon-iOS-Unsigned.ipa` | 支持 **TrollStore（巨魔商店）** 免越狱直接安装；或使用 **AltStore / Sideloadly / 爱思助手 / 牛蛙助手** 用普通 Apple ID 进行 7 天免费自签侧载安装。 |
-| 🐧 **Linux** | `AquaMoon-Linux-x64.deb` | **推荐**：适用于 Ubuntu / Debian / Deepin / UOS 等系统，双击或运行 `sudo dpkg -i AquaMoon-Linux-x64.deb` 即可安装。亦提供 `AquaMoon-Linux-x64.tar.gz` 便携版。 |
-| 🤖 **Android** | `AquaMoon-Android-arm64-v8a.apk` | **推荐**：适用于绝大多数现代 64 位主流 Android 手机（体积更小）。其他设备可选通用版 `AquaMoon-Android-Universal.apk`，Google Play 可用 `AquaMoon-Android.aab`。 |
-| 🌐 **Web** | `AquaMoon-Web.zip` | Web SPA 静态部署资源包，解压后可直接部署至 Nginx / GitHub Pages / Cloudflare Pages / Vercel 等托管平台。 |
+| 🤖 `AquaMoon-Android-arm64-v8a.apk` | 绝大多数现代 64 位 Android 手机 | **推荐**，体积最小 |
+| 🤖 `AquaMoon-Android-armeabi-v7a.apk` | 老旧 32 位 ARM 设备 | 兼容性优先 |
+| 🤖 `AquaMoon-Android-Universal.apk` | 全部架构（含 x86_64 模拟器） | 通用包，体积稍大 |
+
+> iOS / macOS / Windows / Linux / Web 版本不再随 Releases 发布；如需使用请在本地自行编译（见仓库 README 的「打包构建」章节）。

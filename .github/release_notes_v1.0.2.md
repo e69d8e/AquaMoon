@@ -7,6 +7,17 @@
 
 ---
 
+### 📋 版本发布信息
+
+- **版本号**：`v1.0.2`（构建版本 `1.0.2+3`）
+- **发布日期**：2026-09-29
+- **Git 标签**：`v1.0.2` (`810da1a`)
+- **发布地址**：[GitHub Releases v1.0.2](https://github.com/e69d8e/AquaMoon/releases/tag/v1.0.2)
+- **代码对比**：[`v1.0.1...v1.0.2`](https://github.com/e69d8e/AquaMoon/compare/v1.0.1...v1.0.2)
+- **完整提交记录**：[`commits/v1.0.2`](https://github.com/e69d8e/AquaMoon/commits/v1.0.2)
+
+---
+
 ## ✨ v1.0.2 核心更新亮点
 
 ### 🔐 1. 正式发布签名
@@ -29,10 +40,6 @@
 - 移除未使用的 `palette_generator` 依赖。
 - Linux DEB 版本号改为从 `pubspec.yaml` 读取，避免硬编码过期。
 - 版本号 `1.0.1+2` → `1.0.2+3`。
-
-## 🔗 完整提交记录
-
-https://github.com/e69d8e/AquaMoon/commits/v1.0.2
 
 ---
 
