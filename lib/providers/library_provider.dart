@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -229,7 +230,9 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       durationMs: keep.durationMs > 0 ? keep.durationMs : drop.durationMs,
       lrcContent: lrcContent,
       albumArtUri: keep.albumArtUri ?? drop.albumArtUri,
-      albumArtBytes: keep.albumArtBytes ?? drop.albumArtBytes,
+      albumArtBytes: (keep.albumArtUri ?? drop.albumArtUri) != null
+          ? null
+          : (keep.albumArtBytes ?? drop.albumArtBytes),
       playCount:
           keep.playCount >= drop.playCount ? keep.playCount : drop.playCount,
       isFavorite: keep.isFavorite || drop.isFavorite,
@@ -249,22 +252,42 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     if (missing.isEmpty) return;
 
     Future.microtask(() async {
-      bool changed = false;
+      final coverCacheDirPath =
+          await MetadataExtractor.resolveCoverCacheDirPath();
+      final existingPaths = <String>[];
+      final songByPath = <String, Song>{};
       for (final s in missing) {
         if (await File(s.filePath).exists()) {
-          final meta = await MetadataExtractor.extractFromFile(s.filePath);
-          if (meta.durationMs > 0) {
-            // The snapshot may be stale — skip songs deleted while we were
-            // extracting, otherwise saveSong would resurrect them.
-            if (_storageService.getSong(s.id) == null) continue;
-            final fix = s.copyWith(durationMs: meta.durationMs);
-            await _storageService.saveSong(fix);
-            _audioHandler?.syncSong(fix);
-            changed = true;
-          }
+          existingPaths.add(s.filePath);
+          songByPath[s.filePath] = s;
         }
       }
-      if (changed) {
+      if (existingPaths.isEmpty) return;
+
+      final metas = await Isolate.run(
+        () => MetadataExtractor.extractChunkIsolated(
+          existingPaths,
+          coverCacheDirPath,
+        ),
+      );
+      final fixes = <Song>[];
+      for (var i = 0; i < existingPaths.length; i++) {
+        final s = songByPath[existingPaths[i]]!;
+        final meta = metas[i];
+        if (meta.durationMs > 0) {
+          // The snapshot may be stale — skip songs deleted while we were
+          // extracting, otherwise saveSong would resurrect them.
+          final fresh = _storageService.getSong(s.id);
+          if (fresh == null) continue;
+          final fix = fresh.copyWith(durationMs: meta.durationMs);
+          fixes.add(fix);
+        }
+      }
+      if (fixes.isNotEmpty) {
+        await _storageService.saveSongs(fixes);
+        for (final fix in fixes) {
+          _audioHandler?.syncSong(fix);
+        }
         final refreshed = _storageService.getAllSongs();
         state = state.copyWith(songs: refreshed);
       }
@@ -334,32 +357,38 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     }
   }
 
-  /// Recursively collects supported audio file paths under [roots], resolving
-  /// symlinks and de-duplicating via a Set.
+  /// Recursively collects supported audio file paths under [roots] inside a
+  /// background isolate, resolving symlinks and de-duplicating via a Set.
   Future<List<String>> _collectAudioFiles(Iterable<String> roots) async {
-    final found = <String>{};
-    for (final root in roots) {
-      final dir = Directory(root);
-      if (!await dir.exists()) continue;
-      try {
-        await for (final entity in dir.list(
-          recursive: true,
-          followLinks: false,
-        )) {
-          if (entity is File) {
-            final ext = p.extension(entity.path).toLowerCase();
-            if (_supportedExtensions.contains(ext)) {
-              String canonical = entity.path;
-              try {
-                canonical = entity.resolveSymbolicLinksSync();
-              } catch (_) {}
-              found.add(canonical);
+    final rootList = roots.toList(growable: false);
+    if (rootList.isEmpty) return const [];
+    const exts = _supportedExtensions;
+    return Isolate.run(() async {
+      final extSet = exts.toSet();
+      final found = <String>{};
+      for (final root in rootList) {
+        final dir = Directory(root);
+        if (!await dir.exists()) continue;
+        try {
+          await for (final entity in dir.list(
+            recursive: true,
+            followLinks: false,
+          )) {
+            if (entity is File) {
+              final ext = p.extension(entity.path).toLowerCase();
+              if (extSet.contains(ext)) {
+                var canonical = entity.path;
+                try {
+                  canonical = entity.resolveSymbolicLinksSync();
+                } catch (_) {}
+                found.add(canonical);
+              }
             }
           }
-        }
-      } catch (_) {}
-    }
-    return found.toList();
+        } catch (_) {}
+      }
+      return found.toList(growable: false);
+    });
   }
 
   Future<int> importFolder() async {
@@ -453,105 +482,144 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
           '${s.title.trim().toLowerCase()}|${s.artist.trim().toLowerCase()}': s,
     };
 
-    const chunkSize = 4;
-    for (int i = 0; i < paths.length; i += chunkSize) {
-      final end = (i + chunkSize < paths.length) ? i + chunkSize : paths.length;
-      final chunk = paths.sublist(i, end);
-      final percent = end / paths.length;
+    final pendingPaths = <String>[];
+    for (final filePath in paths) {
+      final existing = existingByPath[filePath];
+      if (existing != null &&
+          existing.albumArtUri != null &&
+          existing.albumArtUri!.isNotEmpty) {
+        continue;
+      }
+      pendingPaths.add(filePath);
+    }
+    if (pendingPaths.isEmpty) return 0;
 
-      state = state.copyWith(
-        scanProgressText:
-            '正在解析 ($end/${paths.length}): ${p.basename(chunk.last)}',
-        scanProgressPercent: percent,
-      );
+    final coverCacheDirPath =
+        await MetadataExtractor.resolveCoverCacheDirPath();
+    final existingUpdates = <String, Song Function(Song current)>{};
 
-      // 第四个元素是“曲库中同路径的既有记录”：非空表示这次解析是为了
-      // 给缺封面的旧歌补数据（重扫的自愈入口），而不是新增歌曲。
-      final chunkResults = await Future.wait(
-        chunk.map((filePath) async {
+    const chunkSize = 12;
+    const maxConcurrentIsolates = 3;
+    final chunks = <List<String>>[
+      for (int i = 0; i < pendingPaths.length; i += chunkSize)
+        pendingPaths.sublist(
+          i,
+          (i + chunkSize < pendingPaths.length)
+              ? i + chunkSize
+              : pendingPaths.length,
+        ),
+    ];
+
+    int processed = 0;
+    for (int waveStart = 0;
+        waveStart < chunks.length;
+        waveStart += maxConcurrentIsolates) {
+      final waveEnd = (waveStart + maxConcurrentIsolates < chunks.length)
+          ? waveStart + maxConcurrentIsolates
+          : chunks.length;
+      final wave = chunks.sublist(waveStart, waveEnd);
+
+      final waveResults = await Future.wait([
+        for (final chunk in wave)
+          Isolate.run(
+            () => MetadataExtractor.extractChunkIsolated(
+              chunk,
+              coverCacheDirPath,
+            ),
+          ),
+      ]);
+
+      for (int w = 0; w < wave.length; w++) {
+        final chunk = wave[w];
+        final metas = waveResults[w];
+        processed += chunk.length;
+        state = state.copyWith(
+          scanProgressText:
+              '正在解析 ($processed/${pendingPaths.length}): ${p.basename(chunk.last)}',
+          scanProgressPercent: processed / pendingPaths.length,
+        );
+
+        for (int j = 0; j < chunk.length; j++) {
+          final filePath = chunk[j];
+          final metadata = metas[j];
           final existing = existingByPath[filePath];
-          if (existing != null &&
-              existing.albumArtUri != null &&
-              existing.albumArtUri!.isNotEmpty) {
-            return null;
-          }
-          final meta = await MetadataExtractor.extractFromFile(filePath);
+
           // 内嵌歌词缺失时再找同名 .lrc 侧车文件。
-          var lyrics = meta.lyrics;
+          var lyrics = metadata.lyrics;
           if (lyrics == null || lyrics.trim().isEmpty) {
             lyrics = await _readSidecarLrc(filePath);
           }
-          return (filePath, meta, lyrics, existing);
-        }),
-      );
 
-      for (final item in chunkResults) {
-        if (item == null) continue;
-        final filePath = item.$1;
-        final metadata = item.$2;
-        final lyrics = item.$3;
-        final existing = item.$4;
-
-        if (existing != null) {
-          // 曲库已有但缺封面：只补空缺，不覆盖既有歌词与元数据。
-          final needLrc = existing.lrcContent == null ||
-              existing.lrcContent!.trim().isEmpty;
-          final hasNewLrc = lyrics != null && lyrics.trim().isNotEmpty;
-          if (metadata.albumArtUri != null || (needLrc && hasNewLrc)) {
-            await updateSongMerged(existing.id, (current) {
-              final currentNeedLrc = current.lrcContent == null ||
-                  current.lrcContent!.trim().isEmpty;
-              return current.copyWith(
-                albumArtUri: current.albumArtUri ?? metadata.albumArtUri,
-                lrcContent: currentNeedLrc && hasNewLrc ? lyrics : null,
-              );
-            });
-          }
-          continue;
-        }
-
-        final titleNorm = metadata.title.trim().toLowerCase();
-        final artistNorm = metadata.artist.trim().toLowerCase();
-        final metaKey = '$titleNorm|$artistNorm';
-
-        // Check metadata deduplication (same title + artist + close duration)
-        if (titleNorm.isNotEmpty &&
-            titleNorm != '未知曲目' &&
-            titleNorm != '本地歌曲' &&
-            artistNorm != '未知歌手') {
-          final existing = existingMetaMap[metaKey];
           if (existing != null) {
-            if (existing.durationMs == 0 ||
-                metadata.durationMs == 0 ||
-                (existing.durationMs - metadata.durationMs).abs() < 3000) {
-              continue;
+            final needLrc =
+                existing.lrcContent == null ||
+                existing.lrcContent!.trim().isEmpty;
+            final hasNewLrc = lyrics != null && lyrics.trim().isNotEmpty;
+            if (metadata.albumArtUri != null || (needLrc && hasNewLrc)) {
+              final artUri = metadata.albumArtUri;
+              final resolvedLrc = lyrics;
+              existingUpdates[existing.id] = (current) {
+                final currentNeedLrc =
+                    current.lrcContent == null ||
+                    current.lrcContent!.trim().isEmpty;
+                return current.copyWith(
+                  albumArtUri: current.albumArtUri ?? artUri,
+                  lrcContent: currentNeedLrc && hasNewLrc ? resolvedLrc : null,
+                );
+              };
+            }
+            continue;
+          }
+
+          final titleNorm = metadata.title.trim().toLowerCase();
+          final artistNorm = metadata.artist.trim().toLowerCase();
+          final metaKey = '$titleNorm|$artistNorm';
+
+          // Check metadata deduplication (same title + artist + close duration)
+          if (titleNorm.isNotEmpty &&
+              titleNorm != '未知曲目' &&
+              titleNorm != '本地歌曲' &&
+              artistNorm != '未知歌手') {
+            final dup = existingMetaMap[metaKey];
+            if (dup != null) {
+              if (dup.durationMs == 0 ||
+                  metadata.durationMs == 0 ||
+                  (dup.durationMs - metadata.durationMs).abs() < 3000) {
+                continue;
+              }
             }
           }
-        }
 
-        final song = Song(
-          id: _uuid.v4(),
-          title: metadata.title,
-          artist: metadata.artist,
-          album: metadata.album,
-          durationMs: metadata.durationMs,
-          filePath: filePath,
-          albumArtUri: metadata.albumArtUri,
-          albumArtBytes: metadata.albumArtBytes,
-          lrcContent: (lyrics != null && lyrics.trim().isNotEmpty)
-              ? lyrics
-              : null,
-          dateAdded: DateTime.now(),
-          source: SongSource.local,
-          year: metadata.year,
-        );
+          final hasArtUri =
+              metadata.albumArtUri != null && metadata.albumArtUri!.isNotEmpty;
+          final song = Song(
+            id: _uuid.v4(),
+            title: metadata.title,
+            artist: metadata.artist,
+            album: metadata.album,
+            durationMs: metadata.durationMs,
+            filePath: filePath,
+            albumArtUri: metadata.albumArtUri,
+            albumArtBytes: hasArtUri ? null : metadata.albumArtBytes,
+            lrcContent: (lyrics != null && lyrics.trim().isNotEmpty)
+                ? lyrics
+                : null,
+            dateAdded: DateTime.now(),
+            source: SongSource.local,
+            year: metadata.year,
+          );
 
-        existingByPath[filePath] = song;
-        if (artistNorm != '未知歌手') {
-          existingMetaMap[metaKey] = song;
+          existingByPath[filePath] = song;
+          if (artistNorm != '未知歌手') {
+            existingMetaMap[metaKey] = song;
+          }
+          newSongs.add(song);
         }
-        newSongs.add(song);
       }
+    }
+
+    if (existingUpdates.isNotEmpty) {
+      await updateSongsMerged(existingUpdates);
     }
 
     if (newSongs.isNotEmpty) {
@@ -581,6 +649,18 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     try {
       int enrichedCount = 0;
       int failedCount = 0;
+      final pendingUpdates = <String, Song Function(Song current)>{};
+
+      Future<void> flushUpdates() async {
+        if (pendingUpdates.isEmpty) return;
+        final batch = Map<String, Song Function(Song current)>.from(
+          pendingUpdates,
+        );
+        pendingUpdates.clear();
+        final applied = await updateSongsMerged(batch);
+        enrichedCount += applied.length;
+      }
+
       for (int i = 0; i < targets.length; i++) {
         final song = targets[i];
         final percent = (i + 1) / targets.length;
@@ -601,23 +681,23 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
           if (result != null) {
             String? newArtUri = song.albumArtUri;
             if (newArtUri == null && result.coverUrl != null) {
-              newArtUri = await onlineService.cacheOnlineImage(result.coverUrl!);
+              newArtUri = await onlineService.cacheOnlineImage(
+                result.coverUrl!,
+              );
             }
             final newLrc =
                 song.lrcContent ?? result.syncedLyrics ?? result.plainLyrics;
 
             if (newArtUri != song.albumArtUri || newLrc != song.lrcContent) {
-              // Merge onto the freshest stored copy: `song` was snapshotted
-              // before the whole batch, so saving it wholesale would revert
-              // play counts / favorites accumulated meanwhile.
-              final applied = await updateSongMerged(
-                song.id,
-                (current) => current.copyWith(
-                  albumArtUri: current.albumArtUri ?? newArtUri,
-                  lrcContent: current.lrcContent ?? newLrc,
-                ),
+              final capturedArt = newArtUri;
+              final capturedLrc = newLrc;
+              pendingUpdates[song.id] = (current) => current.copyWith(
+                albumArtUri: current.albumArtUri ?? capturedArt,
+                lrcContent: current.lrcContent ?? capturedLrc,
               );
-              if (applied != null) enrichedCount++;
+              if (pendingUpdates.length >= 10) {
+                await flushUpdates();
+              }
             }
           }
         } catch (_) {
@@ -625,6 +705,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
         }
       }
 
+      await flushUpdates();
       await _loadSongs();
       return BatchMatchResult(
         total: targets.length,
@@ -651,17 +732,16 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     final updated = <Song>[];
     for (final song in state.songs) {
       if (!idSet.contains(song.id) || song.isFavorite == favorite) continue;
-      final next = song.copyWith(isFavorite: favorite);
-      await _storageService.saveSong(next);
-      _audioHandler?.syncSong(next);
-      updated.add(next);
+      updated.add(song.copyWith(isFavorite: favorite));
     }
     if (updated.isNotEmpty) {
+      await _storageService.saveSongs(updated);
+      for (final next in updated) {
+        _audioHandler?.syncSong(next);
+      }
       final byId = {for (final s in updated) s.id: s};
       state = state.copyWith(
-        songs: [
-          for (final s in state.songs) byId[s.id] ?? s,
-        ],
+        songs: [for (final s in state.songs) byId[s.id] ?? s],
       );
     }
     return updated.length;
@@ -717,26 +797,20 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
   /// 扫描与音频同目录同名 `.lrc` 文件，为缺失歌词的歌曲补齐。
   /// 返回补齐的歌曲数。
   Future<int> scanSidecarLyrics() async {
-    int filled = 0;
+    final updates = <String, Song Function(Song current)>{};
     for (final song in state.songs) {
       if (song.lrcContent != null && song.lrcContent!.trim().isNotEmpty) {
         continue;
       }
       final lrc = await _readSidecarLrc(song.filePath);
       if (lrc == null) continue;
-      final updated = await updateSongMerged(
-        song.id,
-        (current) => current.lrcContent == null
-            ? current.copyWith(lrcContent: lrc)
-            : current,
-      );
-      if (updated == null) continue;
-      filled++;
+      updates[song.id] = (current) => current.lrcContent == null
+          ? current.copyWith(lrcContent: lrc)
+          : current;
     }
-    if (filled > 0) {
-      state = state.copyWith(songs: _storageService.getAllSongs());
-    }
-    return filled;
+    if (updates.isEmpty) return 0;
+    final applied = await updateSongsMerged(updates);
+    return applied.length;
   }
 
   /// `<音频文件名>.lrc` 侧车歌词；读取失败或不存在返回 null。
@@ -829,7 +903,10 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
       durationMs: metadata.durationMs,
       filePath: filePath,
       albumArtUri: metadata.albumArtUri,
-      albumArtBytes: metadata.albumArtBytes,
+      albumArtBytes: (metadata.albumArtUri != null &&
+              metadata.albumArtUri!.isNotEmpty)
+          ? null
+          : metadata.albumArtBytes,
       lrcContent: (lyrics != null && lyrics.trim().isNotEmpty) ? lyrics : null,
       dateAdded: DateTime.now(),
       source: SongSource.local,
@@ -889,6 +966,34 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     return merged;
   }
 
+  /// Batch counterpart to [updateSongMerged]: reads freshest stored copies,
+  /// writes once with `saveSongs`, updates `state.songs` once, and syncs the
+  /// audio handler, avoiding O(N) cascading state rebuilds during bulk sync.
+  Future<List<Song>> updateSongsMerged(
+    Map<String, Song Function(Song current)> updates,
+  ) async {
+    if (updates.isEmpty) return const [];
+    final persisted = <Song>[];
+    final byId = <String, Song>{};
+    for (final entry in updates.entries) {
+      final current = _storageService.getSong(entry.key);
+      if (current == null) continue;
+      final merged = entry.value(current);
+      persisted.add(merged);
+      byId[merged.id] = merged;
+    }
+    if (persisted.isEmpty) return const [];
+
+    await _storageService.saveSongs(persisted);
+    state = state.copyWith(
+      songs: [for (final s in state.songs) byId[s.id] ?? s],
+    );
+    for (final song in persisted) {
+      _audioHandler?.syncSong(song);
+    }
+    return persisted;
+  }
+
   /// Re-reads [songId] from storage and patches the in-memory copy when the
   /// persisted play count moved ahead of it. The audio handler increments the
   /// count directly in the songs box as each song starts, and playCount is
@@ -932,11 +1037,45 @@ final filteredSongsProvider = Provider<List<Song>>((ref) {
   final sortType = ref.watch(sortTypeProvider);
   final ascending = ref.watch(sortAscendingProvider);
 
+  // Skip unused lowercased strings when neither searching nor sorting by text.
+  if (query.isEmpty &&
+      sortType != SongSortType.title &&
+      sortType != SongSortType.artist) {
+    final sorted = List<Song>.of(songs);
+    sorted.sort((a, b) {
+      final int cmp;
+      switch (sortType) {
+        case SongSortType.duration:
+          cmp = a.durationMs.compareTo(b.durationMs);
+          break;
+        case SongSortType.playCount:
+          cmp = a.playCount.compareTo(b.playCount);
+          break;
+        case SongSortType.dateAdded:
+        case SongSortType.title:
+        case SongSortType.artist:
+          cmp = a.dateAdded.compareTo(b.dateAdded);
+          break;
+      }
+      return ascending ? cmp : -cmp;
+    });
+    return sorted;
+  }
+
   // Decorate-sort-undecorate: lowercased search/sort keys are computed once
   // per song instead of on every comparator invocation (O(n log n) calls).
   var decorated = [
     for (final s in songs)
-      (s, s.title.toLowerCase(), s.artist.toLowerCase(), s.album.toLowerCase()),
+      (
+        s,
+        (query.isNotEmpty || sortType == SongSortType.title)
+            ? s.title.toLowerCase()
+            : '',
+        (query.isNotEmpty || sortType == SongSortType.artist)
+            ? s.artist.toLowerCase()
+            : '',
+        query.isNotEmpty ? s.album.toLowerCase() : '',
+      ),
   ];
 
   if (query.isNotEmpty) {

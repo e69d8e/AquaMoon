@@ -3,10 +3,9 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 class AppToast {
-  /// Displays a floating, adaptive-width toast with theme green semi-transparent styling.
+  /// 显示跟随当前主题配色的悬浮胶囊提示（默认使用当前调色板的 `snackBarBackground`）。
   ///
-  /// [duration] defaults by message length: short messages stay 1.4s, longer
-  /// ones (error details, paths) get 2.8s so they remain readable.
+  /// [duration] 按文案长度自动调整：短提示 1.4s，较长提示（错误细节、路径）2.8s。
   static void show(
     BuildContext context,
     String message, {
@@ -24,31 +23,34 @@ class AppToast {
             ? const Duration(milliseconds: 2800)
             : const Duration(milliseconds: 1400));
 
-    // Theme green semi-transparent background (~90% opacity)
+    // 优先使用当前配色方案的 snackBarBackground（如水墨丹青的朱砂印色），
+    // 脱离主题的孤立测试容器下优雅回退到主色深调。
     final bg =
         backgroundColor ??
-        (isLight
-            ? const Color(0xEE1DB954) // Vibrant Theme Green with 93% opacity
-            : const Color(0xEE15803D)); // Deep Theme Green with 93% opacity
+        theme.snackBarTheme.backgroundColor ??
+        theme.colorScheme.primary.withValues(alpha: isLight ? 0.93 : 0.88);
+    final fg =
+        theme.snackBarTheme.contentTextStyle?.color ?? Colors.white;
 
-    // Measure exact text width to adapt container width
+    // 测量文本宽度以实现紧凑自适应胶囊宽度。
+    final screenWidth = MediaQuery.sizeOf(context).width;
     final textPainter = TextPainter(
       text: TextSpan(
         text: message,
         style: const TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
-          letterSpacing: -0.2,
+          letterSpacing: -0.1,
         ),
       ),
       textDirection: TextDirection.ltr,
       maxLines: maxLines,
-    )..layout(maxWidth: MediaQuery.of(context).size.width - 60);
+    )..layout(maxWidth: max(0.0, screenWidth - 64));
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    final contentWidth = textPainter.width + (icon != null ? 24 : 0) + 40;
+    final contentWidth = textPainter.width + (icon != null ? 24 : 0) + 42;
+    textPainter.dispose();
     final double finalWidth = contentWidth
-        .clamp(100.0, max(100.0, screenWidth - 36))
+        .clamp(108.0, max(108.0, screenWidth - 36))
         .toDouble();
 
     final scaffold = ScaffoldMessenger.of(context);
@@ -57,13 +59,13 @@ class AppToast {
       SnackBar(
         behavior: SnackBarBehavior.floating,
         width: finalWidth,
-        elevation: 3,
+        elevation: 4,
         backgroundColor: bg,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-            color: Colors.white.withValues(alpha: 0.28),
+            color: Colors.white.withValues(alpha: 0.22),
             width: 0.8,
           ),
         ),
@@ -76,8 +78,8 @@ class AppToast {
               : CrossAxisAlignment.center,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 16, color: Colors.white),
-              const SizedBox(width: 6),
+              Icon(icon, size: 16, color: fg),
+              const SizedBox(width: 7),
             ],
             Flexible(
               child: Text(
@@ -85,11 +87,11 @@ class AppToast {
                 maxLines: maxLines,
                 overflow: TextOverflow.ellipsis,
                 textAlign: maxLines > 1 ? TextAlign.left : TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: fg,
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
-                  letterSpacing: -0.2,
+                  letterSpacing: -0.1,
                 ),
               ),
             ),

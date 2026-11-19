@@ -57,6 +57,14 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   // Session persistence debounce: queue mutations coalesce into one Hive
   // write instead of serializing the whole queue per tap.
   Timer? _persistSessionDebounce;
+  bool _hasPendingSessionPersist = false;
+
+  // Bounded window state for platform MediaSession `queue` IPC so clicking a
+  // song inside a 1,000+ track library keeps full in-app queue semantics
+  // without marshaling 1,000+ MediaItems across Binder.
+  static const int _mediaSessionQueueWindowRadius = 25;
+  int _syncedQueueWindowStart = 0;
+  int _syncedQueueWindowEnd = 0;
 
   // Sleep timer state.
   Timer? _sleepTicker;
@@ -131,7 +139,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
               dur ??
               (currentSong != null ? currentSong!.duration : Duration.zero),
         ),
-      );
+      ).distinct();
 
   SoundCraftAudioHandler(this._storageService, {QQMusicService? qqMusicService})
     : _qqMusicService = qqMusicService ?? QQMusicService() {
@@ -166,11 +174,11 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       }
     });
 
-    // Save position periodically on pause/stop
-    _player.positionStream.throttleTime(const Duration(seconds: 3)).listen((
+    // Save position periodically during playback (pause/stop/seek write immediately).
+    _player.positionStream.throttleTime(const Duration(seconds: 12)).listen((
       pos,
     ) {
-      if (currentSong != null) {
+      if (_player.playing && currentSong != null) {
         _storageService.saveLastPositionMs(pos.inMilliseconds);
       }
     });
@@ -237,9 +245,10 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   /// 按 `qqSongMid` 从本地曲库与云端收藏缓存中查数字 `songId`（同步、无网络）。
   int _lookupQQSongIdByMid(String mid) {
-    final stored = _storageService.getAllSongs();
-    for (final s in stored) {
-      if (s.qqSongMid == mid && (s.qqSongId ?? 0) > 0) return s.qqSongId!;
+    final indexedId = _storageService.findSongIdByQQMid(mid);
+    if (indexedId != null) {
+      final s = _storageService.getSong(indexedId);
+      if (s != null && (s.qqSongId ?? 0) > 0) return s.qqSongId!;
     }
     for (final s in _storageService.getQQMusicFavoritesCache()) {
       if (s.qqSongMid == mid && (s.qqSongId ?? 0) > 0) return s.qqSongId!;
@@ -321,7 +330,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
       _playlistSubject.add(List.unmodifiable(_playlist));
       _currentSongSubject.add(song);
-      queue.add(_playlist.map(_songToMediaItem).toList());
+      _syncMediaSessionQueue(force: true);
       mediaItem.add(_songToMediaItem(song));
 
       final savedMs = _storageService.getLastPositionMs();
@@ -353,6 +362,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   bool _lastBroadcastPlaying = false;
+  (bool, ProcessingState, int, double, int, int)? _lastBroadcastKey;
   // playbackEventStream fires on every position tick during playback; the
   // custom-notification platform channel must only be hit when play/pause or
   // the processing state actually changes. Periodic progress updates are
@@ -363,6 +373,26 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   void _broadcastPlaybackState(PlaybackEvent event) {
     final playing = _player.playing;
     final processingState = _player.processingState;
+    final posMs = _player.position.inMilliseconds;
+    final bufMs = _player.bufferedPosition.inMilliseconds;
+    final speed = _player.speed;
+    final mappedQueueIndex =
+        (_currentIndex >= _syncedQueueWindowStart &&
+            _currentIndex < _syncedQueueWindowEnd)
+        ? (_currentIndex - _syncedQueueWindowStart)
+        : null;
+    final nextKey = (
+      playing,
+      processingState,
+      posMs,
+      speed,
+      bufMs,
+      mappedQueueIndex ?? -1,
+    );
+    if (_lastBroadcastKey == nextKey) {
+      return;
+    }
+    _lastBroadcastKey = nextKey;
 
     if (playing != _lastBroadcastPlaying) {
       // Diagnostic for the media-notification pipeline: audio_service only
@@ -411,8 +441,8 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
         playing: playing,
         updatePosition: _player.position,
         bufferedPosition: _player.bufferedPosition,
-        speed: _player.speed,
-        queueIndex: _currentIndex >= 0 ? _currentIndex : null,
+        speed: speed,
+        queueIndex: mappedQueueIndex,
       ),
     );
 
@@ -506,6 +536,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     if (currentSong != null) {
       _storageService.saveLastPositionMs(_player.position.inMilliseconds);
     }
+    await _flushPendingSession();
   }
 
   /// Ramps the player volume from the current value to [target]. Bumping
@@ -576,6 +607,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       _pendingResumePosition = resumeAt > Duration.zero ? resumeAt : null;
     }
     _audioLoaded = false;
+    await _flushPendingSession();
     await _player.stop();
     await CustomNotificationService.cancel();
     await super.stop();
@@ -679,7 +711,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     final insertAt = _currentIndex + 1;
     _playlist.insert(insertAt.clamp(0, _playlist.length), song);
     _playlistSubject.add(List.unmodifiable(_playlist));
-    queue.add(_playlist.map(_songToMediaItem).toList());
+    _syncMediaSessionQueue(force: true);
     _persistSessionSoon();
   }
 
@@ -792,9 +824,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _shuffleHistory.clear();
     _pendingResumePosition = null;
 
-    // Map to audio_service queue
-    final mediaItems = _playlist.map(_songToMediaItem).toList();
-    queue.add(mediaItems);
+    _syncMediaSessionQueue(force: true, targetIndex: initialIndex);
 
     await playAtIndex(initialIndex, autoPlay: autoPlay);
   }
@@ -819,7 +849,10 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
       } else {
         _playlist.add(song);
         _playlistSubject.add(List.unmodifiable(_playlist));
-        queue.add(_playlist.map(_songToMediaItem).toList());
+        _syncMediaSessionQueue(
+          force: true,
+          targetIndex: _playlist.length - 1,
+        );
         await playAtIndex(_playlist.length - 1, autoPlay: true);
       }
     }
@@ -836,6 +869,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     // 快速切歌时，上一次加载的后续 await 完成后不得再覆盖新歌的状态。
     final generation = ++_loadGeneration;
     _currentIndex = index;
+    _syncMediaSessionQueue();
     final song = _playlist[index];
     _shuffleHistory.add(index);
     // 随机播放的回退只消费尾部，长会话里截断头部即可，避免无限增长。
@@ -1018,7 +1052,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _playlist.removeAt(index);
     _onQueueItemRemoved(index);
     _playlistSubject.add(List.unmodifiable(_playlist));
-    queue.add(_playlist.map(_songToMediaItem).toList());
+    _syncMediaSessionQueue(force: true);
     _persistSessionSoon();
 
     if (isCurrent) {
@@ -1045,7 +1079,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _onQueueItemReordered(oldIndex, clampedNewIndex);
 
     _playlistSubject.add(List.unmodifiable(_playlist));
-    queue.add(_playlist.map(_songToMediaItem).toList());
+    _syncMediaSessionQueue(force: true);
     _persistSessionSoon();
   }
 
@@ -1079,8 +1113,11 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
   void clearQueue() {
     _persistSessionDebounce?.cancel();
     _persistSessionDebounce = null;
+    _hasPendingSessionPersist = false;
     _playlist.clear();
     _currentIndex = -1;
+    _syncedQueueWindowStart = 0;
+    _syncedQueueWindowEnd = 0;
     _playlistSubject.add(const []);
     _currentSongSubject.add(null);
     _audioLoaded = false;
@@ -1091,19 +1128,64 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
     _storageService.savePlaybackSession(const [], -1);
   }
 
+  /// Syncs a bounded window around the active track to `audio_service` so
+  /// platform Binder IPC stays small even for 1,000+ track queues while the
+  /// in-app queue keeps all items.
+  void _syncMediaSessionQueue({bool force = false, int? targetIndex}) {
+    final len = _playlist.length;
+    if (len == 0) {
+      _syncedQueueWindowStart = 0;
+      _syncedQueueWindowEnd = 0;
+      if (force) queue.add(const []);
+      return;
+    }
+    final anchor = (targetIndex ?? _currentIndex).clamp(0, len - 1);
+    final int nextStart;
+    final int nextEnd;
+    if (len <= _mediaSessionQueueWindowRadius * 2 + 1) {
+      nextStart = 0;
+      nextEnd = len;
+    } else {
+      nextStart = (anchor - _mediaSessionQueueWindowRadius).clamp(0, len);
+      nextEnd = (anchor + _mediaSessionQueueWindowRadius + 1).clamp(0, len);
+    }
+    if (!force &&
+        nextStart == _syncedQueueWindowStart &&
+        nextEnd == _syncedQueueWindowEnd) {
+      return;
+    }
+    _syncedQueueWindowStart = nextStart;
+    _syncedQueueWindowEnd = nextEnd;
+    queue.add([
+      for (var i = nextStart; i < nextEnd; i++) _songToMediaItem(_playlist[i]),
+    ]);
+  }
+
   // --- Session Persistence ---
 
-  /// Coalesces queue mutations into a single Hive write ~1s after the last
+  /// Coalesces queue mutations into a single Hive write ~2s after the last
   /// change, so rapid taps (reorder drag, skip) don't serialize the queue
   /// repeatedly.
   void _persistSessionSoon() {
     if (_playlist.isEmpty || _currentIndex < 0) return;
+    _hasPendingSessionPersist = true;
     _persistSessionDebounce?.cancel();
-    _persistSessionDebounce = Timer(const Duration(seconds: 1), () {
+    _persistSessionDebounce = Timer(const Duration(seconds: 2), () {
+      _hasPendingSessionPersist = false;
       if (_playlist.isNotEmpty && _currentIndex >= 0) {
         _storageService.savePlaybackSession(_playlist, _currentIndex);
       }
     });
+  }
+
+  Future<void> _flushPendingSession() async {
+    if (!_hasPendingSessionPersist) return;
+    _persistSessionDebounce?.cancel();
+    _persistSessionDebounce = null;
+    _hasPendingSessionPersist = false;
+    if (_playlist.isNotEmpty && _currentIndex >= 0) {
+      await _storageService.savePlaybackSession(_playlist, _currentIndex);
+    }
   }
 
   // --- Internal Helpers ---
@@ -1169,6 +1251,7 @@ class SoundCraftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   Future<void> disposeHandler() async {
     await _ready;
+    await _flushPendingSession();
     _persistSessionDebounce?.cancel();
     _sleepTicker?.cancel();
     _sleepRemainingSubject.close();

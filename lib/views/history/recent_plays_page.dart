@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/app_toast.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../player/mini_player.dart';
+import '../widgets/empty_state_view.dart';
 import '../widgets/song_tile.dart';
 
 /// 最近播放页：按时间倒序展示播放历史（最多 100 条），不占用底部导航位，
-/// 从首页「更多」菜单进入。播放全部即以历史顺序作为队列。
+/// 从首页入口进入。播放全部即以历史顺序作为队列。
 class RecentPlaysPage extends ConsumerWidget {
   const RecentPlaysPage({super.key});
 
@@ -29,48 +31,26 @@ class RecentPlaysPage extends ConsumerWidget {
           const SizedBox(width: 4),
         ],
       ),
-      body: historySongs.isEmpty
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.history_rounded,
-                      size: 64,
-                      color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      '还没有播放记录',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '播放过的歌曲会按时间自动出现在这里',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+      body: Stack(
+        children: [
+          if (historySongs.isEmpty)
+            const EmptyStateView(
+              icon: Icons.history_rounded,
+              title: '还没有播放记录',
+              subtitle: '播放过的歌曲会按聆听时间自动记录在这里',
             )
-          : Column(
+          else
+            Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
                   child: Row(
                     children: [
                       Text(
                         '共 ${historySongs.length} 条记录',
                         style: TextStyle(
                           fontSize: 12.5,
+                          fontFeatures: const [FontFeature.tabularFigures()],
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
@@ -79,10 +59,12 @@ class RecentPlaysPage extends ConsumerWidget {
                         onPressed: () {
                           ref
                               .read(audioControllerProvider)
-                              .playSong(historySongs.first,
-                                  queue: historySongs);
+                              .playSong(
+                                historySongs.first,
+                                queue: historySongs,
+                              );
                         },
-                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 17),
                         label: const Text('播放全部'),
                         style: FilledButton.styleFrom(
                           visualDensity: VisualDensity.compact,
@@ -92,6 +74,7 @@ class RecentPlaysPage extends ConsumerWidget {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
                       OutlinedButton.icon(
                         onPressed: () {
                           final shuffled = List.of(historySongs)..shuffle();
@@ -114,7 +97,10 @@ class RecentPlaysPage extends ConsumerWidget {
                 ),
                 Expanded(
                   child: ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 120),
+                    itemExtent: 58.0,
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.paddingOf(context).bottom + 104,
+                    ),
                     itemCount: historySongs.length,
                     itemBuilder: (context, index) {
                       final song = historySongs[index];
@@ -128,6 +114,14 @@ class RecentPlaysPage extends ConsumerWidget {
                 ),
               ],
             ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
+        ],
+      ),
     );
   }
 
@@ -135,6 +129,7 @@ class RecentPlaysPage extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final theme = Theme.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -148,7 +143,10 @@ class RecentPlaysPage extends ConsumerWidget {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.error,
+              foregroundColor: theme.colorScheme.onError,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('清空'),
           ),

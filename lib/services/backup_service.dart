@@ -62,7 +62,10 @@ class BackupService {
     }
     final dynamic decoded;
     try {
-      decoded = json.decode(await file.readAsString(encoding: utf8));
+      decoded = await Isolate.run(() async {
+        final raw = await File(filePath).readAsString(encoding: utf8);
+        return json.decode(raw);
+      });
     } catch (_) {
       throw const FormatException('备份文件解析失败');
     }

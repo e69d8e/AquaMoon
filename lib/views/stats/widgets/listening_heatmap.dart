@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 /// GitHub 风格的年度听歌热力图：一列一周（周一到周日），颜色深浅代表
 /// 当日收听时长。支持横向滚动查看整年。
-class ListeningHeatmap extends StatelessWidget {
+class ListeningHeatmap extends StatefulWidget {
   final int year;
 
   /// dateStr (yyyy-MM-dd) -> 当日收听秒数。
@@ -20,8 +20,25 @@ class ListeningHeatmap extends StatelessWidget {
   });
 
   @override
+  State<ListeningHeatmap> createState() => _ListeningHeatmapState();
+}
+
+class _ListeningHeatmapState extends State<ListeningHeatmap> {
+  String? _selectedHint;
+
+  @override
+  void didUpdateWidget(covariant ListeningHeatmap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.year != widget.year) {
+      _selectedHint = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final year = widget.year;
+    final dailySeconds = widget.dailySeconds;
     final maxSeconds = dailySeconds.values.fold(0, max);
 
     final jan1 = DateTime(year, 1, 1);
@@ -31,12 +48,13 @@ class ListeningHeatmap extends StatelessWidget {
     final daysInYear = isLeap ? 366 : 365;
     final totalCells = leadingOffset + daysInYear;
     final weekColumns = (totalCells / 7).ceil();
+    final cellRadius = BorderRadius.circular(3);
 
     // 月份标签：每月第一格落在第几周列。
     final monthLabels = <int, String>{};
     for (var m = 1; m <= 12; m++) {
       final first = DateTime(year, m, 1);
-      final dayOfYear = first.difference(DateTime(year, 1, 1)).inDays;
+      final dayOfYear = first.difference(jan1).inDays;
       monthLabels[(leadingOffset + dayOfYear) ~/ 7] = '$m月';
     }
 
@@ -69,13 +87,18 @@ class ListeningHeatmap extends StatelessWidget {
             children: [
               // 月份标签行，与周列水平对齐。
               SizedBox(
-                width: weekColumns * (_cellSize + _cellGap),
+                width:
+                    weekColumns *
+                    (ListeningHeatmap._cellSize + ListeningHeatmap._cellGap),
                 height: 14,
                 child: Stack(
                   children: [
                     for (final entry in monthLabels.entries)
                       Positioned(
-                        left: entry.key * (_cellSize + _cellGap),
+                        left:
+                            entry.key *
+                            (ListeningHeatmap._cellSize +
+                                ListeningHeatmap._cellGap),
                         top: 0,
                         child: Text(
                           entry.value,
@@ -93,19 +116,24 @@ class ListeningHeatmap extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               SizedBox(
-                width: weekColumns * (_cellSize + _cellGap),
-                height: 7 * _cellSize + 6 * _cellGap,
+                width:
+                    weekColumns *
+                    (ListeningHeatmap._cellSize + ListeningHeatmap._cellGap),
+                height:
+                    7 * ListeningHeatmap._cellSize +
+                    6 * ListeningHeatmap._cellGap,
                 child: GridView.builder(
                   physics: const NeverScrollableScrollPhysics(),
                   padding: EdgeInsets.zero,
+                  addRepaintBoundaries: false,
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 7,
-                    mainAxisSpacing: _cellGap,
-                    crossAxisSpacing: _cellGap,
+                    mainAxisSpacing: ListeningHeatmap._cellGap,
+                    crossAxisSpacing: ListeningHeatmap._cellGap,
                     // 不给 mainAxisExtent 时格子被反算成 13.43px，实际列距
                     // 16.43 ≠ 标签用的 16px：月标签越往后越歪，年末最后几列
                     // 排到视口外永远看不到。
-                    mainAxisExtent: _cellSize,
+                    mainAxisExtent: ListeningHeatmap._cellSize,
                   ),
                   // 横向主轴 + 7 行交叉轴 = 按周列优先填充。
                   scrollDirection: Axis.horizontal,
@@ -118,13 +146,14 @@ class ListeningHeatmap extends StatelessWidget {
                     // 用构造式日期而不是 1/1 + Duration：夏令时回拨的时区里
                     // 按绝对时间加天会落在前一天 23:00，之后全部错位一天。
                     final day = DateTime(year, 1, cell + 1);
-                    return Tooltip(
-                      message:
-                          '${day.month}月${day.day}日 · ${_formatMinutes(dailySeconds[_dateKey(day)] ?? 0)}',
-                      child: Container(
+                    final hint =
+                        '${day.month}月${day.day}日 · ${_formatMinutes(dailySeconds[_dateKey(day)] ?? 0)}';
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedHint = hint),
+                      child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: cellColor(day),
-                          borderRadius: BorderRadius.circular(3),
+                          borderRadius: cellRadius,
                         ),
                       ),
                     );
@@ -136,7 +165,7 @@ class ListeningHeatmap extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Padding(
-          padding: const EdgeInsets.only(left: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
               Text(
@@ -173,6 +202,17 @@ class ListeningHeatmap extends StatelessWidget {
                   ),
                 ),
               ),
+              if (_selectedHint != null) ...[
+                const Spacer(),
+                Text(
+                  _selectedHint!,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

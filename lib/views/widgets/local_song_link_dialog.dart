@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -35,30 +37,50 @@ class LocalSongLinkDialog extends ConsumerStatefulWidget {
 
 class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
   String _query = '';
   bool _isSubmitting = false;
 
+  List<Song>? _cachedSourceSongs;
+  String? _cachedRemoteId;
+  List<({Song song, String searchHaystack, ({int tier, int duration})? score})>
+      _cachedCandidates = const [];
+  int _cachedMatchedCount = 0;
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  /// 本地候选按匹配可信度排序：能匹配的排前面，其余按标题相似度兜底。
-  List<({Song song, ({int tier, int duration})? score})> _rankedCandidates(
-    List<Song> localSongs,
-  ) {
-    final query = SongMatcher.compact(_query);
+  void _ensureCandidatesCache(List<Song> localSongs) {
+    if (identical(_cachedSourceSongs, localSongs) &&
+        _cachedRemoteId == widget.remote.id) {
+      return;
+    }
+    _cachedSourceSongs = localSongs;
+    _cachedRemoteId = widget.remote.id;
 
-    final entries = <({Song song, ({int tier, int duration})? score})>[];
+    final entries =
+        <
+          ({
+            Song song,
+            String searchHaystack,
+            ({int tier, int duration})? score,
+          })
+        >[];
+    var matched = 0;
     for (final local in localSongs) {
       if (!local.hasLocalFile) continue;
-      if (query.isNotEmpty) {
-        final haystack =
-            '${SongMatcher.compact(local.title)}${SongMatcher.compact(local.artist)}';
-        if (!haystack.contains(query)) continue;
-      }
-      entries.add((song: local, score: SongMatcher.scorePair(widget.remote, local)));
+      final score = SongMatcher.scorePair(widget.remote, local);
+      if (score != null) matched++;
+      entries.add((
+        song: local,
+        searchHaystack:
+            '${SongMatcher.compact(local.title)}${SongMatcher.compact(local.artist)}',
+        score: score,
+      ));
     }
 
     entries.sort((a, b) {
@@ -73,7 +95,41 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
       }
       return a.song.title.compareTo(b.song.title);
     });
-    return entries;
+    _cachedCandidates = entries;
+    _cachedMatchedCount = matched;
+  }
+
+  List<({Song song, String searchHaystack, ({int tier, int duration})? score})>
+      _filteredCandidates(List<Song> localSongs) {
+    _ensureCandidatesCache(localSongs);
+    final query = SongMatcher.compact(_query);
+    if (query.isEmpty) return _cachedCandidates;
+    return [
+      for (final entry in _cachedCandidates)
+        if (entry.searchHaystack.contains(query)) entry,
+    ];
+  }
+
+  void _onSearchChanged(String value) {
+    final nextEmpty = value.trim().isEmpty;
+    _searchDebounce?.cancel();
+    if (nextEmpty) {
+      if (_query.isNotEmpty) {
+        setState(() => _query = '');
+      } else {
+        setState(() {});
+      }
+      return;
+    }
+    if (_query.isEmpty) {
+      // Refresh suffix clear button visibility once when typing starts.
+      setState(() {});
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (mounted && _query != value) {
+        setState(() => _query = value);
+      }
+    });
   }
 
   Future<void> _confirm(Song local) async {
@@ -110,10 +166,10 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
     final localSongs = ref.watch(
       libraryNotifierProvider.select((s) => s.songs),
     );
-    final candidates = _rankedCandidates(localSongs);
-    final matchedCount = candidates.where((c) => c.score != null).length;
+    final candidates = _filteredCandidates(localSongs);
+    final matchedCount = _cachedMatchedCount;
     // AlertDialog wraps content in IntrinsicWidth; fix the width explicitly so
-    // it does not query intrinsic dimensions of the shrink-wrapping ListView.
+    // it does not query intrinsic dimensions of the list below.
     final dialogWidth =
         (MediaQuery.sizeOf(context).width - 128).clamp(240.0, 460.0);
 
@@ -190,7 +246,7 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
             TextField(
               controller: _searchController,
               enabled: !_isSubmitting,
-              onChanged: (v) => setState(() => _query = v),
+              onChanged: _onSearchChanged,
               decoration: InputDecoration(
                 hintText: '搜索本地曲库（标题或歌手）',
                 hintStyle: TextStyle(
@@ -198,11 +254,12 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
                   color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                 ),
                 prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                suffixIcon: _query.isEmpty
+                suffixIcon: _searchController.text.isEmpty
                     ? null
                     : IconButton(
                         icon: const Icon(Icons.close_rounded, size: 18),
                         onPressed: () {
+                          _searchDebounce?.cancel();
                           _searchController.clear();
                           setState(() => _query = '');
                         },
@@ -229,10 +286,11 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
               )
             else
               Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: candidates.length,
-                  itemBuilder: (context, index) {
+                child: SizedBox(
+                  height: (candidates.length * 76.0).clamp(76.0, 340.0),
+                  child: ListView.builder(
+                    itemCount: candidates.length,
+                    itemBuilder: (context, index) {
                     final entry = candidates[index];
                     final song = entry.song;
                     final label = _matchLabel(entry.score);
@@ -305,6 +363,7 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
                     );
                   },
                 ),
+              ),
               ),
           ],
         ),

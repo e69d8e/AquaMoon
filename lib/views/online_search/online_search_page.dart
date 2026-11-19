@@ -1011,7 +1011,8 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
     final lyricText = _item.syncedLyrics ?? _item.plainLyrics;
 
     return GlassContainer(
-      height: MediaQuery.of(context).size.height * 0.85,
+      enableBlur: false,
+      height: MediaQuery.sizeOf(context).height * 0.85,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Column(
         children: [

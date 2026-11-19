@@ -30,7 +30,17 @@ class SongArtwork extends StatelessWidget {
     final effectiveBytes = artBytes ?? song?.albumArtBytes;
 
     final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2.0;
-    final cacheDim = (size * dpr).round().clamp(64, 1024);
+    final rawDim = (size * dpr).round();
+    final int cacheDim;
+    if (rawDim <= 96) {
+      cacheDim = 96;
+    } else if (rawDim <= 160) {
+      cacheDim = 160;
+    } else if (rawDim <= 280) {
+      cacheDim = 280;
+    } else {
+      cacheDim = 640;
+    }
 
     Widget imageWidget = _buildPlaceholder(context);
 
@@ -108,6 +118,10 @@ class SongArtwork extends StatelessWidget {
 
   Widget _buildPlaceholder(BuildContext context, {bool isLoading = false}) {
     final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+    final iconSize = (size * 0.36).clamp(16.0, 52.0);
+    final showRings = !isLoading && size >= 72;
+
     return Container(
       width: size,
       height: size,
@@ -121,18 +135,53 @@ class SongArtwork extends StatelessWidget {
           ],
         ),
       ),
-      child: Center(
-        child: isLoading
-            ? SizedBox(
-                width: size * 0.4,
-                height: size * 0.4,
-                child: const CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(
-                Icons.music_note_rounded,
-                size: size * 0.5,
-                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (showRings) ...[
+            Container(
+              width: size * 0.68,
+              height: size * 0.68,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(
+                    alpha: isLight ? 0.08 : 0.11,
+                  ),
+                  width: 1,
+                ),
               ),
+            ),
+            Container(
+              width: size * 0.44,
+              height: size * 0.44,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: theme.colorScheme.primary.withValues(
+                  alpha: isLight ? 0.06 : 0.09,
+                ),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(
+                    alpha: isLight ? 0.12 : 0.16,
+                  ),
+                  width: 1,
+                ),
+              ),
+            ),
+          ],
+          if (isLoading)
+            Icon(
+              Icons.music_note_rounded,
+              size: iconSize,
+              color: theme.colorScheme.primary.withValues(alpha: 0.35),
+            )
+          else
+            Icon(
+              Icons.music_note_rounded,
+              size: iconSize,
+              color: theme.colorScheme.primary.withValues(alpha: 0.62),
+            ),
+        ],
       ),
     );
   }

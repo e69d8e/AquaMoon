@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../models/listening_stats.dart';
 
@@ -33,7 +34,7 @@ class _ListeningChartState extends State<ListeningChart> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final appColors = AppColors.of(context);
 
     final maxDurationSec = widget.bars.fold<int>(
       0,
@@ -42,21 +43,20 @@ class _ListeningChartState extends State<ListeningChart> {
 
     if (widget.bars.isEmpty || maxDurationSec <= 0) {
       return Container(
-        height: 190,
+        height: 184,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(
-            alpha: 0.35,
-          ),
-          borderRadius: BorderRadius.circular(16),
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: appColors.glassBorder, width: 1),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               Icons.bar_chart_rounded,
-              size: 36,
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+              size: 32,
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.35),
             ),
             const SizedBox(height: 8),
             Text(
@@ -64,7 +64,7 @@ class _ListeningChartState extends State<ListeningChart> {
               style: TextStyle(
                 fontSize: 13,
                 color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.6,
+                  alpha: 0.65,
                 ),
               ),
             ),
@@ -84,29 +84,19 @@ class _ListeningChartState extends State<ListeningChart> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: appColors.glassBorder, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header info
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
                   Container(
-                    width: 4,
+                    width: 3,
                     height: 14,
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primary,
@@ -118,7 +108,7 @@ class _ListeningChartState extends State<ListeningChart> {
                     _getChartTitle(widget.periodType),
                     style: const TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -141,6 +131,7 @@ class _ListeningChartState extends State<ListeningChart> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                         color: theme.colorScheme.primary,
                       ),
                     ),
@@ -148,11 +139,12 @@ class _ListeningChartState extends State<ListeningChart> {
                 )
               else
                 Text(
-                  '最高: ${Formatters.formatListeningDuration(Duration(seconds: maxDurationSec), short: true)}',
+                  '最高 ${Formatters.formatListeningDuration(Duration(seconds: maxDurationSec), short: true)}',
                   style: TextStyle(
                     fontSize: 11.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                     color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.7,
+                      alpha: 0.72,
                     ),
                   ),
                 ),
@@ -161,7 +153,6 @@ class _ListeningChartState extends State<ListeningChart> {
 
           const SizedBox(height: 18),
 
-          // Bars rendering
           SizedBox(
             height: 140,
             child: isMonthView
@@ -230,16 +221,16 @@ class _ListeningChartState extends State<ListeningChart> {
 
     Color barColor;
     if (bar.durationSeconds == 0) {
-      barColor = isDark
-          ? Colors.white.withValues(alpha: 0.08)
-          : Colors.black.withValues(alpha: 0.06);
+      barColor = theme.colorScheme.onSurface.withValues(
+        alpha: isDark ? 0.08 : 0.06,
+      );
     } else if (isSelected) {
       barColor = theme.colorScheme.primary;
     } else if (bar.isHighlighted) {
       barColor = theme.colorScheme.primary.withValues(alpha: 0.85);
     } else {
       barColor = theme.colorScheme.primary.withValues(
-        alpha: isDark ? 0.45 : 0.35,
+        alpha: isDark ? 0.45 : 0.34,
       );
     }
 
@@ -259,7 +250,6 @@ class _ListeningChartState extends State<ListeningChart> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            // Top duration dot / indicator when selected or highlighted
             SizedBox(
               height: 14,
               child: isSelected && bar.durationSeconds > 0
@@ -280,8 +270,6 @@ class _ListeningChartState extends State<ListeningChart> {
                         : null),
             ),
             const SizedBox(height: 2),
-
-            // Bar shape
             AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeOutCubic,
@@ -292,30 +280,31 @@ class _ListeningChartState extends State<ListeningChart> {
                 borderRadius: BorderRadius.circular(
                   width != null ? width / 2 : 4,
                 ),
-                border: isSelected
-                    ? Border.all(color: theme.colorScheme.surface, width: 1.2)
-                    : null,
               ),
             ),
-
-            const SizedBox(height: 6),
-
-            // Bottom Label
+            const SizedBox(height: 4),
+            Container(
+              height: 0.8,
+              width: double.infinity,
+              color: AppColors.of(context).subtleDivider,
+            ),
+            const SizedBox(height: 5),
             SizedBox(
               height: 18,
               child: Text(
                 showLabel ? bar.sublabel : '',
                 style: TextStyle(
                   fontSize: 10,
+                  fontFeatures: const [FontFeature.tabularFigures()],
                   fontWeight: isSelected || bar.isHighlighted
-                      ? FontWeight.bold
+                      ? FontWeight.w700
                       : FontWeight.normal,
                   color: isSelected
                       ? theme.colorScheme.primary
                       : (bar.isHighlighted
                             ? theme.colorScheme.onSurface
                             : theme.colorScheme.onSurfaceVariant.withValues(
-                                alpha: 0.6,
+                                alpha: 0.62,
                               )),
                 ),
               ),
@@ -344,7 +333,6 @@ class _ListeningChartState extends State<ListeningChart> {
   bool _shouldShowLabel(PeriodType type, int index, int total) {
     switch (type) {
       case PeriodType.day:
-        // Show labels every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
         return index % 4 == 0;
       case PeriodType.week:
         return true;

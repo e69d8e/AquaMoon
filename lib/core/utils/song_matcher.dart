@@ -12,41 +12,6 @@ import '../../models/song.dart';
 class SongMatcher {
   const SongMatcher._();
 
-  /// 全角 -> 半角标点映射，匹配前先统一。
-  static const Map<String, String> _punctuationFolds = {
-    '（': '(',
-    '）': ')',
-    '【': '[',
-    '】': ']',
-    '［': '[',
-    '］': ']',
-    '《': '',
-    '》': '',
-    '「': '',
-    '」': '',
-    '『': '',
-    '』': '',
-    '：': ':',
-    '；': ';',
-    '，': ',',
-    '。': '.',
-    '、': ',',
-    '！': '!',
-    '？': '?',
-    '“': '"',
-    '”': '"',
-    '‘': "'",
-    '’': "'",
-    '—': '-',
-    '－': '-',
-    '–': '-',
-    '～': '~',
-    '｜': '|',
-    '·': ' ',
-    '•': ' ',
-    '×': 'x',
-  };
-
   /// 视为「无歌手信息」的占位值。
   static const Set<String> _unknownArtistTokens = {
     '',
@@ -75,15 +40,78 @@ class SongMatcher {
     r'[/,;&+、]|\bfeat\.?\b|\bfeaturing\b|\bwith\b|\bvs\.?\b|\band\b',
     caseSensitive: false,
   );
+  static final RegExp _whitespaceRegex = RegExp(r'\s+');
+  static final RegExp _parenSuffixRegex = RegExp(r'\([^)]*\)');
+  static final RegExp _bracketSuffixRegex = RegExp(r'\[[^\]]*\]');
+  static final RegExp _dashSuffixRegex = RegExp(r'\s*[-~]\s*[^-~]*$');
+
+  static const Map<int, int> _punctuationFoldCodePoints = {
+    0xFF08: 0x28, // '（' -> '('
+    0xFF09: 0x29, // '）' -> ')'
+    0x3010: 0x5B, // '【' -> '['
+    0x3011: 0x5D, // '】' -> ']'
+    0xFF3B: 0x5B, // '［' -> '['
+    0xFF3D: 0x5D, // '］' -> ']'
+    0x300A: -1, // '《'
+    0x300B: -1, // '》'
+    0x300C: -1, // '「'
+    0x300D: -1, // '」'
+    0x300E: -1, // '『'
+    0x300F: -1, // '』'
+    0xFF1A: 0x3A, // '：' -> ':'
+    0xFF1B: 0x3B, // '；' -> ';'
+    0xFF0C: 0x2C, // '，' -> ','
+    0x3002: 0x2E, // '。' -> '.'
+    0x3001: 0x2C, // '、' -> ','
+    0xFF01: 0x21, // '！' -> '!'
+    0xFF1F: 0x3F, // '？' -> '?'
+    0x201C: 0x22, // '“' -> '"'
+    0x201D: 0x22, // '”' -> '"'
+    0x2018: 0x27, // '‘' -> '\''
+    0x2019: 0x27, // '’' -> '\''
+    0x2014: 0x2D, // '—' -> '-'
+    0xFF0D: 0x2D, // '－' -> '-'
+    0x2013: 0x2D, // '–' -> '-'
+    0xFF5E: 0x7E, // '～' -> '~'
+    0xFF5C: 0x7C, // '｜' -> '|'
+    0x00B7: 0x20, // '·' -> ' '
+    0x2022: 0x20, // '•' -> ' '
+    0x00D7: 0x78, // '×' -> 'x'
+  };
+
+  static bool _isCompactAllowedRune(int r) {
+    return (r >= 0x61 && r <= 0x7A) || // a-z
+        (r >= 0x30 && r <= 0x39) || // 0-9
+        (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
+        (r >= 0x3040 && r <= 0x30FF) || // Hiragana & Katakana
+        (r >= 0xAC00 && r <= 0xD7AF); // Hangul Syllables
+  }
+
+  static bool _isWhitespaceRune(int r) {
+    return r == 0x20 ||
+        (r >= 0x09 && r <= 0x0D) ||
+        r == 0x85 ||
+        r == 0xA0 ||
+        r == 0x1680 ||
+        (r >= 0x2000 && r <= 0x200A) ||
+        r == 0x2028 ||
+        r == 0x2029 ||
+        r == 0x202F ||
+        r == 0x205F ||
+        r == 0x3000 ||
+        r == 0xFEFF;
+  }
 
   /// 去掉所有标点与空白后的紧凑形式，用于宽松比较。
   static String compact(String input) {
-    final folded = foldPunctuation(input);
+    if (input.isEmpty) return '';
+    final lower = input.toLowerCase();
     final buf = StringBuffer();
-    for (final code in folded.runes) {
-      final ch = String.fromCharCode(code);
-      if (RegExp(r'[a-z0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]').hasMatch(ch)) {
-        buf.write(ch);
+    for (final rune in lower.runes) {
+      if (rune == 0x00D7) {
+        buf.writeCharCode(0x78); // '×' -> 'x'
+      } else if (_isCompactAllowedRune(rune)) {
+        buf.writeCharCode(rune);
       }
     }
     return buf.toString();
@@ -91,11 +119,28 @@ class SongMatcher {
 
   /// 统一全角标点为半角并压缩空白、转小写。
   static String foldPunctuation(String input) {
-    var text = input.trim().toLowerCase();
-    _punctuationFolds.forEach((from, to) {
-      text = text.replaceAll(from, to);
-    });
-    return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return '';
+    final lower = trimmed.toLowerCase();
+    final buf = StringBuffer();
+    var pendingSpace = false;
+    var hasWritten = false;
+    for (final rune in lower.runes) {
+      final mapped = _punctuationFoldCodePoints[rune];
+      if (mapped == -1) continue;
+      final outRune = mapped ?? rune;
+      if (_isWhitespaceRune(outRune)) {
+        if (hasWritten) pendingSpace = true;
+        continue;
+      }
+      if (pendingSpace) {
+        buf.writeCharCode(0x20);
+        pendingSpace = false;
+      }
+      buf.writeCharCode(outRune);
+      hasWritten = true;
+    }
+    return buf.toString();
   }
 
   /// 去掉版本后缀（`(Live)`、`- Remastered`、`[伴奏]` 等），得到「基础标题」。
@@ -105,19 +150,20 @@ class SongMatcher {
   /// 时长打分仍会把差异过大的版本区分开。
   static String baseTitle(String title) {
     var t = foldPunctuation(title);
+    if (t.isEmpty) return '';
     // 去掉成对括号及其内容：(Live) / [Bonus] / (feat. X)
-    t = t.replaceAll(RegExp(r'\([^)]*\)'), '');
-    t = t.replaceAll(RegExp(r'\[[^\]]*\]'), '');
+    t = t.replaceAll(_parenSuffixRegex, '');
+    t = t.replaceAll(_bracketSuffixRegex, '');
     // 去掉尾部 " - xxx" / " ~xxx" 版本说明
-    t = t.replaceAll(RegExp(r'\s*[-~]\s*[^-~]*$'), '');
-    return t.replaceAll(RegExp(r'\s+'), ' ').trim();
+    t = t.replaceAll(_dashSuffixRegex, '');
+    return t.replaceAll(_whitespaceRegex, ' ').trim();
   }
 
   /// 标题的宽松键：基础标题去标点去空白。
   static String? titleKey(String title) {
+    if (_unknownTitleTokens.contains(compact(title))) return null;
     final key = compact(baseTitle(title));
     if (key.isEmpty) return null;
-    if (_unknownTitleTokens.contains(compact(title))) return null;
     return key;
   }
 

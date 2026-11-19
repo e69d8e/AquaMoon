@@ -193,11 +193,29 @@ bool songMatchesQuery(Song song, String normalizedQuery) {
 
 final favoritesSearchQueryProvider = StateProvider<String>((ref) => '');
 
-final favoritesSongsProvider = Provider<List<Song>>((ref) {
-  final qqFavState = ref.watch(qqMusicFavoritesProvider);
+/// Unified `songId -> Song` lookup combining local library and QQ Music merged
+/// favorites so playlist views share one cached map per state change.
+final songByIdMapProvider = Provider<Map<String, Song>>((ref) {
   final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
-  if (qqFavState.isBound || qqFavState.mergedSongs.isNotEmpty) {
-    final merged = qqFavState.mergedSongs;
+  final qqFavorites = ref.watch(
+    qqMusicFavoritesProvider.select((s) => s.mergedSongs),
+  );
+  final map = <String, Song>{for (final s in songs) s.id: s};
+  for (final song in qqFavorites) {
+    map.putIfAbsent(song.id, () => song);
+  }
+  return Map<String, Song>.unmodifiable(map);
+});
+
+final favoritesSongsProvider = Provider<List<Song>>((ref) {
+  final qqFav = ref.watch(
+    qqMusicFavoritesProvider.select(
+      (s) => (isBound: s.isBound, mergedSongs: s.mergedSongs),
+    ),
+  );
+  final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
+  if (qqFav.isBound || qqFav.mergedSongs.isNotEmpty) {
+    final merged = qqFav.mergedSongs;
     // 绑定后仍要保留「只在本地标了红心、不在 QQ 歌单里」的曲目，
     // 否则绑定前收藏的本地歌曲会从收藏页消失。
     final mergedIds = {for (final s in merged) s.id};
@@ -231,19 +249,11 @@ final historySongsProvider = Provider<List<Song>>((ref) {
   // Bumping this tick (e.g. after 清空历史) forces a re-read of the box;
   // normal playback already rebuilds this provider via playCount changes.
   ref.watch(historyRefreshTickProvider);
-  final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
-  final qqFavorites = ref.watch(
-    qqMusicFavoritesProvider.select((s) => s.mergedSongs),
-  );
+  final songMap = ref.watch(songByIdMapProvider);
   final storage = ref.watch(storageServiceProvider);
   final historyIds = storage.getHistoryIds();
 
-  final songMap = {
-    for (final s in qqFavorites) s.id: s,
-    for (final s in songs) s.id: s,
-  };
   final result = <Song>[];
-
   for (final id in historyIds) {
     final song = songMap[id];
     if (song != null) {

@@ -24,6 +24,8 @@ class ExportResult {
 
 class FileExportService {
   static final http.Client _client = http.Client();
+  static final RegExp _invalidFileNameCharsRegex = RegExp(r'[\\/:*?"<>|]');
+  static final RegExp _whitespaceRegex = RegExp(r'\s+');
 
   /// Resolve a safe and accessible directory for saving user-downloaded assets
   static Future<Directory> getExportDirectory() async {
@@ -68,8 +70,8 @@ class FileExportService {
   /// Clean filename to remove invalid characters across Windows, Android, macOS, and Linux
   static String sanitizeFileName(String name) {
     return name
-        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_invalidFileNameCharsRegex, '_')
+        .replaceAll(_whitespaceRegex, ' ')
         .trim();
   }
 
@@ -245,6 +247,9 @@ class M3uImportResult {
 }
 
 class M3uPlaylistParser {
+  static final RegExp _lineBreakRegex = RegExp(r'\r?\n');
+  static final RegExp _extInfRegex = RegExp(r'^#EXTINF:\s*-?\d+\s*,\s*(.*)$');
+
   /// 解析 m3u/m3u8 内容并按 路径精确匹配 → 文件名匹配 → EXTINF 标题/歌手匹配
   /// 的优先级与曲库比对。纯函数，便于单元测试。
   static M3uImportResult parse(String content, List<Song> library) {
@@ -277,12 +282,12 @@ class M3uPlaylistParser {
       pendingExtInfArtist = '';
     }
 
-    for (final rawLine in content.split(RegExp(r'\r?\n'))) {
+    for (final rawLine in content.split(_lineBreakRegex)) {
       final line = rawLine.trim();
       if (line.isEmpty) continue;
       if (line.startsWith('#')) {
         // #EXTINF:<seconds>,<artist> - <title>
-        final match = RegExp(r'^#EXTINF:\s*-?\d+\s*,\s*(.*)$').firstMatch(line);
+        final match = _extInfRegex.firstMatch(line);
         if (match != null) {
           final meta = match.group(1)?.trim() ?? '';
           final sepIdx = meta.lastIndexOf(' - ');

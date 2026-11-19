@@ -2,20 +2,22 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/qq_music_provider.dart';
 import '../../providers/update_provider.dart';
 import '../favorites/unmatched_songs_page.dart';
+import '../history/recent_plays_page.dart';
 import '../online_search/online_search_page.dart';
 import '../player/mini_player.dart';
 import '../qq_music/qq_music_discovery_page.dart';
-import '../history/recent_plays_page.dart';
 import '../settings/settings_page.dart';
 import '../stats/listening_stats_page.dart';
+import '../widgets/aquamoon_mark.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/update_dialog.dart';
 import 'tabs/all_songs_tab.dart';
@@ -179,11 +181,21 @@ class _HomePageState extends ConsumerState<HomePage>
     );
   }
 
+  int _watchUnmatchedCount() {
+    try {
+      return ref.watch(unmatchedFavoritesProvider.select((l) => l.length));
+    } catch (_) {
+      return 0;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentTab = ref.watch(currentTabProvider);
+    final unmatchedCount = _watchUnmatchedCount();
     final theme = Theme.of(context);
-    final isDesktop = MediaQuery.of(context).size.width >= 720;
+    final appColors = AppColors.of(context);
+    final isDesktop = MediaQuery.sizeOf(context).width >= 720;
 
     // Surface playback failures (missing/corrupt file) wherever the user is.
     ref.listen<AsyncValue<String>>(playbackErrorStreamProvider, (prev, next) {
@@ -212,110 +224,51 @@ class _HomePageState extends ConsumerState<HomePage>
     final currentTabTitle = _tabTitles[currentTab];
 
     if (isDesktop) {
-      // Desktop / Tablet Layout with NavigationRail
       return AnnotatedRegion<SystemUiOverlayStyle>(
         value: overlayStyle,
         child: Scaffold(
           body: Row(
             children: [
-              NavigationRail(
-                selectedIndex: currentTab,
-                onDestinationSelected: (index) {
-                  ref.read(currentTabProvider.notifier).state = index;
-                },
-                labelType: NavigationRailLabelType.all,
-                leading: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20.0),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.graphic_eq_rounded,
-                        color: theme.colorScheme.primary,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 8),
-                      const Text(
-                        '水月音',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                destinations: const [
-                  NavigationRailDestination(
-                    icon: Icon(Icons.music_note_outlined),
-                    selectedIcon: Icon(Icons.music_note_rounded),
-                    label: Text('曲库'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.queue_music_outlined),
-                    selectedIcon: Icon(Icons.queue_music_rounded),
-                    label: Text('歌单'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.favorite_border_rounded),
-                    selectedIcon: Icon(Icons.favorite_rounded),
-                    label: Text('收藏'),
-                  ),
-                ],
+              _buildDesktopSidebar(
+                context: context,
+                currentTab: currentTab,
+                unmatchedCount: unmatchedCount,
               ),
-              const VerticalDivider(thickness: 1, width: 1),
+              VerticalDivider(
+                thickness: 0.8,
+                width: 0.8,
+                color: appColors.subtleDivider,
+              ),
               Expanded(
                 child: Stack(
                   children: [
                     Column(
                       children: [
-                        AppBar(
-                          title: Text(currentTabTitle),
-                          automaticallyImplyLeading: false,
-                          actions: [
-                            IconButton(
-                              icon: const Icon(Icons.insights_rounded),
-                              tooltip: '听歌统计',
-                              onPressed: () =>
-                                  _pushPage(() => const ListeningStatsPage()),
+                        // 极简顶栏：只承载当前栏目名称，不再堆砌六个孤立图标。
+                        Container(
+                          height: 58,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            currentTabTitle,
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                              color: theme.colorScheme.onSurface,
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.history_rounded),
-                              tooltip: '最近播放',
-                              onPressed: () =>
-                                  _pushPage(() => const RecentPlaysPage()),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.link_off_rounded),
-                              tooltip: '本地未匹配歌曲',
-                              onPressed: () =>
-                                  _pushPage(() => const UnmatchedSongsPage()),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.radio_rounded),
-                              tooltip: 'QQ 音乐在线发现',
-                              onPressed: () =>
-                                  _pushPage(() => const QQMusicDiscoveryPage()),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.cloud_download_outlined),
-                              tooltip: '全网在线歌曲与歌词检索',
-                              onPressed: () =>
-                                  _pushPage(() => const OnlineSearchPage()),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.settings_outlined),
-                              tooltip: '设置',
-                              onPressed: () =>
-                                  _pushPage(() => const SettingsPage()),
-                            ),
-                          ],
+                          ),
                         ),
                         Expanded(
                           child: IndexedStack(
                             index: currentTab,
-                            children: _tabs,
+                            children: [
+                              for (var i = 0; i < _tabs.length; i++)
+                                TickerMode(
+                                  enabled: currentTab == i,
+                                  child: _tabs[i],
+                                ),
+                            ],
                           ),
                         ),
                       ],
@@ -335,11 +288,11 @@ class _HomePageState extends ConsumerState<HomePage>
       );
     }
 
-    // Mobile Layout with BottomNavigationBar
+    // Mobile Layout with Frosted Glass NavigationBar
     //
-    // extendBody 让列表内容从磨砂导航栏与迷你播放器下方滚过,玻璃效果才
-    // 有内容可模糊;body 的 MediaQuery.padding.bottom 因此被抬升为底部
-    // 导航栏总高度,迷你播放器与列表留白都据此避让。
+    // extendBody 让列表内容从磨砂导航栏与迷你播放器下方滚过，玻璃效果才
+    // 有内容可模糊；body 的 MediaQuery.padding.bottom 因此被抬升为底部
+    // 导航栏总高度，迷你播放器与列表留白都据此避让。
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: Scaffold(
@@ -350,24 +303,39 @@ class _HomePageState extends ConsumerState<HomePage>
           titleSpacing: 16,
           title: Row(
             children: [
-              Icon(
-                Icons.graphic_eq_rounded,
-                color: theme.colorScheme.primary,
-                size: 22,
-              ),
-              const SizedBox(width: 8),
+              const AquaMoonMark(size: 24),
+              const SizedBox(width: 9),
               Text(
                 currentTabTitle,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                  letterSpacing: -0.4,
                 ),
               ),
             ],
           ),
           actions: [
             PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded, size: 22),
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.more_vert_rounded, size: 22),
+                  if (unmatchedCount > 0)
+                    Positioned(
+                      right: -1,
+                      top: -1,
+                      child: Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
               tooltip: '更多功能',
               onSelected: (value) {
                 switch (value) {
@@ -388,90 +356,88 @@ class _HomePageState extends ConsumerState<HomePage>
                     break;
                 }
               },
-              itemBuilder: (context) {
-                var unmatchedCount = 0;
-                try {
-                  unmatchedCount = ref.read(unmatchedFavoritesProvider).length;
-                } catch (_) {}
-                return [
-                  const PopupMenuItem(
-                    value: 'stats',
-                    child: Row(
-                      children: [
-                        Icon(Icons.insights_rounded, size: 20),
-                        SizedBox(width: 10),
-                        Text('听歌统计'),
-                      ],
-                    ),
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'stats',
+                  child: Row(
+                    children: [
+                      Icon(Icons.insights_rounded, size: 19),
+                      SizedBox(width: 10),
+                      Text('听歌统计'),
+                    ],
                   ),
-                  const PopupMenuItem(
-                    value: 'recent',
-                    child: Row(
-                      children: [
-                        Icon(Icons.history_rounded, size: 20),
-                        SizedBox(width: 10),
-                        Text('最近播放'),
-                      ],
-                    ),
+                ),
+                const PopupMenuItem(
+                  value: 'recent',
+                  child: Row(
+                    children: [
+                      Icon(Icons.history_rounded, size: 19),
+                      SizedBox(width: 10),
+                      Text('最近播放'),
+                    ],
                   ),
-                  PopupMenuItem(
-                    value: 'unmatched',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.link_off_rounded, size: 20),
-                        const SizedBox(width: 10),
-                        const Text('本地未匹配歌曲'),
-                        if (unmatchedCount > 0) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 1,
+                ),
+                PopupMenuItem(
+                  value: 'unmatched',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.link_off_rounded, size: 19),
+                      const SizedBox(width: 10),
+                      const Text('本地未匹配歌曲'),
+                      if (unmatchedCount > 0) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6.5,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.13,
                             ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(
-                                alpha: 0.12,
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '$unmatchedCount',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: theme.colorScheme.primary,
-                              ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$unmatchedCount',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                              color: theme.colorScheme.primary,
                             ),
                           ),
-                        ],
+                        ),
                       ],
-                    ),
+                    ],
                   ),
-                  const PopupMenuItem(
-                    value: 'online',
-                    child: Row(
-                      children: [
-                        Icon(Icons.cloud_download_outlined, size: 20),
-                        SizedBox(width: 10),
-                        Text('全网检索与下载'),
-                      ],
-                    ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'qq_discovery',
+                  child: Row(
+                    children: [
+                      Icon(Icons.radio_rounded, size: 19),
+                      SizedBox(width: 10),
+                      Text('QQ 音乐在线发现'),
+                    ],
                   ),
-                  const PopupMenuItem(
-                    value: 'qq_discovery',
-                    child: Row(
-                      children: [
-                        Icon(Icons.radio_rounded, size: 20),
-                        SizedBox(width: 10),
-                        Text('QQ 音乐在线发现'),
-                      ],
-                    ),
+                ),
+                const PopupMenuItem(
+                  value: 'online',
+                  child: Row(
+                    children: [
+                      Icon(Icons.cloud_download_outlined, size: 19),
+                      SizedBox(width: 10),
+                      Text('全网检索与下载'),
+                    ],
                   ),
-                ];
-              },
+                ),
+              ],
             ),
             IconButton(
-              icon: const Icon(Icons.settings_outlined, size: 22),
+              icon: const Icon(Icons.settings_outlined, size: 21),
               tooltip: '设置',
               onPressed: () => _pushPage(() => const SettingsPage()),
             ),
@@ -480,12 +446,21 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
         body: Builder(
           builder: (bodyContext) {
-            final bottomChromeHeight = MediaQuery.of(bodyContext)
-                .padding
-                .bottom;
+            final bottomChromeHeight = MediaQuery.paddingOf(
+              bodyContext,
+            ).bottom;
             return Stack(
               children: [
-                IndexedStack(index: currentTab, children: _tabs),
+                IndexedStack(
+                  index: currentTab,
+                  children: [
+                    for (var i = 0; i < _tabs.length; i++)
+                      TickerMode(
+                        enabled: currentTab == i,
+                        child: _tabs[i],
+                      ),
+                  ],
+                ),
                 Positioned(
                   left: 0,
                   right: 0,
@@ -497,9 +472,12 @@ class _HomePageState extends ConsumerState<HomePage>
           },
         ),
         bottomNavigationBar: GlassContainer(
-          blurSigma: 24,
+          blurSigma: 26,
           tint: theme.colorScheme.surface.withValues(
-            alpha: isLight ? 0.78 : 0.66,
+            alpha: isLight ? 0.80 : 0.72,
+          ),
+          border: Border(
+            top: BorderSide(color: appColors.glassBorder, width: 0.8),
           ),
           child: NavigationBar(
             elevation: 0,
@@ -530,5 +508,241 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
       ),
     );
+  }
+
+  /// 桌面端静谧侧栏：品牌徽标、核心三栏、探索与工具、以及置底设置入口。
+  Widget _buildDesktopSidebar({
+    required BuildContext context,
+    required int currentTab,
+    required int unmatchedCount,
+  }) {
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+
+    return Container(
+      width: 216,
+      color: theme.colorScheme.surface.withValues(alpha: isLight ? 0.72 : 0.85),
+      child: SafeArea(
+        right: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 品牌头
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 22, 16, 18),
+              child: Row(
+                children: [
+                  const AquaMoonMark(size: 28),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '水月音',
+                        style: TextStyle(
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        'AquaMoon',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          letterSpacing: 0.4,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.72,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // 核心导航
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                children: [
+                  _SidebarItem(
+                    icon: Icons.music_note_outlined,
+                    selectedIcon: Icons.music_note_rounded,
+                    label: '曲库',
+                    selected: currentTab == 0,
+                    onTap: () =>
+                        ref.read(currentTabProvider.notifier).state = 0,
+                  ),
+                  const SizedBox(height: 3),
+                  _SidebarItem(
+                    icon: Icons.queue_music_outlined,
+                    selectedIcon: Icons.queue_music_rounded,
+                    label: '歌单',
+                    selected: currentTab == 1,
+                    onTap: () =>
+                        ref.read(currentTabProvider.notifier).state = 1,
+                  ),
+                  const SizedBox(height: 3),
+                  _SidebarItem(
+                    icon: Icons.favorite_border_rounded,
+                    selectedIcon: Icons.favorite_rounded,
+                    label: '收藏',
+                    selected: currentTab == 2,
+                    onTap: () =>
+                        ref.read(currentTabProvider.notifier).state = 2,
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+                    child: Divider(height: 1),
+                  ),
+                  _SidebarItem(
+                    icon: Icons.history_rounded,
+                    label: '最近播放',
+                    tooltip: '最近播放',
+                    onTap: () => _pushPage(() => const RecentPlaysPage()),
+                  ),
+                  const SizedBox(height: 2),
+                  _SidebarItem(
+                    icon: Icons.insights_rounded,
+                    label: '听歌统计',
+                    tooltip: '听歌统计',
+                    onTap: () => _pushPage(() => const ListeningStatsPage()),
+                  ),
+                  const SizedBox(height: 2),
+                  _SidebarItem(
+                    icon: Icons.radio_rounded,
+                    label: 'QQ 音乐发现',
+                    tooltip: 'QQ 音乐在线发现',
+                    onTap: () => _pushPage(() => const QQMusicDiscoveryPage()),
+                  ),
+                  const SizedBox(height: 2),
+                  _SidebarItem(
+                    icon: Icons.cloud_download_outlined,
+                    label: '全网检索',
+                    tooltip: '全网在线歌曲与歌词检索',
+                    onTap: () => _pushPage(() => const OnlineSearchPage()),
+                  ),
+                  const SizedBox(height: 2),
+                  _SidebarItem(
+                    icon: Icons.link_off_rounded,
+                    label: '未匹配歌曲',
+                    tooltip: '本地未匹配歌曲',
+                    badgeCount: unmatchedCount,
+                    onTap: () => _pushPage(() => const UnmatchedSongsPage()),
+                  ),
+                ],
+              ),
+            ),
+
+            // 置底设置入口
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 18),
+              child: Divider(height: 1),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+              child: _SidebarItem(
+                icon: Icons.settings_outlined,
+                label: '设置',
+                tooltip: '设置',
+                onTap: () => _pushPage(() => const SettingsPage()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarItem extends StatelessWidget {
+  final IconData icon;
+  final IconData? selectedIcon;
+  final String label;
+  final String? tooltip;
+  final bool selected;
+  final int badgeCount;
+  final VoidCallback onTap;
+
+  const _SidebarItem({
+    required this.icon,
+    this.selectedIcon,
+    required this.label,
+    this.tooltip,
+    this.selected = false,
+    this.badgeCount = 0,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+    final fg = selected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
+
+    final item = Material(
+      color: selected
+          ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.11 : 0.18)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(11),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(11),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(selected ? (selectedIcon ?? icon) : icon, size: 19, color: fg),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              if (badgeCount > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6.5,
+                    vertical: 1.5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$badgeCount',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (tooltip != null) {
+      return Tooltip(message: tooltip!, child: item);
+    }
+    return item;
   }
 }

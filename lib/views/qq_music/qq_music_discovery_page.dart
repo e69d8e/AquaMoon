@@ -136,15 +136,6 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
     }
   }
 
-  /// 行内下载进度：下载中的歌曲在列表里直接显示进度环。
-  QQMusicDownloadTask? _downloadTaskFor(Song song) {
-    try {
-      return ref.watch(qqMusicDownloadProvider).taskFor(song);
-    } catch (_) {
-      return null;
-    }
-  }
-
   /// 选择音质 → 入队下载 → 等待结果并提示保存位置。
   Future<void> _download(Song song) async {
     final hasCookie = _hasCookie;
@@ -747,7 +738,6 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
     List<Song> queue,
     int index,
   ) {
-    final downloadTask = _downloadTaskFor(song);
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(12),
@@ -826,43 +816,7 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
                   ),
                 ),
               ],
-              if (downloadTask != null && downloadTask.isActive) ...[
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    value: downloadTask.progress,
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  downloadTask.progress == null
-                      ? '下载中'
-                      : '${(downloadTask.progress! * 100).round()}%',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ] else ...[
-                const SizedBox(width: 8),
-                Text(
-                  Formatters.formatDuration(song.duration),
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Icon(
-                  Icons.play_circle_outline_rounded,
-                  size: 24,
-                  color: theme.colorScheme.primary,
-                ),
-              ],
+              _DiscoverySongDownloadTrailing(song: song),
               IconButton(
                 icon: Icon(
                   Icons.more_vert_rounded,
@@ -1256,12 +1210,80 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
         onAction: () => notifier.refresh(),
       );
     }
-    return ListView.separated(
+    return ListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 40),
+      itemExtent: 64.0,
       itemCount: songs.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 2),
-      itemBuilder: (context, index) =>
-          _buildSongRow(theme, songs[index], songs, index),
+      itemBuilder: (context, index) => Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: _buildSongRow(theme, songs[index], songs, index),
+      ),
+    );
+  }
+}
+
+/// 隔离下载状态订阅到单行末尾，避免下载进度推送时整页 100 次级联重建。
+class _DiscoverySongDownloadTrailing extends ConsumerWidget {
+  final Song song;
+
+  const _DiscoverySongDownloadTrailing({required this.song});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    QQMusicDownloadTask? downloadTask;
+    try {
+      downloadTask = ref.watch(
+        qqMusicDownloadProvider.select((s) => s.taskFor(song)),
+      );
+    } catch (_) {}
+    final theme = Theme.of(context);
+
+    if (downloadTask != null && downloadTask.isActive) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              value: downloadTask.progress,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            downloadTask.progress == null
+                ? '下载中'
+                : '${(downloadTask.progress! * 100).round()}%',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(width: 8),
+        Text(
+          Formatters.formatDuration(song.duration),
+          style: TextStyle(
+            fontSize: 11.5,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(width: 2),
+        Icon(
+          Icons.play_circle_outline_rounded,
+          size: 24,
+          color: theme.colorScheme.primary,
+        ),
+      ],
     );
   }
 }

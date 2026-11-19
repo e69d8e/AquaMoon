@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_theme.dart';
+import 'empty_state_view.dart';
+
 /// 带防抖与安全清空逻辑的歌曲搜索框。
 ///
 /// 清空时先释放焦点再清空控制器，避免中文输入法在合成态收尾时
@@ -55,6 +58,9 @@ class DebouncedSearchFieldState extends State<DebouncedSearchField> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
+    final isLight = theme.brightness == Brightness.light;
+
     // 仅监听 controller 的本地变化来切换清除按钮可见性，
     // 保证按键当下即可点击清除，不必等待 300ms 防抖结束。
     return ValueListenableBuilder<TextEditingValue>(
@@ -63,18 +69,26 @@ class DebouncedSearchFieldState extends State<DebouncedSearchField> {
         return TextField(
           controller: _controller,
           focusNode: _focusNode,
+          style: TextStyle(
+            fontSize: 13.5,
+            color: theme.colorScheme.onSurface,
+          ),
           decoration: InputDecoration(
             hintText: widget.hintText,
             hintStyle: TextStyle(
               fontSize: 13,
               color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.65),
             ),
-            prefixIcon: const Icon(Icons.search_rounded, size: 18),
+            prefixIcon: Icon(
+              Icons.search_rounded,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
+            ),
             // 默认 prefixIcon 受 48dp 最小交互尺寸约束，会让整个输入框
-            // 无法低于 48dp；这里收紧到 40dp，使搜索框更紧凑。
+            // 无法低于 48dp；这里收紧到 38dp，使搜索框更紧凑利落。
             prefixIconConstraints: const BoxConstraints(
-              minWidth: 40,
-              minHeight: 40,
+              minWidth: 38,
+              minHeight: 38,
             ),
             suffixIcon: value.text.isNotEmpty
                 ? IconButton(
@@ -95,12 +109,23 @@ class DebouncedSearchFieldState extends State<DebouncedSearchField> {
             ),
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
-              vertical: 5,
+              vertical: 7,
               horizontal: 10,
             ),
             filled: true,
             fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
-              alpha: 0.5,
+              alpha: isLight ? 0.62 : 0.55,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: appColors.glassBorder, width: 0.8),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: theme.colorScheme.primary.withValues(alpha: 0.55),
+                width: 1.1,
+              ),
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
@@ -123,7 +148,7 @@ class DebouncedSearchFieldState extends State<DebouncedSearchField> {
   }
 }
 
-/// 搜索无匹配结果时的通用空状态卡片，支持一键清空搜索与可选扩展操作。
+/// 搜索无匹配结果时的通用空状态视图，支持一键清空搜索与可选扩展操作。
 class SongSearchEmptyState extends StatelessWidget {
   final String message;
   final VoidCallback onClearSearch;
@@ -142,49 +167,25 @@ class SongSearchEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.search_off_rounded,
-              size: 56,
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: onClearSearch,
-                  icon: const Icon(Icons.clear_rounded, size: 17),
-                  label: const Text('清空搜索'),
-                ),
-                if (onSecondaryAction != null && secondaryLabel != null)
-                  FilledButton.icon(
-                    onPressed: onSecondaryAction,
-                    icon: Icon(
-                      secondaryIcon ?? Icons.cloud_download_rounded,
-                      size: 18,
-                    ),
-                    label: Text(secondaryLabel!),
-                  ),
-              ],
-            ),
-          ],
+    return EmptyStateView(
+      icon: Icons.search_off_rounded,
+      title: message,
+      actions: [
+        OutlinedButton.icon(
+          onPressed: onClearSearch,
+          icon: const Icon(Icons.clear_rounded, size: 17),
+          label: const Text('清空搜索'),
         ),
-      ),
+        if (onSecondaryAction != null && secondaryLabel != null)
+          FilledButton.icon(
+            onPressed: onSecondaryAction,
+            icon: Icon(
+              secondaryIcon ?? Icons.cloud_download_rounded,
+              size: 18,
+            ),
+            label: Text(secondaryLabel!),
+          ),
+      ],
     );
   }
 }

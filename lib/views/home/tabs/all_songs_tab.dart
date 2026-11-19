@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/app_toast.dart';
 import '../../../models/playlist.dart';
 import '../../../models/song.dart';
@@ -10,6 +11,7 @@ import '../../../providers/playlist_provider.dart';
 import '../../online_search/online_search_page.dart';
 import '../../settings/settings_page.dart';
 import '../../widgets/debounced_search_field.dart';
+import '../../widgets/empty_state_view.dart';
 import '../../widgets/locate_playing_button.dart';
 import '../../widgets/song_tile.dart';
 
@@ -23,9 +25,10 @@ class AllSongsTab extends ConsumerStatefulWidget {
 class _AllSongsTabState extends ConsumerState<AllSongsTab>
     with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<DebouncedSearchFieldState> _searchFieldKey = GlobalKey();
   final Set<String> _selectedIds = {};
 
-  /// 列表向前滚动时收起搜索框，回滑或回到顶部时恢复；
+  /// 列表向前滚动时收起顶部搜索与快捷行，回滑或回到顶部时恢复；
   /// 用 AnimationController 驱动 SizeTransition，让搜索框 State（文本、焦点）
   /// 始终保留在树中，不会被销毁。
   late final AnimationController _searchBarController;
@@ -107,13 +110,14 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
         .where((s) => _selectedIds.contains(s.id))
         .toList(growable: false);
     if (selected.isEmpty) return;
+    final theme = Theme.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('批量移除'),
         content: Text(
           '确定将 ${selected.length} 首歌曲从曲库移除吗？\n\n提示：设备中的本地原音频文件不会被删除。',
-          style: const TextStyle(height: 1.4),
+          style: const TextStyle(height: 1.45),
         ),
         actions: [
           TextButton(
@@ -121,7 +125,10 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.error,
+              foregroundColor: theme.colorScheme.onError,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('确认移除'),
           ),
@@ -162,7 +169,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
     if (playlists.isEmpty || selectedIds.isEmpty) {
       AppToast.show(
         context,
-        playlists.isEmpty ? '暂无自定义歌单，请先在歌单页面创建！' : '未选中歌曲',
+        playlists.isEmpty ? '暂无自定义歌单，请先在歌单页面创建' : '未选中歌曲',
         icon: Icons.info_outline_rounded,
       );
       return;
@@ -180,6 +187,9 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
             itemBuilder: (c, i) {
               final pl = playlists[i];
               return ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 title: Text(pl.name),
                 subtitle: Text('${pl.songIds.length} 首歌曲'),
                 trailing: const Icon(Icons.add_circle_outline_rounded),
@@ -222,6 +232,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
   /// 多选模式下的顶部操作栏：全选、批量收藏、加入歌单、批量移除、退出。
   Widget _buildSelectionBar(BuildContext context, List<Song> songs) {
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
     final selectedCount = _selectedIds.length;
     final selectedSongs = songs
         .where((s) => _selectedIds.contains(s.id))
@@ -230,7 +241,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
         selectedSongs.isNotEmpty && selectedSongs.every((s) => s.isFavorite);
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 6),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: theme.colorScheme.primary.withValues(alpha: 0.10),
@@ -252,6 +263,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
               color: theme.colorScheme.primary,
             ),
           ),
@@ -268,7 +280,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
                   ? Icons.favorite_border_rounded
                   : Icons.favorite_rounded,
               size: 20,
-              color: allFavorite ? null : Colors.redAccent,
+              color: allFavorite ? null : appColors.favorite,
             ),
             tooltip: allFavorite ? '批量取消收藏' : '批量收藏',
             visualDensity: VisualDensity.compact,
@@ -283,10 +295,10 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
             onPressed: selectedSongs.isEmpty ? null : _batchAddToPlaylist,
           ),
           IconButton(
-            icon: const Icon(
+            icon: Icon(
               Icons.delete_outline_rounded,
               size: 20,
-              color: Colors.redAccent,
+              color: theme.colorScheme.error,
             ),
             tooltip: '从曲库移除',
             visualDensity: VisualDensity.compact,
@@ -320,6 +332,21 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
         '已定位至第 ${index + 1} 首: ${songs[index].title}',
         icon: Icons.my_location_rounded,
       );
+    }
+  }
+
+  String _sortLabel(SongSortType type) {
+    switch (type) {
+      case SongSortType.dateAdded:
+        return '添加时间';
+      case SongSortType.playCount:
+        return '播放次数';
+      case SongSortType.title:
+        return '歌曲名称';
+      case SongSortType.artist:
+        return '歌手名字';
+      case SongSortType.duration:
+        return '歌曲时长';
     }
   }
 
@@ -446,13 +473,14 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
     );
 
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
     final isCurrentSongInList =
         currentSongId != null && songs.any((s) => s.id == currentSongId);
 
     return Column(
       children: [
-        // Top Search & Sort Action Row (Clean & Minimal); swapped for the
-        // batch-selection toolbar while a multi-select is in progress.
+        // Top Search & Quick Actions Row; swapped for the batch-selection
+        // toolbar while a multi-select is in progress.
         if (_selectionMode)
           _buildSelectionBar(context, songs)
         else
@@ -460,156 +488,233 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
             sizeFactor: _searchBarAnimation,
             alignment: Alignment.topCenter,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: DebouncedSearchField(
-                      initialQuery: searchQuery,
-                      hintText: '搜索音乐、歌手、专辑...',
-                      onQueryChanged: (val) {
-                        ref.read(searchQueryProvider.notifier).state = val;
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DebouncedSearchField(
+                          key: _searchFieldKey,
+                          initialQuery: searchQuery,
+                          hintText: '搜索音乐、歌手、专辑...',
+                          onQueryChanged: (val) {
+                            ref.read(searchQueryProvider.notifier).state = val;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
 
-                  // 歌曲数量与收藏页保持一致：紧挨搜索框和操作菜单，
-                  // 搜索时显示「匹配数/总数」。
-                  Icon(
-                    Icons.library_music_rounded,
-                    size: 14,
-                    color: theme.colorScheme.primary.withValues(alpha: 0.8),
-                  ),
-                  const SizedBox(width: 3),
-                  Text(
-                    searchQuery.isNotEmpty
-                        ? '${songs.length}/$totalSongCount'
-                        : '$totalSongCount',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSurfaceVariant.withValues(
-                        alpha: 0.8,
+                      // 歌曲数量与收藏页保持一致：搜索时显示「匹配数/总数」。
+                      Icon(
+                        Icons.library_music_rounded,
+                        size: 14,
+                        color: theme.colorScheme.primary.withValues(alpha: 0.8),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 2),
+                      const SizedBox(width: 4),
+                      Text(
+                        searchQuery.isNotEmpty
+                            ? '${songs.length}/$totalSongCount'
+                            : '$totalSongCount',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.85,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
 
-                  // Unified overflow menu: count header, playback actions, rescan
-                  // and sorting — keeps the toolbar to search + one button.
-                  PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.more_vert_rounded,
-                      size: 20,
-                      color: theme.colorScheme.onSurfaceVariant.withValues(
-                        alpha: 0.8,
-                      ),
-                    ),
-                    tooltip: '排序与更多操作',
-                    position: PopupMenuPosition.under,
-                    onSelected: (value) => _handleMenuSelection(value, songs),
-                    itemBuilder: (context) => [
-                      PopupMenuItem<String>(
-                        enabled: false,
-                        child: Text(
-                          searchQuery.isNotEmpty
-                              ? '匹配到 ${songs.length} 首'
-                              : '曲库共 ${songs.length} 首',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurfaceVariant,
+                      // Unified overflow menu: count header, playback actions,
+                      // rescan and sorting.
+                      PopupMenuButton<String>(
+                        icon: Icon(
+                          Icons.more_vert_rounded,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.8,
                           ),
                         ),
-                      ),
-                      const PopupMenuDivider(),
-                      if (songs.isNotEmpty) ...[
-                        const PopupMenuItem(
-                          value: 'play_all',
-                          child: Row(
-                            children: [
-                              Icon(Icons.play_arrow_rounded, size: 18),
-                              SizedBox(width: 10),
-                              Text('播放全部'),
-                            ],
+                        tooltip: '排序与更多操作',
+                        position: PopupMenuPosition.under,
+                        onSelected: (value) =>
+                            _handleMenuSelection(value, songs),
+                        itemBuilder: (context) => [
+                          PopupMenuItem<String>(
+                            enabled: false,
+                            child: Text(
+                              searchQuery.isNotEmpty
+                                  ? '匹配到 ${songs.length} 首'
+                                  : '曲库共 ${songs.length} 首',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                           ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'play_shuffled',
-                          child: Row(
-                            children: [
-                              Icon(Icons.shuffle_rounded, size: 18),
-                              SizedBox(width: 10),
-                              Text('随机播放'),
-                            ],
-                          ),
-                        ),
-                      ],
-                      if (isCurrentSongInList)
-                        const PopupMenuItem(
-                          value: 'locate',
-                          child: Row(
-                            children: [
-                              Icon(Icons.my_location_rounded, size: 18),
-                              SizedBox(width: 10),
-                              Text('定位当前播放'),
-                            ],
-                          ),
-                        ),
-                      if (songs.isNotEmpty)
-                        const PopupMenuItem(
-                          value: 'multi_select',
-                          child: Row(
-                            children: [
-                              Icon(Icons.checklist_rounded, size: 18),
-                              SizedBox(width: 10),
-                              Text('批量管理（多选）'),
-                            ],
-                          ),
-                        ),
-                      const PopupMenuItem(
-                        value: 'rescan',
-                        child: Row(
-                          children: [
-                            Icon(Icons.refresh_rounded, size: 18),
-                            SizedBox(width: 10),
-                            Text('重新扫描曲库'),
+                          const PopupMenuDivider(),
+                          if (songs.isNotEmpty) ...[
+                            const PopupMenuItem(
+                              value: 'play_all',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.play_arrow_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('播放全部'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'play_shuffled',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.shuffle_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('随机播放'),
+                                ],
+                              ),
+                            ),
                           ],
-                        ),
-                      ),
-                      const PopupMenuDivider(),
-                      _buildSortItem(
-                        SongSortType.dateAdded,
-                        '按添加时间',
-                        sortType,
-                        sortAscending,
-                      ),
-                      _buildSortItem(
-                        SongSortType.playCount,
-                        '按播放次数',
-                        sortType,
-                        sortAscending,
-                      ),
-                      _buildSortItem(
-                        SongSortType.title,
-                        '按歌曲名称',
-                        sortType,
-                        sortAscending,
-                      ),
-                      _buildSortItem(
-                        SongSortType.artist,
-                        '按歌手名字',
-                        sortType,
-                        sortAscending,
-                      ),
-                      _buildSortItem(
-                        SongSortType.duration,
-                        '按歌曲时长',
-                        sortType,
-                        sortAscending,
+                          if (isCurrentSongInList)
+                            const PopupMenuItem(
+                              value: 'locate',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.my_location_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('定位当前播放'),
+                                ],
+                              ),
+                            ),
+                          if (songs.isNotEmpty)
+                            const PopupMenuItem(
+                              value: 'multi_select',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.checklist_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('批量管理（多选）'),
+                                ],
+                              ),
+                            ),
+                          const PopupMenuItem(
+                            value: 'rescan',
+                            child: Row(
+                              children: [
+                                Icon(Icons.refresh_rounded, size: 18),
+                                SizedBox(width: 10),
+                                Text('重新扫描曲库'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuDivider(),
+                          _buildSortItem(
+                            SongSortType.dateAdded,
+                            '按添加时间',
+                            sortType,
+                            sortAscending,
+                          ),
+                          _buildSortItem(
+                            SongSortType.playCount,
+                            '按播放次数',
+                            sortType,
+                            sortAscending,
+                          ),
+                          _buildSortItem(
+                            SongSortType.title,
+                            '按歌曲名称',
+                            sortType,
+                            sortAscending,
+                          ),
+                          _buildSortItem(
+                            SongSortType.artist,
+                            '按歌手名字',
+                            sortType,
+                            sortAscending,
+                          ),
+                          _buildSortItem(
+                            SongSortType.duration,
+                            '按歌曲时长',
+                            sortType,
+                            sortAscending,
+                          ),
+                        ],
                       ),
                     ],
                   ),
+                  // 轻量一行播控与排序指示条：一步即播，随滚动一并收起。
+                  if (songs.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 2),
+                      child: Row(
+                        children: [
+                          _QuickActionPill(
+                            icon: Icons.play_arrow_rounded,
+                            label: '播放全部',
+                            filled: true,
+                            onTap: () => ref
+                                .read(audioControllerProvider)
+                                .playSong(songs.first, queue: songs),
+                          ),
+                          const SizedBox(width: 8),
+                          _QuickActionPill(
+                            icon: Icons.shuffle_rounded,
+                            label: '随机',
+                            onTap: () {
+                              final shuffled = List<Song>.from(songs)
+                                ..shuffle();
+                              ref
+                                  .read(audioControllerProvider)
+                                  .playSong(shuffled.first, queue: shuffled);
+                            },
+                          ),
+                          const Spacer(),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () {
+                              ref.read(sortAscendingProvider.notifier).state =
+                                  !sortAscending;
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: appColors.subtleDivider,
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _sortLabel(sortType),
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Icon(
+                                    sortAscending
+                                        ? Icons.arrow_upward_rounded
+                                        : Icons.arrow_downward_rounded,
+                                    size: 13,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -618,13 +723,13 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
         // Scanning Indicator Bar
         if (isScanning)
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: theme.colorScheme.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                color: theme.colorScheme.primary.withValues(alpha: 0.22),
               ),
             ),
             child: Column(
@@ -653,7 +758,10 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
                 ),
                 if (scanProgressPercent != null) ...[
                   const SizedBox(height: 6),
-                  LinearProgressIndicator(value: scanProgressPercent),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(value: scanProgressPercent),
+                  ),
                 ],
               ],
             ),
@@ -673,7 +781,8 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
                     itemExtent: 58.0,
                     // 底部留白 = 底部导航栏(MediaQuery 抬升量)+ 迷你播放器。
                     padding: EdgeInsets.only(
-                      bottom: MediaQuery.of(context).padding.bottom + 96,
+                      top: 2,
+                      bottom: MediaQuery.paddingOf(context).bottom + 104,
                     ),
                     itemCount: songs.length,
                     itemBuilder: (context, index) {
@@ -693,7 +802,7 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
               if (isCurrentSongInList)
                 Positioned(
                   right: 16,
-                  bottom: MediaQuery.of(context).padding.bottom + 96,
+                  bottom: MediaQuery.paddingOf(context).bottom + 98,
                   child: LocatePlayingButton(
                     onPressed: () =>
                         _scrollToCurrentPlaying(currentSongId, songs),
@@ -711,124 +820,109 @@ class _AllSongsTabState extends ConsumerState<AllSongsTab>
     WidgetRef ref,
     bool isSearching,
   ) {
-    final theme = Theme.of(context);
     final searchQuery = ref.watch(searchQueryProvider);
     if (isSearching) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+      return SongSearchEmptyState(
+        message: '本地曲库中未找到「$searchQuery」相关歌曲',
+        onClearSearch: () => _searchFieldKey.currentState?.clear(),
+        onSecondaryAction: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => OnlineSearchPage(initialQuery: searchQuery),
+            ),
+          );
+        },
+        secondaryLabel: '全网在线检索「$searchQuery」',
+      );
+    }
+
+    return EmptyStateView(
+      icon: Icons.music_note_rounded,
+      title: '曲库暂无音乐',
+      subtitle: '选择本地音频文件或扫描音乐目录，即可开启静心聆听',
+      actions: [
+        FilledButton.icon(
+          onPressed: () =>
+              ref.read(libraryNotifierProvider.notifier).importFiles(),
+          icon: const Icon(Icons.add_rounded, size: 18),
+          label: const Text('添加本地歌曲'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () {
+            Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+          },
+          icon: const Icon(Icons.folder_open_rounded, size: 18),
+          label: const Text('管理导入'),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickActionPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool filled;
+  final VoidCallback onTap;
+
+  const _QuickActionPill({
+    required this.icon,
+    required this.label,
+    this.filled = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
+    final isLight = theme.brightness == Brightness.light;
+
+    return Material(
+      color: filled
+          ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.12 : 0.20)
+          : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.48),
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5.5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: filled
+                  ? theme.colorScheme.primary.withValues(alpha: 0.22)
+                  : appColors.subtleDivider,
+              width: 0.8,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                Icons.search_off_rounded,
-                size: 56,
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.6,
-                ),
+                icon,
+                size: 15,
+                color: filled
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(width: 4),
               Text(
-                '本地曲库中未找到「$searchQuery」相关歌曲',
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          OnlineSearchPage(initialQuery: searchQuery),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.cloud_download_rounded, size: 18),
-                label: Text('全网在线检索「$searchQuery」'),
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: filled ? FontWeight.w700 : FontWeight.w500,
+                  color: filled
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface,
                 ),
               ),
             ],
           ),
-        ),
-      );
-    }
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.music_note_rounded,
-              size: 64,
-              color: theme.colorScheme.primary.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              '曲库暂无音乐',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '可在右上角「设置」中管理导入，或点击下方直接添加',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                FilledButton.icon(
-                  onPressed: () =>
-                      ref.read(libraryNotifierProvider.notifier).importFiles(),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('添加本地歌曲'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const SettingsPage()),
-                    );
-                  },
-                  icon: const Icon(Icons.settings_outlined, size: 18),
-                  label: const Text('进入设置'),
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );

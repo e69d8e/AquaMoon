@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../core/utils/formatters.dart';
 import '../../models/playback_progress.dart';
 
@@ -22,6 +23,7 @@ class CustomProgressBar extends StatefulWidget {
 
 class _CustomProgressBarState extends State<CustomProgressBar> {
   double? _dragValue;
+  bool _isDragging = false;
 
   /// 松手后的 seek 目标（毫秒）。进度流约 3 次/秒才更新一次，在它反映新
   /// 位置之前沿用拖动值渲染，否则滑块会先弹回旧位置、等流追上再跳回来。
@@ -50,13 +52,24 @@ class _CustomProgressBarState extends State<CustomProgressBar> {
     final colorScheme = theme.colorScheme;
 
     final durationMs = widget.progress.duration.inMilliseconds.toDouble();
-    final currentMs = _dragValue ?? widget.progress.position.inMilliseconds.toDouble();
+    final currentMs =
+        _dragValue ?? widget.progress.position.inMilliseconds.toDouble();
+    final bufferedMs = widget.progress.bufferedPosition.inMilliseconds
+        .toDouble();
 
     final maxVal = durationMs > 0 ? durationMs : 1.0;
     final clampedVal = currentMs.clamp(0.0, maxVal);
+    final clampedBuffered = bufferedMs.clamp(0.0, maxVal);
 
-    final activeColor = colorScheme.onSurface;
-    final inactiveColor = colorScheme.onSurface.withValues(alpha: isLight ? 0.12 : 0.22);
+    final activeColor = _isDragging
+        ? colorScheme.primary
+        : colorScheme.onSurface;
+    final secondaryTrackColor = colorScheme.onSurface.withValues(
+      alpha: isLight ? 0.17 : 0.28,
+    );
+    final inactiveColor = colorScheme.onSurface.withValues(
+      alpha: isLight ? 0.09 : 0.15,
+    );
     final labelColor = colorScheme.onSurfaceVariant;
 
     return Column(
@@ -64,24 +77,31 @@ class _CustomProgressBarState extends State<CustomProgressBar> {
       children: [
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
-            trackHeight: 3.5,
+            trackHeight: _isDragging ? 5.0 : 3.4,
             trackShape: const RoundedRectSliderTrackShape(),
-            thumbShape: const RoundSliderThumbShape(
-              enabledThumbRadius: 0,
+            thumbShape: RoundSliderThumbShape(
+              enabledThumbRadius: _isDragging ? 6.5 : 4.2,
               disabledThumbRadius: 0,
-              elevation: 0,
-              pressedElevation: 0,
+              elevation: _isDragging ? 2 : 0,
+              pressedElevation: 3,
             ),
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
             activeTrackColor: activeColor,
+            secondaryActiveTrackColor: secondaryTrackColor,
             inactiveTrackColor: inactiveColor,
             thumbColor: activeColor,
-            overlayColor: activeColor.withValues(alpha: 0.15),
+            overlayColor: colorScheme.primary.withValues(alpha: 0.14),
           ),
           child: Slider(
             min: 0.0,
             max: maxVal,
             value: clampedVal,
+            secondaryTrackValue: clampedBuffered > clampedVal
+                ? clampedBuffered
+                : null,
+            onChangeStart: (_) {
+              setState(() => _isDragging = true);
+            },
             onChanged: (val) {
               setState(() {
                 _dragValue = val;
@@ -91,6 +111,7 @@ class _CustomProgressBarState extends State<CustomProgressBar> {
             },
             onChangeEnd: (val) {
               setState(() {
+                _isDragging = false;
                 _pendingSeekMs = val;
               });
               widget.onSeek(Duration(milliseconds: val.toInt()));
@@ -110,19 +131,21 @@ class _CustomProgressBarState extends State<CustomProgressBar> {
                         : widget.progress.position,
                   ),
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w400,
-                    color: labelColor,
-                    letterSpacing: 0.3,
+                    fontSize: 12,
+                    fontWeight: _isDragging ? FontWeight.w700 : FontWeight.w500,
+                    color: _isDragging ? colorScheme.primary : labelColor,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    letterSpacing: 0.2,
                   ),
                 ),
                 Text(
                   Formatters.formatDuration(widget.progress.duration),
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w400,
-                    color: labelColor,
-                    letterSpacing: 0.3,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: labelColor.withValues(alpha: 0.85),
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    letterSpacing: 0.2,
                   ),
                 ),
               ],

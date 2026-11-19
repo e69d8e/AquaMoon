@@ -30,7 +30,10 @@ class ListeningStatsTracker {
   /// Called when playback starts or resumes
   void onPlay(Song song) {
     if (_activeSong?.id != song.id) {
-      // Switching song: flush all remaining buffered seconds for previous song
+      // Switching song: accumulate & flush remaining buffered seconds for previous song
+      if (_isTracking) {
+        _accumulateCurrentElapsed();
+      }
       _flushBufferedSeconds(minSeconds: 1);
       _bufferedSeconds = 0;
       _activeSong = song;
@@ -41,6 +44,9 @@ class ListeningStatsTracker {
       );
       onSongPlayStarted?.call(song);
     } else {
+      if (_isTracking) {
+        _accumulateCurrentElapsed();
+      }
       _activeSong = song;
     }
 
@@ -95,7 +101,9 @@ class ListeningStatsTracker {
 
   void _startTicker() {
     _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
+    // Flush & accumulate every 15s instead of waking the event loop every 1s;
+    // partial intervals on pause/stop/track switch are still measured via clock diff.
+    _ticker = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (!_isTracking || _activeSong == null) return;
       _onTick();
     });
@@ -114,8 +122,8 @@ class ListeningStatsTracker {
     }
 
     final elapsedMs = now.difference(_lastTickTime!).inMilliseconds;
-    // Protect against abnormal sleeps/skips
-    if (elapsedMs >= 900 && elapsedMs <= 3000) {
+    // Protect against abnormal sleeps/skips while accepting 15s periodic ticks.
+    if (elapsedMs >= 900 && elapsedMs <= 25000) {
       final elapsedSec = (elapsedMs / 1000).round();
       if (elapsedSec > 0) {
         _bufferedSeconds += elapsedSec;
@@ -134,7 +142,7 @@ class ListeningStatsTracker {
     if (!_isTracking || _lastTickTime == null || _activeSong == null) return;
     final now = DateTime.now();
     final elapsedMs = now.difference(_lastTickTime!).inMilliseconds;
-    if (elapsedMs >= 500 && elapsedMs <= 5000) {
+    if (elapsedMs >= 500 && elapsedMs <= 25000) {
       final elapsedSec = (elapsedMs / 1000).round();
       if (elapsedSec > 0) {
         _bufferedSeconds += elapsedSec;

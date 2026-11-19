@@ -27,7 +27,7 @@ class PaletteColors {
   final Color onSecondaryContainer;
   final Color snackBarBackground;
 
-  /// 卡片描边;浅色用极淡墨线,深色通常透明。
+  /// 卡片描边;浅色用极淡墨线,深色用微暖/微冷极细亮边。
   final Color cardBorder;
 
   /// 全屏播放页的三段式背景渐变(上 → 下)。
@@ -112,7 +112,7 @@ class AppPalette {
       onPrimary: Color(0xFF2E100A),
       onSecondaryContainer: Color(0xFFF2B4A6),
       snackBarBackground: Color(0xEE8C3B2E),
-      cardBorder: Color(0x00FFFFFF),
+      cardBorder: Color(0x16ECE7DC),
       playerGradient: [Color(0xFF4A3F35), Color(0xFF2A241E), Color(0xFF141210)],
     ),
   );
@@ -148,7 +148,7 @@ class AppPalette {
       onPrimary: Color(0xFF0D2138),
       onSecondaryContainer: Color(0xFFB8D2F0),
       snackBarBackground: Color(0xEE33517E),
-      cardBorder: Color(0x00FFFFFF),
+      cardBorder: Color(0x16E5ECF3),
       playerGradient: [Color(0xFF2A3A50), Color(0xFF182230), Color(0xFF0E141C)],
     ),
   );
@@ -185,7 +185,7 @@ class AppPalette {
       onPrimary: Color(0xFFFFFFFF),
       onSecondaryContainer: Color(0xFF86EFAC),
       snackBarBackground: Color(0xEE15803D),
-      cardBorder: Color(0x00FFFFFF),
+      cardBorder: Color(0x14FFFFFF),
       playerGradient: [Color(0xFF1F3A2C), Color(0xFF14231C), Color(0xFF0D1114)],
     ),
   );
@@ -222,7 +222,7 @@ class AppPalette {
       onPrimary: Color(0xFF241533),
       onSecondaryContainer: Color(0xFFD3C3EA),
       snackBarBackground: Color(0xEE5E4866),
-      cardBorder: Color(0x00FFFFFF),
+      cardBorder: Color(0x16E6DFF2),
       playerGradient: [Color(0xFF5E4866), Color(0xFF382A4D), Color(0xFF191326)],
     ),
   );
@@ -258,7 +258,7 @@ class AppPalette {
       onPrimary: Color(0xFF2A1D05),
       onSecondaryContainer: Color(0xFFF2D28E),
       snackBarBackground: Color(0xEE8A661C),
-      cardBorder: Color(0x00FFFFFF),
+      cardBorder: Color(0x16F0E9D8),
       playerGradient: [Color(0xFF4C3D1F), Color(0xFF2C2413), Color(0xFF161209)],
     ),
   );
@@ -294,7 +294,7 @@ class AppPalette {
       onPrimary: Color(0xFF0A201C),
       onSecondaryContainer: Color(0xFFAEDAD2),
       snackBarBackground: Color(0xEE2E5D57),
-      cardBorder: Color(0x00FFFFFF),
+      cardBorder: Color(0x16E4ECEA),
       playerGradient: [Color(0xFF26403C), Color(0xFF16211F), Color(0xFF0D1413)],
     ),
   );

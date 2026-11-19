@@ -5,13 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/app_toast.dart';
+import '../../../models/playlist.dart';
 import '../../../models/song.dart';
+import '../../../providers/audio_provider.dart';
 import '../../../providers/library_provider.dart';
 import '../../../providers/playlist_provider.dart';
-import '../../../providers/qq_music_provider.dart';
 import '../../../services/file_export_service.dart';
 import '../../playlists/playlist_detail_page.dart';
+import '../../widgets/empty_state_view.dart';
+import '../../widgets/glass_container.dart';
 import '../../widgets/song_artwork.dart';
 
 class PlaylistsTab extends ConsumerWidget {
@@ -20,177 +24,123 @@ class PlaylistsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playlists = ref.watch(playlistNotifierProvider);
-    final songs = ref.watch(libraryNotifierProvider.select((s) => s.songs));
-    final qqFavorites = ref.watch(
-      qqMusicFavoritesProvider.select((s) => s.mergedSongs),
-    );
-    final songMap = {for (final s in songs) s.id: s};
-    // Playlist entries may be QQ Music cloud favorites; they are not in the
-    // library box, so merge the favorites cache in for artwork resolution.
-    for (final song in qqFavorites) {
-      songMap.putIfAbsent(song.id, () => song);
-    }
+    final songMap = ref.watch(songByIdMapProvider);
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
 
     return Column(
       children: [
-        // Action Header (Minimal & Icon-driven)
+        // 轻量顶部动作行
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: Row(
             children: [
-              Icon(
-                Icons.queue_music_rounded,
-                size: 16,
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.7,
-                ),
-              ),
-              const SizedBox(width: 4),
               Text(
-                '${playlists.length}',
+                '共 ${playlists.length} 个歌单',
                 style: TextStyle(
                   fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.75,
-                  ),
+                  fontWeight: FontWeight.w500,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
               const Spacer(),
-              IconButton(
-                icon: Icon(
-                  Icons.note_add_outlined,
-                  size: 21,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.8,
+              OutlinedButton.icon(
+                onPressed: () => _importM3uPlaylist(context, ref),
+                icon: const Icon(Icons.note_add_outlined, size: 16),
+                label: const Text('导入 M3U'),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 6,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
                   ),
                 ),
-                tooltip: '导入 M3U 歌单',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                onPressed: () => _importM3uPlaylist(context, ref),
               ),
-              IconButton(
-                icon: Icon(
-                  Icons.add_rounded,
-                  size: 22,
-                  color: theme.colorScheme.primary,
-                ),
-                tooltip: '新建歌单',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              const SizedBox(width: 8),
+              FilledButton.icon(
                 onPressed: () => _showCreatePlaylistDialog(context, ref),
+                icon: const Icon(Icons.add_rounded, size: 16),
+                label: const Text('新建歌单'),
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
               ),
             ],
           ),
         ),
         Expanded(
           child: playlists.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.queue_music_rounded,
-                        size: 56,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.4,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        '暂无自定义歌单',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        label: const Text('新建歌单'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        onPressed: () =>
-                            _showCreatePlaylistDialog(context, ref),
-                      ),
-                    ],
-                  ),
+              ? EmptyStateView(
+                  icon: Icons.queue_music_rounded,
+                  title: '暂无自定义歌单',
+                  subtitle: '将喜欢的旋律整理成册，或导入已有的 M3U 播放列表',
+                  actions: [
+                    FilledButton.icon(
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('新建歌单'),
+                      onPressed: () => _showCreatePlaylistDialog(context, ref),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.note_add_outlined, size: 18),
+                      label: const Text('导入 M3U'),
+                      onPressed: () => _importM3uPlaylist(context, ref),
+                    ),
+                  ],
                 )
-              : ListView.builder(
-                  // 底部留白 = 底部导航栏(MediaQuery 抬升量)+ 迷你播放器。
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    4,
-                    16,
-                    MediaQuery.of(context).padding.bottom + 96,
-                  ),
-                  itemCount: playlists.length,
-                  itemBuilder: (context, index) {
-                    final pl = playlists[index];
-                    final firstSongWithArt = pl.songIds
-                        .map((id) => songMap[id])
-                        .whereType<Song>()
-                        .where(
-                          (s) =>
-                              s.albumArtUri != null &&
-                              s.albumArtUri!.isNotEmpty,
-                        )
-                        .firstOrNull;
-                    final effectiveCover =
-                        pl.coverArtUri ?? firstSongWithArt?.albumArtUri;
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    final crossAxisCount = width >= 980
+                        ? 4
+                        : width >= 620
+                        ? 3
+                        : 2;
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Material(
-                        color: theme.colorScheme.surfaceContainerHighest
-                            .withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(12),
-                        clipBehavior: Clip.antiAlias,
-                        child: ListTile(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          leading: SongArtwork(
-                            artUri: effectiveCover,
-                            size: 44,
-                            borderRadius: 10,
-                          ),
-                          title: Text(
-                            pl.name,
-                            style: const TextStyle(
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          subtitle: Text(
-                            pl.description.isNotEmpty
-                                ? pl.description
-                                : '${pl.songIds.length} 首歌曲',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          trailing: Icon(
-                            Icons.chevron_right_rounded,
-                            size: 20,
-                            color: theme.colorScheme.onSurfaceVariant
-                                .withValues(alpha: 0.5),
-                          ),
-                          onTap: () {
+                    return GridView.builder(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        4,
+                        16,
+                        MediaQuery.paddingOf(context).bottom + 108,
+                      ),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: 14,
+                        mainAxisSpacing: 18,
+                        // 正方形封面 + 底部标题/副标题留白
+                        childAspectRatio: 0.76,
+                      ),
+                      itemCount: playlists.length,
+                      itemBuilder: (context, index) {
+                        final pl = playlists[index];
+                        final resolvedSongs = pl.songIds
+                            .map((id) => songMap[id])
+                            .whereType<Song>()
+                            .toList(growable: false);
+                        return _PlaylistGridCard(
+                          playlist: pl,
+                          songs: resolvedSongs,
+                          borderColor: appColors.glassBorder,
+                          onOpen: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) =>
@@ -198,8 +148,23 @@ class PlaylistsTab extends ConsumerWidget {
                               ),
                             );
                           },
-                        ),
-                      ),
+                          onQuickPlay: resolvedSongs.isEmpty
+                              ? null
+                              : () {
+                                  ref
+                                      .read(audioControllerProvider)
+                                      .playSong(
+                                        resolvedSongs.first,
+                                        queue: resolvedSongs,
+                                      );
+                                  AppToast.show(
+                                    context,
+                                    '开始播放《${pl.name}》',
+                                    icon: Icons.play_arrow_rounded,
+                                  );
+                                },
+                        );
+                      },
                     );
                   },
                 ),
@@ -306,6 +271,195 @@ class PlaylistsTab extends ConsumerWidget {
   }
 }
 
+/// 专辑册风格的歌单网格卡片：正方形大图（支持自动四宫格拼贴）、角标一键直播。
+class _PlaylistGridCard extends StatelessWidget {
+  final Playlist playlist;
+  final List<Song> songs;
+  final Color borderColor;
+  final VoidCallback onOpen;
+  final VoidCallback? onQuickPlay;
+
+  const _PlaylistGridCard({
+    required this.playlist,
+    required this.songs,
+    required this.borderColor,
+    required this.onOpen,
+    required this.onQuickPlay,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+
+    final uniqueCovers = <String>[];
+    for (final song in songs) {
+      final uri = song.albumArtUri;
+      if (uri != null && uri.isNotEmpty && !uniqueCovers.contains(uri)) {
+        uniqueCovers.add(uri);
+        if (uniqueCovers.length == 4) break;
+      }
+    }
+    final useMosaic = playlist.coverArtUri == null && uniqueCovers.length == 4;
+    final singleCover = playlist.coverArtUri ?? uniqueCovers.firstOrNull;
+
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: borderColor, width: 0.9),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: isLight ? 0.06 : 0.24,
+                    ),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (useMosaic)
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final half = constraints.maxWidth / 2;
+                        return Column(
+                          children: [
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: SongArtwork(
+                                      artUri: uniqueCovers[0],
+                                      size: half,
+                                      borderRadius: 0,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: SongArtwork(
+                                      artUri: uniqueCovers[1],
+                                      size: half,
+                                      borderRadius: 0,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: SongArtwork(
+                                      artUri: uniqueCovers[2],
+                                      size: half,
+                                      borderRadius: 0,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: SongArtwork(
+                                      artUri: uniqueCovers[3],
+                                      size: half,
+                                      borderRadius: 0,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    )
+                  else
+                    LayoutBuilder(
+                      builder: (context, constraints) => SongArtwork(
+                        artUri: singleCover,
+                        size: constraints.maxWidth,
+                        borderRadius: 0,
+                      ),
+                    ),
+                  // 右下角磨砂直播圆钮
+                  if (onQuickPlay != null)
+                    Positioned(
+                      right: 8,
+                      bottom: 8,
+                      child: Tooltip(
+                        message: '播放歌单',
+                        child: GlassContainer(
+                          width: 34,
+                          height: 34,
+                          borderRadius: BorderRadius.circular(17),
+                          enableBlur: false,
+                          tint: theme.colorScheme.surface.withValues(
+                            alpha: isLight ? 0.92 : 0.88,
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: onQuickPlay,
+                              child: Center(
+                                child: Icon(
+                                  Icons.play_arrow_rounded,
+                                  size: 20,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              playlist.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.1,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              playlist.description.isNotEmpty
+                  ? playlist.description
+                  : '${playlist.songIds.length} 首歌曲',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CreatePlaylistDialog extends StatefulWidget {
   const _CreatePlaylistDialog();
 
@@ -342,7 +496,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
             autofocus: true,
             decoration: const InputDecoration(
               labelText: '歌单名称',
-              hintText: '如：我的车载热歌、轻音乐',
+              hintText: '如：雨夜清音、车载精选',
             ),
           ),
           const SizedBox(height: 12),

@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../models/song.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/lyrics_settings_provider.dart';
+import '../widgets/empty_state_view.dart';
+import '../widgets/glass_container.dart';
 import '../widgets/online_candidate_dialog.dart';
 
 class LyricsView extends ConsumerStatefulWidget {
@@ -58,6 +61,14 @@ class _LyricsViewState extends ConsumerState<LyricsView>
   void initState() {
     super.initState();
     _autoScrollCurve.addListener(_applyAutoScrollTick);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!TickerMode.valuesOf(context).enabled) {
+      _stopAutoScroll();
+    }
   }
 
   void _applyAutoScrollTick() {
@@ -125,7 +136,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       if (mounted) {
         AppToast.show(
           context,
-          '已应用来自 ${selected.source} 的歌词与元数据！',
+          '已应用来自 ${selected.source} 的歌词与元数据',
           icon: Icons.check_circle_outline_rounded,
         );
       }
@@ -152,15 +163,15 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     super.dispose();
   }
 
-  void _scrollToActiveIndex(int index, int totalCount) {
-    if (_userScrolling ||
+  void _scrollToActiveIndex(int index, int totalCount, {bool force = false}) {
+    if ((_userScrolling && !force) ||
         !_scrollController.hasClients ||
         index < 0 ||
         totalCount == 0) {
       return;
     }
 
-    if (index == _lastActiveIndex) return;
+    if (!force && index == _lastActiveIndex) return;
     final isFirstPositioning = _lastActiveIndex == -1;
     _lastActiveIndex = index;
 
@@ -192,12 +203,67 @@ class _LyricsViewState extends ConsumerState<LyricsView>
 
     // Snap on first positioning (page just opened or song changed) so the
     // list never visibly "flies" from the top; glide as lines advance.
-    if (isFirstPositioning) {
+    if (isFirstPositioning && !force) {
       _stopAutoScroll();
       _scrollController.jumpTo(clampedOffset);
     } else {
       _glideTo(clampedOffset);
     }
+  }
+
+  void _recenterToActive(int activeIndex, int totalCount) {
+    _userScrollResumeTimer?.cancel();
+    setState(() => _userScrolling = false);
+    _scrollToActiveIndex(activeIndex, totalCount, force: true);
+  }
+
+  Widget _wrapWithEdgeFade({
+    required Widget child,
+    required AppColors appColors,
+  }) {
+    final topColor = appColors.playerGradient.first;
+    final bottomColor =
+        Color.lerp(appColors.playerGradient[1], appColors.playerGradient.last, 0.72) ??
+        appColors.playerGradient.last;
+    return Stack(
+      children: [
+        child,
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          height: 36,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [topColor, topColor.withValues(alpha: 0)],
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 44,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [bottomColor.withValues(alpha: 0), bottomColor],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -207,18 +273,30 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     final activeIndex = ref.watch(currentLyricIndexProvider);
     final lyricsSettings = ref.watch(lyricsDisplaySettingsProvider);
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
     final isLight = theme.brightness == Brightness.light;
+    final tickerEnabled = TickerMode.valuesOf(context).enabled;
 
     if (lyricsState.isLoading) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 14),
             Text(
-              '正在加载/匹配歌词...',
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              '正在加载歌词...',
+              style: TextStyle(
+                fontSize: 13.5,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -230,16 +308,22 @@ class _LyricsViewState extends ConsumerState<LyricsView>
         return GestureDetector(
           onTap: widget.onTapBackground,
           behavior: HitTestBehavior.translucent,
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-              child: Text(
-                lyricsState.plainText!,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: lyricsSettings.baseFontSize,
-                  height: 2.0,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+          child: _wrapWithEdgeFade(
+            appColors: appColors,
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 48,
+                ),
+                child: Text(
+                  lyricsState.plainText!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: lyricsSettings.baseFontSize,
+                    height: 2.0,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                  ),
                 ),
               ),
             ),
@@ -250,60 +334,36 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       return GestureDetector(
         onTap: widget.onTapBackground,
         behavior: HitTestBehavior.translucent,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.lyrics_rounded,
-                size: 56,
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.5,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '暂无歌词',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: () {
-                      ref
-                          .read(lyricsNotifierProvider.notifier)
-                          .loadLyricsForSong(widget.song, forceOnline: true);
-                    },
-                    icon: const Icon(Icons.cloud_download_rounded, size: 16),
-                    label: const Text('智能匹配在线歌词'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _calibrateOnline,
-                    icon: const Icon(Icons.saved_search_rounded, size: 16),
-                    label: const Text('在线检索更换'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+        child: EmptyStateView(
+          icon: Icons.lyrics_rounded,
+          title: '暂无歌词',
+          subtitle: '可尝试智能匹配在线歌词，或手动挑选更精准的版本',
+          actions: [
+            FilledButton.tonalIcon(
+              onPressed: () {
+                ref
+                    .read(lyricsNotifierProvider.notifier)
+                    .loadLyricsForSong(widget.song, forceOnline: true);
+              },
+              icon: const Icon(Icons.cloud_download_rounded, size: 16),
+              label: const Text('智能匹配在线歌词'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _calibrateOnline,
+              icon: const Icon(Icons.saved_search_rounded, size: 16),
+              label: const Text('在线检索更换'),
+            ),
+          ],
         ),
       );
     }
 
-    // Trigger auto scroll when active line changes
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToActiveIndex(activeIndex, lyricsState.lines.length);
-    });
-
-    final litFraction = ref.watch(currentLyricLitFractionProvider);
+    // Trigger auto scroll only when visible and active line actually moved.
+    if (tickerEnabled && activeIndex >= 0 && activeIndex != _lastActiveIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToActiveIndex(activeIndex, lyricsState.lines.length);
+      });
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -311,120 +371,214 @@ class _LyricsViewState extends ConsumerState<LyricsView>
         final topPadding = viewportHeight * lyricsSettings.scrollAlignment;
         final bottomPadding = viewportHeight * 0.55;
 
-        return GestureDetector(
-          onTap: widget.onTapBackground,
-          behavior: HitTestBehavior.translucent,
-          child: NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              if (notification is UserScrollNotification &&
-                  notification.direction != ScrollDirection.idle) {
-                // User took over: kill the glide so its per-frame jumpTo
-                // cannot fight the drag, and pause auto centering.
-                _stopAutoScroll();
-                _userScrolling = true;
-              } else if (notification is UserScrollNotification) {
-                // Delay re-enabling auto scroll after manual swipe; a new
-                // swipe cancels the pending resume so timers don't pile up.
-                _userScrollResumeTimer?.cancel();
-                _userScrollResumeTimer = Timer(const Duration(seconds: 3), () {
-                  if (mounted) {
-                    setState(() {
-                      _userScrolling = false;
-                    });
+        return Stack(
+          children: [
+            GestureDetector(
+              onTap: widget.onTapBackground,
+              behavior: HitTestBehavior.translucent,
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification is UserScrollNotification &&
+                      notification.direction != ScrollDirection.idle) {
+                    // User took over: kill the glide so its per-frame jumpTo
+                    // cannot fight the drag, and pause auto centering.
+                    _stopAutoScroll();
+                    if (!_userScrolling) {
+                      setState(() => _userScrolling = true);
+                    }
+                  } else if (notification is UserScrollNotification) {
+                    // Delay re-enabling auto scroll after manual swipe; a new
+                    // swipe cancels the pending resume so timers don't pile up.
+                    _userScrollResumeTimer?.cancel();
+                    _userScrollResumeTimer = Timer(
+                      const Duration(seconds: 3),
+                      () {
+                        if (mounted) {
+                          setState(() {
+                            _userScrolling = false;
+                          });
+                        }
+                      },
+                    );
+                  } else if (notification is ScrollStartNotification &&
+                      notification.dragDetails != null) {
+                    _stopAutoScroll();
                   }
-                });
-              } else if (notification is ScrollStartNotification &&
-                  notification.dragDetails != null) {
-                _stopAutoScroll();
-              }
-              return false;
-            },
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
-                top: topPadding,
-                bottom: bottomPadding,
-              ),
-              itemCount: lyricsState.lines.length,
-              itemBuilder: (context, index) {
-                final line = lyricsState.lines[index];
-                final isActive = index == activeIndex;
-                final key = _itemKeys.putIfAbsent(index, () => GlobalKey());
-
-                final baseStyle = TextStyle(
-                  fontSize: isActive
-                      ? lyricsSettings.activeFontSize
-                      : lyricsSettings.baseFontSize,
-                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
-                  color: isActive
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurface.withValues(
-                          alpha: isLight ? 0.38 : 0.45,
-                        ),
-                  height: lyricsSettings.lineHeight,
-                );
-
-                Widget lineChild;
-                if (isActive && line.hasWordTimings && litFraction != null) {
-                  // 逐字卡拉OK：当前行按字符进度做双色渐变填充。
-                  lineChild = _buildKaraokeText(
-                    line.text,
-                    litFraction,
-                    baseStyle,
-                    theme,
-                  );
-                } else {
-                  lineChild = AnimatedDefaultTextStyle(
-                    duration: _highlightDuration,
-                    curve: Curves.easeOutCubic,
-                    style: baseStyle,
-                    child: Text(line.text, textAlign: TextAlign.center),
-                  );
-                }
-
-                return InkWell(
-                  key: key,
-                  onTap: () {
-                    ref.read(audioControllerProvider).seek(line.time);
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 12,
-                      horizontal: 16,
+                  return false;
+                },
+                child: _wrapWithEdgeFade(
+                  appColors: appColors,
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: EdgeInsets.only(
+                      left: 24,
+                      right: 24,
+                      top: topPadding,
+                      bottom: bottomPadding,
                     ),
-                    child: lineChild,
+                    itemCount: lyricsState.lines.length,
+                    itemBuilder: (context, index) {
+                      final line = lyricsState.lines[index];
+                      final isActive = index == activeIndex;
+                      final distance = activeIndex >= 0
+                          ? (index - activeIndex).abs()
+                          : 1;
+                      final inactiveAlpha = distance <= 1
+                          ? (isLight ? 0.48 : 0.54)
+                          : (isLight ? 0.30 : 0.36);
+                      final key = _itemKeys.putIfAbsent(
+                        index,
+                        () => GlobalKey(),
+                      );
+
+                      final baseStyle = TextStyle(
+                        fontSize: isActive
+                            ? lyricsSettings.activeFontSize
+                            : lyricsSettings.baseFontSize,
+                        fontWeight: isActive
+                            ? FontWeight.w800
+                            : FontWeight.w500,
+                        letterSpacing: isActive ? -0.2 : 0.0,
+                        color: isActive
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurface.withValues(
+                                alpha: inactiveAlpha,
+                              ),
+                        height: lyricsSettings.lineHeight,
+                      );
+
+                      final Widget lineChild;
+                      if (isActive && line.hasWordTimings) {
+                        // Leaf ConsumerWidget isolates ~5Hz word-progress
+                        // rebuilds to just the single active lyric row.
+                        lineChild = _KaraokeLyricLine(
+                          text: line.text,
+                          baseStyle: baseStyle,
+                        );
+                      } else {
+                        lineChild = AnimatedDefaultTextStyle(
+                          duration: _highlightDuration,
+                          curve: Curves.easeOutCubic,
+                          style: baseStyle,
+                          child: Text(line.text, textAlign: TextAlign.center),
+                        );
+                      }
+
+                      return InkWell(
+                        key: key,
+                        onTap: () {
+                          ref.read(audioControllerProvider).seek(line.time);
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 16,
+                          ),
+                          child: lineChild,
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+              ),
             ),
-          ),
+            if (_userScrolling && activeIndex >= 0)
+              Positioned(
+                right: 20,
+                bottom: 14,
+                child: GlassContainer(
+                  borderRadius: BorderRadius.circular(20),
+                  blurSigma: 16,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () =>
+                        _recenterToActive(activeIndex, lyricsState.lines.length),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.my_location_rounded,
+                            size: 14,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '回到当前句',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );
   }
+}
 
-  /// 逐字卡拉OK文本：前 [fraction] 比例的字符用高亮色，其余用弱化色。
-  /// 由于歌词 provider 在每个位置跳变时都会重建，这里无需额外的动画。
-  /// 按 grapheme 切分，避免把 emoji 等代理对从中间劈开。
-  Widget _buildKaraokeText(
-    String text,
-    double fraction,
-    TextStyle baseStyle,
-    ThemeData theme,
-  ) {
-    final graphemes = text.characters.toList();
-    final litCount =
-        (graphemes.length * fraction).round().clamp(0, graphemes.length);
+/// 逐字卡拉OK行：独立订阅 5Hz 进度并缓存 grapheme 切片，避免每帧重建整表与重复分词。
+class _KaraokeLyricLine extends ConsumerStatefulWidget {
+  final String text;
+  final TextStyle baseStyle;
+
+  const _KaraokeLyricLine({required this.text, required this.baseStyle});
+
+  @override
+  ConsumerState<_KaraokeLyricLine> createState() => _KaraokeLyricLineState();
+}
+
+class _KaraokeLyricLineState extends ConsumerState<_KaraokeLyricLine> {
+  late List<String> _graphemes;
+
+  @override
+  void initState() {
+    super.initState();
+    _graphemes = widget.text.characters.toList(growable: false);
+  }
+
+  @override
+  void didUpdateWidget(covariant _KaraokeLyricLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _graphemes = widget.text.characters.toList(growable: false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fraction = ref.watch(currentLyricLitFractionProvider);
+    if (fraction == null) {
+      return Text(
+        widget.text,
+        textAlign: TextAlign.center,
+        style: widget.baseStyle,
+      );
+    }
+    final theme = Theme.of(context);
+    final litCount = (_graphemes.length * fraction).round().clamp(
+      0,
+      _graphemes.length,
+    );
     return Text.rich(
       TextSpan(
-        style: baseStyle,
+        style: widget.baseStyle,
         children: [
-          TextSpan(text: graphemes.take(litCount).join()),
+          TextSpan(text: _graphemes.take(litCount).join()),
           TextSpan(
-            text: graphemes.skip(litCount).join(),
+            text: _graphemes.skip(litCount).join(),
             style: TextStyle(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.28),
             ),

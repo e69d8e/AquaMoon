@@ -223,4 +223,28 @@ class QQMusicConfig {
     }
     return '';
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QQMusicConfig &&
+          runtimeType == other.runtimeType &&
+          uin == other.uin &&
+          dissid == other.dissid &&
+          cookie == other.cookie &&
+          nickname == other.nickname &&
+          playlistName == other.playlistName &&
+          dirId == other.dirId &&
+          lastSyncMs == other.lastSyncMs;
+
+  @override
+  int get hashCode => Object.hash(
+        uin,
+        dissid,
+        cookie,
+        nickname,
+        playlistName,
+        dirId,
+        lastSyncMs,
+      );
 }

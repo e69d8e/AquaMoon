@@ -332,6 +332,28 @@ class QQMusicCloudStatsSummary {
           : null,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QQMusicCloudStatsSummary &&
+          runtimeType == other.runtimeType &&
+          importedSongCount == other.importedSongCount &&
+          importedPlayCount == other.importedPlayCount &&
+          importedDurationSeconds == other.importedDurationSeconds &&
+          reportedPlayCount == other.reportedPlayCount &&
+          todayListenSeconds == other.todayListenSeconds &&
+          lastSyncTime == other.lastSyncTime;
+
+  @override
+  int get hashCode => Object.hash(
+        importedSongCount,
+        importedPlayCount,
+        importedDurationSeconds,
+        reportedPlayCount,
+        todayListenSeconds,
+        lastSyncTime,
+      );
 }
 
 /// 一条 QQ 音乐云端「最近播放」记录：曲目 + 云端累计播放次数 + 最后播放时间。

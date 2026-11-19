@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path/path.dart' as p;
@@ -23,13 +25,34 @@ class StorageService {
   static const String _settingsBoxName = 'soundcraft_settings';
   static const String _statsBoxName = 'soundcraft_stats';
 
+  static const String _tempCoverMigrationDoneKey = 'temp_cover_migration_v1_done';
+
   late Box _songsBox;
   late Box _playlistsBox;
   late Box _historyBox;
   late Box _settingsBox;
   late Box _statsBox;
 
+  List<Song>? _cachedAllSongs;
+  Map<String, Song>? _cachedSongsById;
+  Map<String, String>? _cachedSongIdByQqMid;
+  List<Song>? _cachedQQFavorites;
+  Set<String>? _cachedQQFavoriteIds;
+
+  void _invalidateSongsCache() {
+    _cachedAllSongs = null;
+    _cachedSongsById = null;
+    _cachedSongIdByQqMid = null;
+  }
+
+  void _invalidateQQFavoritesCache() {
+    _cachedQQFavorites = null;
+    _cachedQQFavoriteIds = null;
+  }
+
   Future<void> init([String? customPath]) async {
+    _invalidateSongsCache();
+    _invalidateQQFavoritesCache();
     if (customPath != null) {
       Hive.init(customPath);
     } else {
@@ -97,14 +120,37 @@ class StorageService {
 
   // --- Song Operations ---
 
+  List<Song> _ensureSongsCache() {
+    final cached = _cachedAllSongs;
+    if (cached != null) return cached;
+    final list = <Song>[];
+    final byId = <String, Song>{};
+    final byMid = <String, String>{};
+    for (final raw in _songsBox.values) {
+      if (raw is! Map) continue;
+      final song = Song.fromMap(raw);
+      list.add(song);
+      byId[song.id] = song;
+      final mid = song.qqSongMid;
+      if (mid != null && mid.isNotEmpty) {
+        byMid[mid] = song.id;
+      }
+    }
+    _cachedAllSongs = list;
+    _cachedSongsById = byId;
+    _cachedSongIdByQqMid = byMid;
+    return list;
+  }
+
   List<Song> getAllSongs() {
-    return _songsBox.values
-        .whereType<Map>()
-        .map((map) => Song.fromMap(map))
-        .toList();
+    return List<Song>.of(_ensureSongsCache());
   }
 
   Song? getSong(String songId) {
+    final cachedById = _cachedSongsById;
+    if (cachedById != null) {
+      return cachedById[songId];
+    }
     final songData = _songsBox.get(songId);
     if (songData != null && songData is Map) {
       return Song.fromMap(songData);
@@ -112,19 +158,38 @@ class StorageService {
     return null;
   }
 
+  /// Resolves a stored song's `id` by [qqSongMid] via an in-memory index
+  /// instead of scanning and deserializing the whole songs box each time.
+  String? findSongIdByQQMid(String qqSongMid) {
+    if (qqSongMid.isEmpty) return null;
+    _ensureSongsCache();
+    final localId = _cachedSongIdByQqMid?[qqSongMid];
+    if (localId != null) return localId;
+    for (final s in _ensureQQFavoritesCache()) {
+      if (s.qqSongMid == qqSongMid) return s.id;
+    }
+    return null;
+  }
+
   Future<void> saveSong(Song song) async {
-    await _songsBox.put(song.id, song.toMap());
+    final write = _songsBox.put(song.id, song.toMap());
+    _invalidateSongsCache();
+    await write;
   }
 
   Future<void> saveSongs(List<Song> songs) async {
     final Map<String, dynamic> entries = {
       for (final song in songs) song.id: song.toMap(),
     };
-    await _songsBox.putAll(entries);
+    final write = _songsBox.putAll(entries);
+    _invalidateSongsCache();
+    await write;
   }
 
   Future<void> deleteSong(String songId) async {
-    await _songsBox.delete(songId);
+    final del = _songsBox.delete(songId);
+    _invalidateSongsCache();
+    await del;
     // Remove from history as well
     final history = getHistoryIds();
     if (history.contains(songId)) {
@@ -141,7 +206,9 @@ class StorageService {
   /// that still exist) would reorder against mismatched indices.
   Future<void> deleteSongs(List<String> songIds) async {
     if (songIds.isEmpty) return;
-    await _songsBox.deleteAll(songIds);
+    final del = _songsBox.deleteAll(songIds);
+    _invalidateSongsCache();
+    await del;
     final idSet = songIds.toSet();
     final history = getHistoryIds();
     if (history.any(idSet.contains)) {
@@ -158,9 +225,11 @@ class StorageService {
       final raw = _playlistsBox.get(key);
       if (raw is! Map) continue;
       final playlist = Playlist.fromMap(raw);
-      final newIds = playlist.songIds.where((id) => !songIds.contains(id));
+      final newIds = playlist.songIds
+          .where((id) => !songIds.contains(id))
+          .toList(growable: false);
       if (newIds.length == playlist.songIds.length) continue;
-      final updated = playlist.copyWith(songIds: newIds.toList());
+      final updated = playlist.copyWith(songIds: newIds);
       await _playlistsBox.put(key, updated.toMap());
     }
   }
@@ -170,7 +239,9 @@ class StorageService {
     if (songData != null && songData is Map) {
       final song = Song.fromMap(songData);
       final updated = song.copyWith(isFavorite: !song.isFavorite);
-      await _songsBox.put(songId, updated.toMap());
+      final write = _songsBox.put(songId, updated.toMap());
+      _invalidateSongsCache();
+      await write;
       return updated;
     }
     return null;
@@ -264,6 +335,7 @@ class StorageService {
     await _settingsBox.delete('qq_cloud_stats_summary');
     await _settingsBox.delete('qq_manual_links');
     await _settingsBox.delete('qq_manual_exclusions');
+    _invalidateQQFavoritesCache();
   }
 
   // --- QQ Music 在线播放音质 ---
@@ -378,19 +450,35 @@ class StorageService {
     await _settingsBox.put('qq_manual_exclusions', exclusions.toList());
   }
 
-  List<Song> getQQMusicFavoritesCache() {
+  List<Song> _ensureQQFavoritesCache() {
+    final cached = _cachedQQFavorites;
+    if (cached != null) return cached;
     final raw = _settingsBox.get('qq_favorites_cache');
-    if (raw is! List) return const [];
-    return [
+    if (raw is! List) {
+      _cachedQQFavorites = const [];
+      _cachedQQFavoriteIds = const {};
+      return const [];
+    }
+    final parsed = <Song>[
       for (final item in raw)
         if (item is Map) Song.fromMap(item),
     ];
+    _cachedQQFavorites = parsed;
+    _cachedQQFavoriteIds = {for (final s in parsed) s.id};
+    return parsed;
+  }
+
+  List<Song> getQQMusicFavoritesCache() {
+    final cached = _ensureQQFavoritesCache();
+    return cached.isEmpty ? const [] : List<Song>.of(cached);
   }
 
   Future<void> saveQQMusicFavoritesCache(List<Song> songs) async {
-    await _settingsBox.put('qq_favorites_cache', [
+    final write = _settingsBox.put('qq_favorites_cache', [
       for (final song in songs) song.toMap(),
     ]);
+    _invalidateQQFavoritesCache();
+    await write;
   }
 
   // --- History Operations ---
@@ -421,29 +509,30 @@ class StorageService {
     if (songData != null && songData is Map) {
       final song = Song.fromMap(songData);
       final updated = song.copyWith(playCount: song.playCount + 1);
-      await _songsBox.put(songId, updated.toMap());
+      final write = _songsBox.put(songId, updated.toMap());
+      _invalidateSongsCache();
+      await write;
       return;
     }
 
-    // Also increment playCount in QQ Music favorites cache if it's an online track
-    final qqCacheRaw = _settingsBox.get('qq_favorites_cache');
-    if (qqCacheRaw is List) {
-      var changed = false;
-      final updatedList = <Map<String, dynamic>>[];
-      for (final item in qqCacheRaw) {
-        if (item is Map) {
-          final s = Song.fromMap(item);
-          if (s.id == songId) {
-            updatedList.add(s.copyWith(playCount: s.playCount + 1).toMap());
-            changed = true;
-          } else {
-            updatedList.add(s.toMap());
-          }
-        }
+    // Also increment playCount in QQ Music favorites cache only if this track is actually cached.
+    final cachedFavorites = _ensureQQFavoritesCache();
+    if (cachedFavorites.isEmpty ||
+        !(_cachedQQFavoriteIds?.contains(songId) ?? false)) {
+      return;
+    }
+    var changed = false;
+    final updatedSongs = <Song>[];
+    for (final s in cachedFavorites) {
+      if (s.id == songId) {
+        updatedSongs.add(s.copyWith(playCount: s.playCount + 1));
+        changed = true;
+      } else {
+        updatedSongs.add(s);
       }
-      if (changed) {
-        await _settingsBox.put('qq_favorites_cache', updatedList);
-      }
+    }
+    if (changed) {
+      await saveQQMusicFavoritesCache(updatedSongs);
     }
   }
 
@@ -488,9 +577,26 @@ class StorageService {
   /// index is clamped to the (type-filtered) queue length so a stale index
   /// can't crash session restore.
   ({List<Map> songMaps, int index})? getPlaybackSession() {
-    final maps = _settingsBox.get('playback_queue');
-    if (maps is! List || maps.isEmpty) return null;
-    final songMaps = maps.whereType<Map>().toList();
+    final raw = _settingsBox.get('playback_queue');
+    List<Map> songMaps;
+    if (raw is List) {
+      songMaps = raw.whereType<Map>().toList();
+    } else if (!kIsWeb &&
+        raw is Map &&
+        raw['codec'] == 'gzip+json' &&
+        raw['data'] is String) {
+      try {
+        final compressed = base64Decode(raw['data'] as String);
+        final decodedJson = utf8.decode(gzip.decode(compressed));
+        final decodedList = jsonDecode(decodedJson);
+        if (decodedList is! List) return null;
+        songMaps = decodedList.whereType<Map>().toList();
+      } catch (_) {
+        return null;
+      }
+    } else {
+      return null;
+    }
     if (songMaps.isEmpty) return null;
     final rawIndex = _settingsBox.get('playback_queue_index', defaultValue: 0);
     final index = rawIndex is num ? rawIndex.toInt() : 0;
@@ -503,9 +609,17 @@ class StorageService {
       await _settingsBox.delete('playback_queue_index');
       return;
     }
-    await _settingsBox.put('playback_queue', [
-      for (final song in queue) song.toMap(),
-    ]);
+    final serialized = [for (final song in queue) song.toMap()];
+    if (!kIsWeb) {
+      final compressed = gzip.encode(utf8.encode(jsonEncode(serialized)));
+      await _settingsBox.put('playback_queue', {
+        'v': 2,
+        'codec': 'gzip+json',
+        'data': base64Encode(compressed),
+      });
+    } else {
+      await _settingsBox.put('playback_queue', serialized);
+    }
     await _settingsBox.put(
       'playback_queue_index',
       index.clamp(0, queue.length - 1),
@@ -736,6 +850,7 @@ class StorageService {
     }
     var cacheChanged = false;
     final updatedCache = [...favCache];
+    final upgradedLocalSongs = <Song>[];
 
     for (final entry in entries) {
       final cloudSong = entry.song;
@@ -754,7 +869,7 @@ class StorageService {
             playCount: needsPlays ? targetPlays : local.playCount,
             qqSongId: needsId ? cloudSongId : local.qqSongId,
           );
-          await saveSong(updated);
+          upgradedLocalSongs.add(updated);
           localByMid[mid] = updated;
           localById[updated.id] = updated;
           updatedSongCount++;
@@ -777,6 +892,9 @@ class StorageService {
           updatedSongCount++;
         }
       }
+    }
+    if (upgradedLocalSongs.isNotEmpty) {
+      await saveSongs(upgradedLocalSongs);
     }
     if (cacheChanged) {
       await saveQQMusicFavoritesCache(updatedCache);
@@ -960,6 +1078,11 @@ class StorageService {
     Directory? tempDir,
     Directory? supportDir,
   }) async {
+    final trackDoneFlag = tempDir == null && supportDir == null;
+    if (trackDoneFlag && _settingsBox.get(_tempCoverMigrationDoneKey) == true) {
+      return 0;
+    }
+
     tempDir ??= await _resolveDirOrNull(getTemporaryDirectory);
     supportDir ??= await _resolveDirOrNull(getApplicationSupportDirectory);
     if (tempDir == null || supportDir == null) {
@@ -995,6 +1118,9 @@ class StorageService {
     final changedSongs = <Song>[];
     for (final raw in _songsBox.values) {
       if (raw is! Map) continue;
+      // Pre-check raw string field before parsing full Song model on cold start.
+      final rawArtUri = raw['albumArtUri'];
+      if (rawArtUri is! String || !rawArtUri.startsWith('file://')) continue;
       final song = Song.fromMap(raw);
       final (touched, newUri) = await migrateCover(song.albumArtUri);
       if (!touched) continue;
@@ -1011,6 +1137,10 @@ class StorageService {
 
     for (final raw in _playlistsBox.values) {
       if (raw is! Map) continue;
+      final rawCoverUri = raw['coverArtUri'];
+      if (rawCoverUri is! String || !rawCoverUri.startsWith('file://')) {
+        continue;
+      }
       final playlist = Playlist.fromMap(raw);
       final (touched, newUri) = await migrateCover(playlist.coverArtUri);
       if (!touched) continue;
@@ -1020,6 +1150,9 @@ class StorageService {
             : playlist.copyWith(coverArtUri: newUri),
       );
       changed++;
+    }
+    if (trackDoneFlag) {
+      await _settingsBox.put(_tempCoverMigrationDoneKey, true);
     }
     return changed;
   }
@@ -1081,6 +1214,9 @@ class StorageService {
       _statsBox,
       _validatedSection(data['stats'], _parseDailyRecord),
     );
+    _invalidateSongsCache();
+    _invalidateQQFavoritesCache();
+    await _settingsBox.delete(_tempCoverMigrationDoneKey);
   }
 
   static Song? _parseSong(Object? raw) {

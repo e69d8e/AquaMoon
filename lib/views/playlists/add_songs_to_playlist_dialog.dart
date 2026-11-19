@@ -44,8 +44,9 @@ class _AddSongsToPlaylistDialogState
       orElse: () => widget.playlist,
     );
 
-    final libraryState = ref.watch(libraryNotifierProvider);
-    final librarySongs = libraryState.songs;
+    final librarySongs = ref.watch(
+      libraryNotifierProvider.select((s) => s.songs),
+    );
     final favoriteSongs = ref.watch(favoritesSongsProvider);
     final sourceSongs = _source == _SongSource.library
         ? librarySongs
@@ -66,10 +67,11 @@ class _AddSongsToPlaylistDialogState
     // the fixed height gets clamped to the remaining space.
     return Padding(
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
       ),
       child: GlassContainer(
-        height: MediaQuery.of(context).size.height * 0.85,
+        enableBlur: false,
+        height: MediaQuery.sizeOf(context).height * 0.85,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: Column(
           children: [
@@ -243,6 +245,7 @@ class _AddSongsToPlaylistDialogState
                       ),
                     )
                   : ListView.builder(
+                      itemExtent: 58.0,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 4,

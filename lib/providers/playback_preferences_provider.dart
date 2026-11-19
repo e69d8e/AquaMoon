@@ -33,7 +33,10 @@ final preferLocalPlaybackProvider =
 ///
 /// 与音频引擎同一套判定（开关打开 + 曲库里存在可播放的同名匹配），供界面
 /// 决定「先提示 VIP 受限」还是「直接安静地播本地」。
-final hasLocalCopyProvider = Provider.family<bool, Song>((ref, song) {
+final hasLocalCopyProvider = Provider.autoDispose.family<bool, Song>((
+  ref,
+  song,
+) {
   if (!ref.watch(preferLocalPlaybackProvider)) return false;
   if (song.hasLocalFile) return false;
   final localSongs = ref.watch(

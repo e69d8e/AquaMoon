@@ -6,14 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/qq_music_cookie_status.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/playback_preferences_provider.dart';
-import '../../core/utils/qq_music_cookie_status.dart';
 import '../../providers/qq_music_download_provider.dart';
 import '../../providers/qq_music_provider.dart';
 import '../../providers/qq_music_session_provider.dart';
@@ -22,6 +23,7 @@ import '../../providers/update_provider.dart';
 import '../../services/backup_service.dart';
 import '../../services/qq_music_service.dart';
 import '../stats/listening_stats_page.dart';
+import '../widgets/aquamoon_mark.dart';
 import '../widgets/qq_music_auth_dialog.dart';
 import '../widgets/qq_music_quality_picker.dart';
 import '../widgets/update_dialog.dart';
@@ -199,126 +201,140 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final libraryState = ref.watch(libraryNotifierProvider);
-    final qqFavState = ref.watch(qqMusicFavoritesProvider);
+    final libraryCount = ref.watch(
+      libraryNotifierProvider.select((s) => s.songs.length),
+    );
+    final scanProgress = ref.watch(
+      libraryNotifierProvider.select(
+        (s) => (
+          isScanning: s.isScanning,
+          text: s.scanProgressText,
+          percent: s.scanProgressPercent,
+        ),
+      ),
+    );
+    final localSongCount = ref.watch(
+      libraryNotifierProvider.select(
+        (s) => s.songs.where((song) => song.hasLocalFile).length,
+      ),
+    );
+    final qqFavMeta = ref.watch(
+      qqMusicFavoritesProvider.select(
+        (s) => (
+          isBound: s.isBound,
+          mergedCount: s.mergedSongs.length,
+          displayLabel: s.config.displayLabel,
+          localMatchedCount: s.localMatchedCount,
+          isSyncing: s.isSyncing,
+        ),
+      ),
+    );
     final qqSession = ref.watch(qqMusicSessionProvider);
     final todayStats = ref.watch(todayListeningSummaryProvider);
     final themeMode = ref.watch(themeModeProvider);
     final palette = ref.watch(themePaletteProvider);
     final theme = Theme.of(context);
 
+    final appColors = AppColors.of(context);
+    final todayDurationText = todayStats.totalDurationSeconds > 0
+        ? Formatters.formatListeningDuration(
+            Duration(seconds: todayStats.totalDurationSeconds),
+            short: true,
+          )
+        : '0 分钟';
+
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        children: [
-          // 1. Library Management Header / Info Card
-          Card(
-            elevation: 0,
-            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.library_music_rounded,
-                      color: theme.colorScheme.primary,
-                      size: 26,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '曲库概览',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '当前已收录 ${libraryState.songs.length} 首本地音频',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          // QQ Music Favorites Sync Card
-          Card(
-            elevation: 0,
-            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.22),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => QQMusicAuthDialog.show(context),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
+            children: [
+              // 1. 统一三栏概览卡：本地曲库 · QQ 收藏 · 今日听歌
+              Card(
+                child: Column(
                   children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(
-                          alpha: 0.16,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.favorite_rounded,
-                        color: theme.colorScheme.primary,
-                        size: 25,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _OverviewMetric(
+                              label: '本地曲库',
+                              value: '$libraryCount',
+                              unit: '首',
+                            ),
+                          ),
+                          Container(
+                            width: 0.8,
+                            height: 28,
+                            color: appColors.subtleDivider,
+                          ),
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => QQMusicAuthDialog.show(context),
+                              child: _OverviewMetric(
+                                label: qqFavMeta.isBound ? 'QQ 收藏' : 'QQ 音乐',
+                                value: qqFavMeta.isBound
+                                    ? '${qqFavMeta.mergedCount}'
+                                    : '未绑定',
+                                unit: qqFavMeta.isBound ? '首' : null,
+                                accent: qqFavMeta.isBound,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 0.8,
+                            height: 28,
+                            color: appColors.subtleDivider,
+                          ),
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const ListeningStatsPage(),
+                                  ),
+                                );
+                              },
+                              child: _OverviewMetric(
+                                label: '今日聆听',
+                                value: todayDurationText,
+                                accent: todayStats.totalDurationSeconds > 0,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: Icon(
+                        Icons.favorite_rounded,
+                        color: appColors.favorite,
+                        size: 21,
+                      ),
+                      title: const Text(
+                        'QQ 音乐「我喜欢」收藏同步',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'QQ 音乐「我喜欢」收藏同步',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
                           Text(
-                            qqFavState.isBound
-                                ? '已连接 ${qqFavState.config.displayLabel} · 已同步 ${qqFavState.mergedSongs.length} 首'
-                                      '${qqFavState.localMatchedCount > 0 ? ' (关联本地 ${qqFavState.localMatchedCount} 首)' : ''}'
-                                : '未绑定 · 点击配置 QQ 号、歌单链接或 Cookie 同步收藏',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
+                            qqFavMeta.isBound
+                                ? '已连接 ${qqFavMeta.displayLabel}'
+                                      '${qqFavMeta.localMatchedCount > 0 ? ' · 已关联本地 ${qqFavMeta.localMatchedCount} 首' : ''}'
+                                : '配置 QQ 号、歌单链接或 Cookie 同步云端收藏',
+                            style: const TextStyle(fontSize: 12),
                           ),
-                          if (qqFavState.isBound &&
+                          if (qqFavMeta.isBound &&
                               qqSession.health !=
                                   QQMusicCookieHealth.unknown) ...[
                             const SizedBox(height: 2),
@@ -334,152 +350,99 @@ class SettingsPage extends ConsumerWidget {
                           ],
                         ],
                       ),
+                      trailing: qqFavMeta.isBound
+                          ? IconButton(
+                              icon: qqFavMeta.isSyncing
+                                  ? SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                    )
+                                  : Icon(
+                                      Icons.sync_rounded,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                              tooltip: '立即同步',
+                              onPressed: qqFavMeta.isSyncing
+                                  ? null
+                                  : () async {
+                                      try {
+                                        final msg = await ref
+                                            .read(
+                                              qqMusicFavoritesProvider.notifier,
+                                            )
+                                            .syncFavorites(silent: false);
+                                        if (context.mounted && msg.isNotEmpty) {
+                                          AppToast.show(
+                                            context,
+                                            msg,
+                                            icon: Icons
+                                                .check_circle_outline_rounded,
+                                          );
+                                        }
+                                      } on QQMusicApiException catch (e) {
+                                        if (context.mounted) {
+                                          AppToast.show(
+                                            context,
+                                            e.message,
+                                            icon: Icons.error_outline_rounded,
+                                          );
+                                        }
+                                      } catch (_) {
+                                        if (context.mounted) {
+                                          AppToast.show(
+                                            context,
+                                            '同步失败，请检查网络后重试',
+                                            icon: Icons.error_outline_rounded,
+                                          );
+                                        }
+                                      }
+                                    },
+                            )
+                          : const Icon(Icons.chevron_right_rounded),
+                      onTap: () => QQMusicAuthDialog.show(context),
                     ),
-                    if (qqFavState.isBound)
-                      IconButton(
-                        icon: qqFavState.isSyncing
-                            ? SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: theme.colorScheme.primary,
-                                ),
-                              )
-                            : Icon(
-                                Icons.sync_rounded,
-                                color: theme.colorScheme.primary,
-                              ),
-                        tooltip: '立即同步',
-                        onPressed: qqFavState.isSyncing
-                            ? null
-                            : () async {
-                                try {
-                                  final msg = await ref
-                                      .read(qqMusicFavoritesProvider.notifier)
-                                      .syncFavorites(silent: false);
-                                  if (context.mounted && msg.isNotEmpty) {
-                                    AppToast.show(
-                                      context,
-                                      msg,
-                                      icon: Icons.check_circle_outline_rounded,
-                                    );
-                                  }
-                                } on QQMusicApiException catch (e) {
-                                  if (context.mounted) {
-                                    AppToast.show(
-                                      context,
-                                      e.message,
-                                      icon: Icons.error_outline_rounded,
-                                    );
-                                  }
-                                } catch (_) {
-                                  if (context.mounted) {
-                                    AppToast.show(
-                                      context,
-                                      '同步失败，请检查网络后重试',
-                                      icon: Icons.error_outline_rounded,
-                                    );
-                                  }
-                                }
-                              },
-                      )
-                    else
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.6,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          if (_supportsQQMusicDownload) ...[
-            const SizedBox(height: 10),
-            const _QQMusicDownloadCard(),
-          ],
-
-          const SizedBox(height: 10),
-
-          // 2. Listening Stats Entry Card
-          Card(
-            elevation: 0,
-            color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.35),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ListeningStatsPage()),
-                );
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(
-                          alpha: 0.18,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
+                    const Divider(height: 1, indent: 56),
+                    ListTile(
+                      leading: Icon(
                         Icons.insights_rounded,
                         color: theme.colorScheme.primary,
-                        size: 26,
+                        size: 21,
                       ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Text(
-                                '听歌统计与时长',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
+                      title: const Text(
+                        '听歌统计与时长',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        '查看日 / 周 / 月 / 年听歌趋势与热力图',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ListeningStatsPage(),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            todayStats.totalDurationSeconds > 0
-                                ? '今日已听歌 ${Formatters.formatListeningDuration(Duration(seconds: todayStats.totalDurationSeconds))} · 点击查看日/周/月/年统计'
-                                : '今日暂无听歌 · 点击查看历史日/周/月/年统计',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: theme.colorScheme.onSurfaceVariant.withValues(
-                        alpha: 0.6,
-                      ),
+                        );
+                      },
                     ),
                   ],
                 ),
               ),
-            ),
-          ),
+
+              if (_supportsQQMusicDownload) ...[
+                const SizedBox(height: 12),
+                const _QQMusicDownloadCard(),
+              ],
 
           // Scanning Progress Card (if scanning/enriching)
-          if (libraryState.isScanning) ...[
+          if (scanProgress.isScanning) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(14),
@@ -503,7 +466,7 @@ class SettingsPage extends ConsumerWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          libraryState.scanProgressText ?? '正在处理曲库数据...',
+                          scanProgress.text ?? '正在处理曲库数据...',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -514,12 +477,12 @@ class SettingsPage extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  if (libraryState.scanProgressPercent != null) ...[
+                  if (scanProgress.percent != null) ...[
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: LinearProgressIndicator(
-                        value: libraryState.scanProgressPercent,
+                        value: scanProgress.percent,
                       ),
                     ),
                   ],
@@ -531,25 +494,8 @@ class SettingsPage extends ConsumerWidget {
           const SizedBox(height: 20),
 
           // Section 1: 曲库管理与歌曲导入
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            child: Text(
-              '曲库与文件管理',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-          ),
+          _sectionTitle(theme, '曲库与文件管理'),
           Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
             child: Column(
               children: [
                 ListTile(
@@ -761,25 +707,8 @@ class SettingsPage extends ConsumerWidget {
           const SizedBox(height: 20),
 
           // Section 3: 播放与通知设置
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            child: Text(
-              '播放与系统适配',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-          ),
+          _sectionTitle(theme, '播放与系统适配'),
           Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
             child: Column(
               children: [
                 if (Platform.isAndroid) ...[
@@ -796,10 +725,7 @@ class SettingsPage extends ConsumerWidget {
                       '淡入淡出与多频段均衡器（Android 专属）',
                       style: TextStyle(fontSize: 12),
                     ),
-                    trailing: const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 14,
-                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
@@ -811,9 +737,7 @@ class SettingsPage extends ConsumerWidget {
                   const Divider(height: 1, indent: 56),
                 ],
                 _PreferLocalPlaybackTile(
-                  localSongCount: libraryState.songs
-                      .where((song) => song.hasLocalFile)
-                      .length,
+                  localSongCount: localSongCount,
                 ),
                 const Divider(height: 1, indent: 56),
                 ListTile(
@@ -826,7 +750,7 @@ class SettingsPage extends ConsumerWidget {
                     '字号、行距、当前行高亮与自动滚动位置',
                     style: TextStyle(fontSize: 12),
                   ),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -846,7 +770,7 @@ class SettingsPage extends ConsumerWidget {
                     '系统通知卡片、小米 HyperOS / 鸿蒙锁屏常驻与省电保活',
                     style: TextStyle(fontSize: 12),
                   ),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -862,120 +786,93 @@ class SettingsPage extends ConsumerWidget {
           const SizedBox(height: 20),
 
           // Section: 外观
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            child: Text(
-              '外观',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-          ),
+          _sectionTitle(theme, '外观'),
           Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.contrast_rounded,
-                    size: 22,
-                    color: theme.colorScheme.onSurfaceVariant,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
                   ),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Text(
-                      '主题模式',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.contrast_rounded,
+                        size: 22,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                    ),
-                  ),
-                  SegmentedButton<ThemeMode>(
-                    segments: const [
-                      ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
-                      ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
-                      ButtonSegment(value: ThemeMode.system, label: Text('系统')),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Text(
+                          '主题模式',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      SegmentedButton<ThemeMode>(
+                        segments: const [
+                          ButtonSegment(
+                            value: ThemeMode.light,
+                            label: Text('浅色'),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.dark,
+                            label: Text('深色'),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.system,
+                            label: Text('系统'),
+                          ),
+                        ],
+                        selected: {themeMode},
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          textStyle: WidgetStatePropertyAll(
+                            TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        onSelectionChanged: (selection) {
+                          ref
+                              .read(themeModeProvider.notifier)
+                              .setThemeMode(selection.first);
+                        },
+                      ),
                     ],
-                    selected: {themeMode},
-                    showSelectedIcon: false,
-                    style: const ButtonStyle(
-                      visualDensity: VisualDensity.compact,
-                      textStyle: WidgetStatePropertyAll(
-                        TextStyle(fontSize: 12),
-                      ),
-                    ),
-                    onSelectionChanged: (selection) {
-                      ref
-                          .read(themeModeProvider.notifier)
-                          .setThemeMode(selection.first);
-                    },
                   ),
-                ],
-              ),
+                ),
+                const Divider(height: 1, indent: 56),
+                ListTile(
+                  leading: const Icon(Icons.palette_outlined),
+                  title: const Text(
+                    '主题配色',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    '当前：${palette.name} · ${palette.tagline}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const ThemeSettingsPage(),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
 
-          const SizedBox(height: 12),
-
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            child: ListTile(
-              leading: const Icon(Icons.palette_outlined),
-              title: const Text(
-                '主题配色',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                '当前:${palette.name} · ${palette.tagline}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ThemeSettingsPage()),
-                );
-              },
-            ),
-          ),
-
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
           // Section 3.5: 数据备份与恢复
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            child: Text(
-              '数据备份与恢复',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-          ),
+          _sectionTitle(theme, '数据备份与恢复'),
           Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
             child: Column(
               children: [
                 ListTile(
@@ -1033,25 +930,21 @@ class SettingsPage extends ConsumerWidget {
           Center(
             child: Column(
               children: [
-                Icon(
-                  Icons.graphic_eq_rounded,
-                  size: 28,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.6),
-                ),
-                const SizedBox(height: 6),
+                const AquaMoonMark(size: 32),
+                const SizedBox(height: 8),
                 const Text(
                   '水月音 AquaMoon',
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: -0.2,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '极简纯粹 · 本地高保真音乐播放器',
+                  '静心聆听 · 素纸墨韵本地音乐播放器',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 11.5,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
@@ -1066,13 +959,93 @@ class SettingsPage extends ConsumerWidget {
                       ),
                   style: TextStyle(
                     fontSize: 11,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(ThemeData theme, String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewMetric extends StatelessWidget {
+  final String label;
+  final String value;
+  final String? unit;
+  final bool accent;
+
+  const _OverviewMetric({
+    required this.label,
+    required this.value,
+    this.unit,
+    this.accent = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: accent
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface,
+                ),
+              ),
+              if (unit != null) ...[
+                const SizedBox(width: 2),
+                Text(
+                  unit!,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -1129,16 +1102,8 @@ class _UpdateSettingsCardState extends ConsumerState<_UpdateSettingsCard> {
   @override
   Widget build(BuildContext context) {
     final autoCheck = ref.watch(autoCheckUpdatesProvider);
-    final theme = Theme.of(context);
 
     return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-        ),
-      ),
       child: Column(
         children: [
           ListTile(
@@ -1259,13 +1224,6 @@ class _QQMusicDownloadCard extends ConsumerWidget {
     final activeTasks = downloadState.activeTasks;
 
     return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-        ),
-      ),
       child: Column(
         children: [
           ListTile(

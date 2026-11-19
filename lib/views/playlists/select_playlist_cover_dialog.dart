@@ -6,7 +6,6 @@ import '../../models/playlist.dart';
 import '../../models/song.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/playlist_provider.dart';
-import '../../providers/qq_music_provider.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/song_artwork.dart';
 
@@ -42,16 +41,10 @@ class _SelectPlaylistCoverDialogState
       orElse: () => widget.playlist,
     );
 
-    final libraryState = ref.watch(libraryNotifierProvider);
-    final qqFavorites = ref.watch(
-      qqMusicFavoritesProvider.select((s) => s.mergedSongs),
+    final librarySongs = ref.watch(
+      libraryNotifierProvider.select((s) => s.songs),
     );
-    final songMap = {for (final s in libraryState.songs) s.id: s};
-    // Playlist entries can be QQ Music cloud favorites; merge the favorites
-    // cache so their artwork is selectable too.
-    for (final song in qqFavorites) {
-      songMap.putIfAbsent(song.id, () => song);
-    }
+    final songMap = ref.watch(songByIdMapProvider);
 
     // Songs from current playlist
     final playlistSongs = currentPlaylist.songIds
@@ -61,7 +54,7 @@ class _SelectPlaylistCoverDialogState
         .toList();
 
     // All songs from library that have artwork
-    final libraryArtworkSongs = libraryState.songs
+    final libraryArtworkSongs = librarySongs
         .where((s) => s.albumArtUri != null && s.albumArtUri!.isNotEmpty)
         .toList();
 
@@ -73,10 +66,11 @@ class _SelectPlaylistCoverDialogState
     // the fixed height gets clamped to the remaining space.
     return Padding(
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
       ),
       child: GlassContainer(
-        height: MediaQuery.of(context).size.height * 0.75,
+        enableBlur: false,
+        height: MediaQuery.sizeOf(context).height * 0.75,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: Column(
           children: [

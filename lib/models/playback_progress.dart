@@ -20,4 +20,16 @@ class PlaybackProgress {
     final ratio = bufferedPosition.inMilliseconds / duration.inMilliseconds;
     return ratio.clamp(0.0, 1.0);
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlaybackProgress &&
+          runtimeType == other.runtimeType &&
+          position == other.position &&
+          duration == other.duration &&
+          bufferedPosition == other.bufferedPosition;
+
+  @override
+  int get hashCode => Object.hash(position, duration, bufferedPosition);
 }

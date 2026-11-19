@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../models/listening_stats.dart';
 
+/// 静谧档案风格的听歌时长总览卡：清晰的大号等宽数字与细线分隔指标栏。
 class StatsSummaryCard extends StatelessWidget {
   final ListeningPeriodStats stats;
 
@@ -11,66 +13,50 @@ class StatsSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final appColors = AppColors.of(context);
 
     final hasData = stats.totalDurationSeconds > 0;
     final totalDuration = stats.totalDuration;
 
+    final metrics = <({String label, String value})>[
+      (label: '收听曲目', value: '${stats.distinctSongsCount} 首'),
+      (label: '播放次数', value: '${stats.totalPlayCount} 次'),
+      if (stats.distinctArtistsCount > 0)
+        (label: '常听歌手', value: '${stats.distinctArtistsCount} 位'),
+      if (stats.periodType != PeriodType.day && stats.averageDailySeconds > 0)
+        (
+          label: '日均时长',
+          value: Formatters.formatListeningDuration(
+            stats.averageDailyDuration,
+            short: true,
+          ),
+        ),
+      if (hasData && stats.peakTimeSummary.isNotEmpty)
+        (label: '时段偏好', value: stats.peakTimeSummary),
+    ];
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDark
-              ? [
-                  theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.35,
-                  ),
-                  theme.colorScheme.surface,
-                ]
-              : [
-                  theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                  theme.colorScheme.surface,
-                ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(
-            alpha: isDark ? 0.25 : 0.15,
-          ),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.primary.withValues(
-              alpha: isDark ? 0.08 : 0.04,
-            ),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: appColors.glassBorder, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header label with icon
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(7),
+                width: 3,
+                height: 14,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.headphones_rounded,
-                  size: 18,
                   color: theme.colorScheme.primary,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Text(
                 _getPeriodLabel(stats.periodType),
                 style: TextStyle(
@@ -84,16 +70,15 @@ class StatsSummaryCard extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // Big Duration Typography
           if (hasData) ...[
             _buildDurationHero(context, totalDuration),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
-              '已在此周期内沉浸聆听 ${Formatters.formatListeningDuration(totalDuration)}',
+              '在此周期内累计聆听 ${Formatters.formatListeningDuration(totalDuration)}',
               style: TextStyle(
                 fontSize: 12,
                 color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.75,
+                  alpha: 0.78,
                 ),
               ),
             ),
@@ -103,8 +88,9 @@ class StatsSummaryCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 34,
                 fontWeight: FontWeight.w800,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                letterSpacing: -0.5,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.36),
+                letterSpacing: -0.6,
               ),
             ),
             const SizedBox(height: 6),
@@ -113,59 +99,62 @@ class StatsSummaryCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.6,
+                  alpha: 0.65,
                 ),
               ),
             ),
           ],
 
-          const SizedBox(height: 20),
-          const Divider(height: 1),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
+          Divider(height: 1, color: appColors.subtleDivider),
+          const SizedBox(height: 14),
 
-          // Metric Badges Grid
-          Wrap(
-            spacing: 12,
-            runSpacing: 10,
-            children: [
-              _buildMetricChip(
-                context,
-                icon: Icons.music_note_rounded,
-                label: '收听曲目',
-                value: '${stats.distinctSongsCount} 首',
-              ),
-              _buildMetricChip(
-                context,
-                icon: Icons.repeat_rounded,
-                label: '播放次数',
-                value: '${stats.totalPlayCount} 次',
-              ),
-              if (stats.distinctArtistsCount > 0)
-                _buildMetricChip(
-                  context,
-                  icon: Icons.person_outline_rounded,
-                  label: '常听歌手',
-                  value: '${stats.distinctArtistsCount} 位',
-                ),
-              if (stats.periodType != PeriodType.day &&
-                  stats.averageDailySeconds > 0)
-                _buildMetricChip(
-                  context,
-                  icon: Icons.calendar_today_rounded,
-                  label: '日均时长',
-                  value: Formatters.formatListeningDuration(
-                    stats.averageDailyDuration,
-                    short: true,
-                  ),
-                ),
-              if (hasData && stats.peakTimeSummary.isNotEmpty)
-                _buildMetricChip(
-                  context,
-                  icon: Icons.access_time_rounded,
-                  label: '时段偏好',
-                  value: stats.peakTimeSummary,
-                ),
-            ],
+          // 规整指标栅格：每行固定 3 列均衡排布，杜绝孤立尾项。
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const columns = 3;
+              const spacing = 12.0;
+              final cellWidth =
+                  (constraints.maxWidth - spacing * (columns - 1)) / columns;
+              return Wrap(
+                spacing: spacing,
+                runSpacing: 14,
+                children: [
+                  for (final metric in metrics)
+                    SizedBox(
+                      width: cellWidth,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            metric.label,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.78),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            metric.value,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -185,9 +174,10 @@ class StatsSummaryCard extends StatelessWidget {
           Text(
             '$hours',
             style: TextStyle(
-              fontSize: 40,
-              fontWeight: FontWeight.w900,
-              color: theme.colorScheme.primary,
+              fontSize: 38,
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              color: theme.colorScheme.onSurface,
               letterSpacing: -1.0,
             ),
           ),
@@ -195,21 +185,20 @@ class StatsSummaryCard extends StatelessWidget {
           Text(
             '小时',
             style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
         ],
         Text(
           '$minutes',
           style: TextStyle(
-            fontSize: 40,
-            fontWeight: FontWeight.w900,
-            color: hours > 0
-                ? theme.colorScheme.onSurface
-                : theme.colorScheme.primary,
+            fontSize: 38,
+            fontWeight: FontWeight.w800,
+            fontFeatures: const [FontFeature.tabularFigures()],
+            color: theme.colorScheme.onSurface,
             letterSpacing: -1.0,
           ),
         ),
@@ -217,50 +206,12 @@ class StatsSummaryCard extends StatelessWidget {
         Text(
           '分钟',
           style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildMetricChip(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.05)
-            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
-          Text(
-            '$label ',
-            style: TextStyle(
-              fontSize: 11.5,
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-            ),
-          ),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
     );
   }
 

@@ -55,9 +55,12 @@ class ListeningStatsPage extends ConsumerWidget {
           const SizedBox(width: 4),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        children: [
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            children: [
           // 1. Period Selector Tabs (Day, Week, Month, Year, All-time)
           _buildPeriodSelector(context, ref, periodType),
 
@@ -130,7 +133,9 @@ class ListeningStatsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 32),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -146,10 +151,10 @@ class ListeningStatsPage extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF1E2230)
-            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(16),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: isDark ? 0.65 : 0.72,
+        ),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: PeriodType.values.map((type) {
@@ -161,35 +166,25 @@ class ListeningStatsPage extends ConsumerWidget {
                   ref.read(statsPeriodTypeProvider.notifier).state = type;
                 }
               },
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? theme.colorScheme.primary
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: isSelected
-                      ? [
-                          BoxShadow(
-                            color: theme.colorScheme.primary.withValues(
-                              alpha: 0.3,
-                            ),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   type.label,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    fontSize: 13,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                     color: isSelected
-                        ? Colors.white
+                        ? theme.colorScheme.onPrimary
                         : theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
@@ -416,58 +411,27 @@ class ListeningStatsPage extends ConsumerWidget {
   ) {
     final theme = Theme.of(context);
 
-    // Medal colors for top 3
+    // 温润印章序号徽标：前三名用主题主色渐次收淡，避免刺眼荧光金/银。
     Widget rankWidget;
-    if (rank == 1) {
+    if (rank <= 3) {
+      final isFirst = rank == 1;
+      final bg = isFirst
+          ? theme.colorScheme.primary
+          : theme.colorScheme.primary.withValues(alpha: rank == 2 ? 0.18 : 0.10);
+      final fg = isFirst
+          ? theme.colorScheme.onPrimary
+          : theme.colorScheme.primary;
       rankWidget = Container(
         width: 22,
         height: 22,
-        decoration: const BoxDecoration(
-          color: Color(0xFFFFD700),
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
         alignment: Alignment.center,
-        child: const Text(
-          '1',
+        child: Text(
+          '$rank',
           style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-        ),
-      );
-    } else if (rank == 2) {
-      rankWidget = Container(
-        width: 22,
-        height: 22,
-        decoration: const BoxDecoration(
-          color: Color(0xFFE0E0E0),
-          shape: BoxShape.circle,
-        ),
-        alignment: Alignment.center,
-        child: const Text(
-          '2',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-            fontSize: 11,
-          ),
-        ),
-      );
-    } else if (rank == 3) {
-      rankWidget = Container(
-        width: 22,
-        height: 22,
-        decoration: const BoxDecoration(
-          color: Color(0xFFCD7F32),
-          shape: BoxShape.circle,
-        ),
-        alignment: Alignment.center,
-        child: const Text(
-          '3',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+            color: fg,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
             fontSize: 11,
           ),
         ),
@@ -481,6 +445,7 @@ class ListeningStatsPage extends ConsumerWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
+            fontFeatures: const [FontFeature.tabularFigures()],
             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
           ),
         ),
@@ -661,18 +626,21 @@ class ListeningStatsPage extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        final songs = ref.watch(artistSongsInPeriodProvider(artist));
-        return DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          maxChildSize: 0.9,
-          minChildSize: 0.4,
-          expand: false,
-          builder: (context, scrollController) {
-            return GlassContainer(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
-              ),
-              child: Column(
+        return Consumer(
+          builder: (context, sheetRef, _) {
+            final songs = sheetRef.watch(artistSongsInPeriodProvider(artist));
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              maxChildSize: 0.9,
+              minChildSize: 0.4,
+              expand: false,
+              builder: (context, scrollController) {
+                return GlassContainer(
+                  enableBlur: false,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
+                  child: Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -774,7 +742,7 @@ class ListeningStatsPage extends ConsumerWidget {
                               onTap: () {
                                 final played = _playStatSongItem(
                                   context,
-                                  ref,
+                                  sheetRef,
                                   item,
                                 );
                                 if (played) {
@@ -788,6 +756,8 @@ class ListeningStatsPage extends ConsumerWidget {
               ],
             ),
             );
+          },
+        );
           },
         );
       },

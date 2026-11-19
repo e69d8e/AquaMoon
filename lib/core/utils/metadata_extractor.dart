@@ -33,6 +33,20 @@ class AudioMetadataResult {
 }
 
 class MetadataExtractor {
+  static const int _initialHeaderBytes = 65536;
+  static const int _maxTagBytes = 32 * 1024 * 1024;
+
+  static Future<String> resolveCoverCacheDirPath() async {
+    try {
+      // 封面缓存放在应用支持目录：系统会随时清理临时目录，而这里返回的
+      // file:// URI 会被长期持久化在曲库记录里，临时文件一旦被清就永久失效。
+      final supportDir = await getApplicationSupportDirectory();
+      return supportDir.path;
+    } catch (_) {
+      return '';
+    }
+  }
+
   /// Extracts metadata and embedded artwork from a local audio file (.mp3, .flac, .m4a, .ogg, .wav, etc.)
   ///
   /// Only the platform-channel lookup (cover cache directory) runs on the main
@@ -44,19 +58,46 @@ class MetadataExtractor {
       return _fallbackFromFilename(filePath);
     }
 
-    String coverCacheDirPath = '';
-    try {
-      // 封面缓存放在应用支持目录：系统会随时清理临时目录，而这里返回的
-      // file:// URI 会被长期持久化在曲库记录里，临时文件一旦被清就永久失效。
-      final supportDir = await getApplicationSupportDirectory();
-      coverCacheDirPath = supportDir.path;
-    } catch (_) {
-      // Platform channel unavailable (e.g. unit tests): cover cache writes
-      // will be skipped inside the isolate.
-    }
+    final coverCacheDirPath = await resolveCoverCacheDirPath();
     return Isolate.run(
       () => extractFromFileIsolated(filePath, coverCacheDirPath),
     );
+  }
+
+  /// Extracts metadata for a chunk of [filePaths] inside a single background
+  /// isolate, sharing directory artwork listings across sibling tracks and
+  /// avoiding one `Isolate.run` spawn per audio file.
+  static Future<List<AudioMetadataResult>> extractChunkIsolated(
+    List<String> filePaths,
+    String coverCacheDirPath,
+  ) async {
+    final dirImageCache = <String, List<String>>{};
+    final results = <AudioMetadataResult>[];
+    for (final filePath in filePaths) {
+      results.add(
+        await extractFromFileIsolated(
+          filePath,
+          coverCacheDirPath,
+          dirImageCache: dirImageCache,
+        ),
+      );
+    }
+    return results;
+  }
+
+  static Future<Uint8List> _readFileSlice(
+    File file,
+    int start,
+    int length,
+  ) async {
+    if (length <= 0) return Uint8List(0);
+    final raf = await file.open();
+    try {
+      await raf.setPosition(start);
+      return await raf.read(length);
+    } finally {
+      await raf.close();
+    }
   }
 
   /// CPU-heavy half of [extractFromFile]; always runs inside `Isolate.run`.
@@ -64,21 +105,23 @@ class MetadataExtractor {
   /// platform channels are not available in a background isolate.
   static Future<AudioMetadataResult> extractFromFileIsolated(
     String filePath,
-    String coverCacheDirPath,
-  ) async {
+    String coverCacheDirPath, {
+    Map<String, List<String>>? dirImageCache,
+  }) async {
     final file = File(filePath);
 
     try {
+      if (!await file.exists()) {
+        return _fallbackFromFilename(filePath);
+      }
       final ext = p.extension(filePath).toLowerCase();
 
-      // Read up to first 2MB for header analysis (large enough for high-res cover art in metadata)
+      // Read a small 64KB probe window upfront instead of 2MB per file;
+      // larger ID3v2 / FLAC / MP4 moov headers are fetched on demand.
       final length = await file.length();
-      final readLen = length > (2 * 1024 * 1024) ? (2 * 1024 * 1024) : length;
-      final builder = BytesBuilder(copy: false);
-      await for (final chunk in file.openRead(0, readLen)) {
-        builder.add(chunk);
-      }
-      final uint8 = builder.takeBytes();
+      final readLen =
+          length > _initialHeaderBytes ? _initialHeaderBytes : length;
+      final uint8 = await _readFileSlice(file, 0, readLen);
 
       AudioMetadataResult? result;
 
@@ -153,7 +196,10 @@ class MetadataExtractor {
 
       // 6. If no embedded cover art found, search local directory for folder.jpg / cover.jpg / album.jpg
       if (result == null || result.albumArtUri == null) {
-        final folderCoverUri = await _findLocalDirectoryCover(filePath);
+        final folderCoverUri = await _findLocalDirectoryCover(
+          filePath,
+          dirImageCache: dirImageCache,
+        );
         if (folderCoverUri != null) {
           if (result != null) {
             result = AudioMetadataResult(
@@ -248,77 +294,66 @@ class MetadataExtractor {
       int? year;
       String? lyrics;
 
-      while (!isLast && offset + 4 <= data.length) {
-        final headerByte = data[offset];
+      while (!isLast && offset >= 0) {
+        final int headerByte;
+        final int blockLength;
+        if (offset + 4 <= data.length) {
+          headerByte = data[offset];
+          blockLength =
+              (data[offset + 1] << 16) |
+              (data[offset + 2] << 8) |
+              data[offset + 3];
+        } else {
+          final header = await _readFileSlice(file, offset, 4);
+          if (header.length < 4) break;
+          headerByte = header[0];
+          blockLength = (header[1] << 16) | (header[2] << 8) | header[3];
+        }
+
         isLast = (headerByte & 0x80) != 0;
         final blockType = headerByte & 0x7F;
-        final blockLength =
-            (data[offset + 1] << 16) |
-            (data[offset + 2] << 8) |
-            data[offset + 3];
         offset += 4;
+        if (blockLength <= 0 || blockLength > _maxTagBytes) break;
 
+        // Skip padding / seektable / unknown blocks without reading them.
+        if (blockType != 0 && blockType != 4 && blockType != 6) {
+          offset += blockLength;
+          continue;
+        }
+
+        final Uint8List blockData;
         if (offset + blockLength > data.length) {
-          final fullBlock = await file
-              .openRead(offset, offset + blockLength)
-              .fold<List<int>>([], (p, e) => p..addAll(e));
-          final blockData = Uint8List.fromList(fullBlock);
-          offset += blockLength;
-
-          if (blockType == 0) {
-            durationMs = _parseFlacStreamInfo(blockData);
-          } else if (blockType == 4) {
-            final comments = _parseVorbisComments(blockData);
-            title ??= comments['TITLE'] ?? comments['title'];
-            artist ??= comments['ARTIST'] ?? comments['artist'];
-            album ??= comments['ALBUM'] ?? comments['album'];
-            final yearStr =
-                comments['DATE'] ??
-                comments['date'] ??
-                comments['YEAR'] ??
-                comments['year'];
-            if (yearStr != null && yearStr.length >= 4) {
-              year ??= int.tryParse(yearStr.substring(0, 4));
-            }
-            lyrics ??= _vorbisLyrics(comments);
-            if (comments.containsKey('METADATA_BLOCK_PICTURE')) {
-              try {
-                final picBase64 = comments['METADATA_BLOCK_PICTURE']!;
-                artBytes ??= _parseFlacPictureBlock(base64.decode(picBase64));
-              } catch (_) {}
-            }
-          } else if (blockType == 6) {
-            artBytes ??= _parseFlacPictureBlock(blockData);
-          }
+          blockData = await _readFileSlice(file, offset, blockLength);
         } else {
-          final blockData = data.sublist(offset, offset + blockLength);
-          offset += blockLength;
+          blockData = data.sublist(offset, offset + blockLength);
+        }
+        offset += blockLength;
+        if (blockData.isEmpty) break;
 
-          if (blockType == 0) {
-            durationMs = _parseFlacStreamInfo(blockData);
-          } else if (blockType == 4) {
-            final comments = _parseVorbisComments(blockData);
-            title ??= comments['TITLE'] ?? comments['title'];
-            artist ??= comments['ARTIST'] ?? comments['artist'];
-            album ??= comments['ALBUM'] ?? comments['album'];
-            final yearStr =
-                comments['DATE'] ??
-                comments['date'] ??
-                comments['YEAR'] ??
-                comments['year'];
-            if (yearStr != null && yearStr.length >= 4) {
-              year ??= int.tryParse(yearStr.substring(0, 4));
-            }
-            lyrics ??= _vorbisLyrics(comments);
-            if (comments.containsKey('METADATA_BLOCK_PICTURE')) {
-              try {
-                final picBase64 = comments['METADATA_BLOCK_PICTURE']!;
-                artBytes ??= _parseFlacPictureBlock(base64.decode(picBase64));
-              } catch (_) {}
-            }
-          } else if (blockType == 6) {
-            artBytes ??= _parseFlacPictureBlock(blockData);
+        if (blockType == 0) {
+          durationMs = _parseFlacStreamInfo(blockData);
+        } else if (blockType == 4) {
+          final comments = _parseVorbisComments(blockData);
+          title ??= comments['TITLE'] ?? comments['title'];
+          artist ??= comments['ARTIST'] ?? comments['artist'];
+          album ??= comments['ALBUM'] ?? comments['album'];
+          final yearStr =
+              comments['DATE'] ??
+              comments['date'] ??
+              comments['YEAR'] ??
+              comments['year'];
+          if (yearStr != null && yearStr.length >= 4) {
+            year ??= int.tryParse(yearStr.substring(0, 4));
           }
+          lyrics ??= _vorbisLyrics(comments);
+          if (comments.containsKey('METADATA_BLOCK_PICTURE')) {
+            try {
+              final picBase64 = comments['METADATA_BLOCK_PICTURE']!;
+              artBytes ??= _parseFlacPictureBlock(base64.decode(picBase64));
+            } catch (_) {}
+          }
+        } else if (blockType == 6) {
+          artBytes ??= _parseFlacPictureBlock(blockData);
         }
       }
 
@@ -451,8 +486,93 @@ class MetadataExtractor {
   }
 
   // ==========================================
-  // 2. M4A / AAC (MP4 Metadata ilst & covr & mvhd duration)
+  // 2. M4A / AAC (Hierarchical MP4 Box Parser: moov / udta / meta / ilst)
   // ==========================================
+  static const int _boxMoov = 0x6D6F6F76; // 'moov'
+  static const int _boxMvhd = 0x6D766864; // 'mvhd'
+  static const int _boxTrak = 0x7472616B; // 'trak'
+  static const int _boxMdia = 0x6D646961; // 'mdia'
+  static const int _boxMdhd = 0x6D646864; // 'mdhd'
+  static const int _boxUdta = 0x75647461; // 'udta'
+  static const int _boxMeta = 0x6D657461; // 'meta'
+  static const int _boxIlst = 0x696C7374; // 'ilst'
+  static const int _boxNam = 0xA96E616D; // '©nam'
+  static const int _boxArt = 0xA9415254; // '©ART'
+  static const int _boxAlb = 0xA9616C62; // '©alb'
+  static const int _boxDay = 0xA9646179; // '©day'
+  static const int _boxLyr = 0xA96C7972; // '©lyr'
+  static const int _boxCovr = 0x636F7672; // 'covr'
+  static const int _boxData = 0x64617461; // 'data'
+
+  static int _readUint32BE(Uint8List b, int o) =>
+      (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+
+  static Future<Uint8List?> _locateMoovAtom(
+    File file,
+    Uint8List probeData,
+  ) async {
+    final fileLen = await file.length();
+    final raf = await file.open();
+    try {
+      int offset = 0;
+      final headerBuf = Uint8List(8);
+      final extBuf = Uint8List(8);
+      while (offset + 8 <= fileLen) {
+        int boxSize;
+        int boxType;
+        int headerSize = 8;
+
+        if (offset + 8 <= probeData.length) {
+          boxSize = _readUint32BE(probeData, offset);
+          boxType = _readUint32BE(probeData, offset + 4);
+        } else {
+          await raf.setPosition(offset);
+          final n = await raf.readInto(headerBuf);
+          if (n < 8) break;
+          boxSize = _readUint32BE(headerBuf, 0);
+          boxType = _readUint32BE(headerBuf, 4);
+        }
+
+        if (boxSize == 1) {
+          if (offset + 16 > fileLen) break;
+          if (offset + 16 <= probeData.length) {
+            boxSize =
+                (_readUint32BE(probeData, offset + 8) << 32) |
+                _readUint32BE(probeData, offset + 12);
+          } else {
+            await raf.setPosition(offset + 8);
+            if (await raf.readInto(extBuf) < 8) break;
+            boxSize =
+                (_readUint32BE(extBuf, 0) << 32) | _readUint32BE(extBuf, 4);
+          }
+          headerSize = 16;
+        } else if (boxSize == 0) {
+          boxSize = fileLen - offset;
+        }
+
+        if (boxSize < headerSize || offset + boxSize > fileLen) break;
+
+        if (boxType == _boxMoov) {
+          if (boxSize > _maxTagBytes) return null;
+          if (offset + boxSize <= probeData.length) {
+            return Uint8List.sublistView(
+              probeData,
+              offset + headerSize,
+              offset + boxSize,
+            );
+          }
+          await raf.setPosition(offset + headerSize);
+          return await raf.read(boxSize - headerSize);
+        }
+
+        offset += boxSize;
+      }
+    } finally {
+      await raf.close();
+    }
+    return null;
+  }
+
   static Future<AudioMetadataResult?> _parseM4a(
     File file,
     Uint8List data,
@@ -460,6 +580,9 @@ class MetadataExtractor {
     String coverCacheDirPath,
   ) async {
     try {
+      final moovPayload = await _locateMoovAtom(file, data);
+      if (moovPayload == null || moovPayload.isEmpty) return null;
+
       String? title;
       String? artist;
       String? album;
@@ -468,131 +591,103 @@ class MetadataExtractor {
       int durationMs = 0;
       String? lyrics;
 
-      int i = 0;
-      while (i + 8 < data.length) {
-        final boxSize =
-            (data[i] << 24) |
-            (data[i + 1] << 16) |
-            (data[i + 2] << 8) |
-            data[i + 3];
-        if (boxSize <= 0 || i + boxSize > data.length) {
-          i++;
-          continue;
+      void walk(int start, int end) {
+        int i = start;
+        while (i + 8 <= end) {
+          final boxSize = _readUint32BE(moovPayload, i);
+          if (boxSize < 8 || i + boxSize > end) break;
+          final boxType = _readUint32BE(moovPayload, i + 4);
+          final bodyStart = i + 8;
+          final bodyEnd = i + boxSize;
+
+          if (boxType == _boxTrak ||
+              boxType == _boxMdia ||
+              boxType == _boxUdta ||
+              boxType == _boxIlst) {
+            walk(bodyStart, bodyEnd);
+          } else if (boxType == _boxMeta) {
+            // Standard ISO BMFF 'meta' is a FullBox (4 bytes version+flags);
+            // fall back to direct child atoms for legacy QuickTime variants.
+            if (bodyStart + 12 <= bodyEnd &&
+                _readUint32BE(moovPayload, bodyStart) == 0) {
+              walk(bodyStart + 4, bodyEnd);
+            } else {
+              walk(bodyStart, bodyEnd);
+            }
+          } else if (boxType == _boxMvhd && bodyStart + 16 <= bodyEnd) {
+            final version = moovPayload[bodyStart];
+            if (version == 0 && bodyStart + 20 <= bodyEnd) {
+              final timescale = _readUint32BE(moovPayload, bodyStart + 12);
+              final duration = _readUint32BE(moovPayload, bodyStart + 16);
+              if (timescale > 0) {
+                durationMs = ((duration * 1000) / timescale).toInt();
+              }
+            } else if (version == 1 && bodyStart + 32 <= bodyEnd) {
+              final timescale = _readUint32BE(moovPayload, bodyStart + 20);
+              final duration =
+                  ((moovPayload[bodyStart + 24] & 0x7F) << 56) |
+                  (moovPayload[bodyStart + 25] << 48) |
+                  (moovPayload[bodyStart + 26] << 40) |
+                  (moovPayload[bodyStart + 27] << 32) |
+                  _readUint32BE(moovPayload, bodyStart + 28);
+              if (timescale > 0) {
+                durationMs = ((duration * 1000) / timescale).toInt();
+              }
+            }
+          } else if (boxType == _boxMdhd &&
+              durationMs == 0 &&
+              bodyStart + 20 <= bodyEnd) {
+            final version = moovPayload[bodyStart];
+            if (version == 0) {
+              final timescale = _readUint32BE(moovPayload, bodyStart + 12);
+              final duration = _readUint32BE(moovPayload, bodyStart + 16);
+              if (timescale > 0) {
+                durationMs = ((duration * 1000) / timescale).toInt();
+              }
+            }
+          } else if (boxType == _boxNam) {
+            title ??= _extractM4aStringRange(moovPayload, bodyStart, bodyEnd);
+          } else if (boxType == _boxArt) {
+            artist ??= _extractM4aStringRange(moovPayload, bodyStart, bodyEnd);
+          } else if (boxType == _boxAlb) {
+            album ??= _extractM4aStringRange(moovPayload, bodyStart, bodyEnd);
+          } else if (boxType == _boxDay) {
+            final yearStr =
+                _extractM4aStringRange(moovPayload, bodyStart, bodyEnd);
+            if (yearStr != null && yearStr.length >= 4) {
+              year ??= int.tryParse(yearStr.substring(0, 4));
+            }
+          } else if (boxType == _boxLyr) {
+            lyrics ??= _extractM4aStringRange(moovPayload, bodyStart, bodyEnd);
+          } else if (boxType == _boxCovr) {
+            artBytes ??= _extractM4aCoverRange(moovPayload, bodyStart, bodyEnd);
+          }
+
+          i = bodyEnd;
         }
-
-        final boxType = String.fromCharCodes(data.sublist(i + 4, i + 8));
-
-        if (boxType == 'mvhd' && i + 24 <= data.length) {
-          final version = data[i + 8];
-          if (version == 0 && i + 28 <= data.length) {
-            final timescale =
-                (data[i + 20] << 24) |
-                (data[i + 21] << 16) |
-                (data[i + 22] << 8) |
-                data[i + 23];
-            final duration =
-                (data[i + 24] << 24) |
-                (data[i + 25] << 16) |
-                (data[i + 26] << 8) |
-                data[i + 27];
-            if (timescale > 0) {
-              durationMs = ((duration * 1000) / timescale).toInt();
-            }
-          } else if (version == 1 && i + 40 <= data.length) {
-            // 64 位时长字段落在 data[i+32..i+39]，边界必须覆盖到 i+40，
-            // 否则 mvhd 收尾贴近 2MB 窗口时 RangeError 会丢掉整个 M4A 解析。
-            final timescale =
-                (data[i + 28] << 24) |
-                (data[i + 29] << 16) |
-                (data[i + 30] << 8) |
-                data[i + 31];
-            final duration =
-                ((data[i + 32] & 0x7F) << 56) |
-                (data[i + 33] << 48) |
-                (data[i + 34] << 40) |
-                (data[i + 35] << 32) |
-                (data[i + 36] << 24) |
-                (data[i + 37] << 16) |
-                (data[i + 38] << 8) |
-                data[i + 39];
-            if (timescale > 0) {
-              durationMs = ((duration * 1000) / timescale).toInt();
-            }
-          }
-        } else if (boxType == 'mdhd' &&
-            durationMs == 0 &&
-            i + 24 <= data.length) {
-          final version = data[i + 8];
-          if (version == 0 && i + 28 <= data.length) {
-            final timescale =
-                (data[i + 20] << 24) |
-                (data[i + 21] << 16) |
-                (data[i + 22] << 8) |
-                data[i + 23];
-            final duration =
-                (data[i + 24] << 24) |
-                (data[i + 25] << 16) |
-                (data[i + 26] << 8) |
-                data[i + 27];
-            if (timescale > 0) {
-              durationMs = ((duration * 1000) / timescale).toInt();
-            }
-          }
-        } else if (boxType == '©nam' ||
-            (data[i + 4] == 0xA9 &&
-                data[i + 5] == 0x6E &&
-                data[i + 6] == 0x61 &&
-                data[i + 7] == 0x6D)) {
-          title = _extractM4aString(data.sublist(i, i + boxSize));
-        } else if (boxType == '©ART' ||
-            (data[i + 4] == 0xA9 &&
-                data[i + 5] == 0x41 &&
-                data[i + 6] == 0x52 &&
-                data[i + 7] == 0x54)) {
-          artist = _extractM4aString(data.sublist(i, i + boxSize));
-        } else if (boxType == '©alb' ||
-            (data[i + 4] == 0xA9 &&
-                data[i + 5] == 0x61 &&
-                data[i + 6] == 0x6C &&
-                data[i + 7] == 0x62)) {
-          album = _extractM4aString(data.sublist(i, i + boxSize));
-        } else if (boxType == '©day' ||
-            (data[i + 4] == 0xA9 &&
-                data[i + 5] == 0x64 &&
-                data[i + 6] == 0x61 &&
-                data[i + 7] == 0x79)) {
-          final yearStr = _extractM4aString(data.sublist(i, i + boxSize));
-          if (yearStr != null && yearStr.length >= 4) {
-            year = int.tryParse(yearStr.substring(0, 4));
-          }
-        } else if (boxType == '©lyr' ||
-            (data[i + 4] == 0xA9 &&
-                data[i + 5] == 0x6C &&
-                data[i + 6] == 0x79 &&
-                data[i + 7] == 0x72)) {
-          lyrics = _extractM4aString(data.sublist(i, i + boxSize));
-        } else if (boxType == 'covr') {
-          artBytes = _extractM4aCover(data.sublist(i, i + boxSize));
-        }
-
-        i += 4;
       }
 
+      walk(0, moovPayload.length);
+
       String? artUri;
-      if (artBytes != null && artBytes.isNotEmpty) {
-        artUri = await _saveCoverArtCache(filePath, artBytes, coverCacheDirPath);
+      if (artBytes != null && artBytes!.isNotEmpty) {
+        artUri = await _saveCoverArtCache(
+          filePath,
+          artBytes!,
+          coverCacheDirPath,
+        );
       }
 
       final fallback = _fallbackFromFilename(filePath);
       return AudioMetadataResult(
-        title: (title != null && title.trim().isNotEmpty)
-            ? title.trim()
+        title: (title != null && title!.trim().isNotEmpty)
+            ? title!.trim()
             : fallback.title,
-        artist: (artist != null && artist.trim().isNotEmpty)
-            ? artist.trim()
+        artist: (artist != null && artist!.trim().isNotEmpty)
+            ? artist!.trim()
             : fallback.artist,
-        album: (album != null && album.trim().isNotEmpty)
-            ? album.trim()
+        album: (album != null && album!.trim().isNotEmpty)
+            ? album!.trim()
             : fallback.album,
         durationMs: durationMs > 0 ? durationMs : fallback.durationMs,
         albumArtUri: artUri,
@@ -605,41 +700,33 @@ class MetadataExtractor {
     }
   }
 
-  static String? _extractM4aString(Uint8List atom) {
-    for (int i = 0; i + 16 <= atom.length; i++) {
-      if (atom[i + 4] == 0x64 &&
-          atom[i + 5] == 0x61 &&
-          atom[i + 6] == 0x74 &&
-          atom[i + 7] == 0x61) {
-        final dataLen =
-            (atom[i] << 24) |
-            (atom[i + 1] << 16) |
-            (atom[i + 2] << 8) |
-            atom[i + 3];
-        if (i + dataLen <= atom.length && dataLen > 16) {
-          final strBytes = atom.sublist(i + 16, i + dataLen);
-          return utf8.decode(strBytes, allowMalformed: true).trim();
-        }
+  static String? _extractM4aStringRange(Uint8List data, int start, int end) {
+    int i = start;
+    while (i + 16 <= end) {
+      final size = _readUint32BE(data, i);
+      if (size < 8 || i + size > end) break;
+      if (_readUint32BE(data, i + 4) == _boxData && size > 16) {
+        return utf8
+            .decode(
+              Uint8List.sublistView(data, i + 16, i + size),
+              allowMalformed: true,
+            )
+            .trim();
       }
+      i += size;
     }
     return null;
   }
 
-  static Uint8List? _extractM4aCover(Uint8List atom) {
-    for (int i = 0; i + 16 <= atom.length; i++) {
-      if (atom[i + 4] == 0x64 &&
-          atom[i + 5] == 0x61 &&
-          atom[i + 6] == 0x74 &&
-          atom[i + 7] == 0x61) {
-        final dataLen =
-            (atom[i] << 24) |
-            (atom[i + 1] << 16) |
-            (atom[i + 2] << 8) |
-            atom[i + 3];
-        if (i + dataLen <= atom.length && dataLen > 16) {
-          return Uint8List.fromList(atom.sublist(i + 16, i + dataLen));
-        }
+  static Uint8List? _extractM4aCoverRange(Uint8List data, int start, int end) {
+    int i = start;
+    while (i + 16 <= end) {
+      final size = _readUint32BE(data, i);
+      if (size < 8 || i + size > end) break;
+      if (_readUint32BE(data, i + 4) == _boxData && size > 16) {
+        return Uint8List.fromList(data.sublist(i + 16, i + size));
       }
+      i += size;
     }
     return null;
   }
@@ -741,12 +828,14 @@ class MetadataExtractor {
   ) async {
     final version = headerBytes[3];
     final tagSize = _readSynchsafeInt(headerBytes, 6);
-    if (tagSize <= 0) return null;
+    if (tagSize <= 0 || tagSize > _maxTagBytes) return null;
 
-    final fullTagBytes = await file
-        .openRead(10, 10 + tagSize)
-        .fold<List<int>>([], (prev, elem) => prev..addAll(elem));
-    final data = Uint8List.fromList(fullTagBytes);
+    final Uint8List data;
+    if (10 + tagSize <= headerBytes.length) {
+      data = Uint8List.sublistView(headerBytes, 10, 10 + tagSize);
+    } else {
+      data = await _readFileSlice(file, 10, tagSize);
+    }
 
     String? title;
     String? artist;
@@ -877,10 +966,7 @@ class MetadataExtractor {
       final readLen = (fileLength - tagSize) > 65536
           ? 65536
           : (fileLength - tagSize);
-      final audioBytes = await file
-          .openRead(tagSize, tagSize + readLen)
-          .fold<List<int>>([], (p, e) => p..addAll(e));
-      final bytes = Uint8List.fromList(audioBytes);
+      final bytes = await _readFileSlice(file, tagSize, readLen);
 
       const bitratesV1L3 = [
         0,
@@ -1025,12 +1111,10 @@ class MetadataExtractor {
   /// WAV 带 ID3v2 前导时，RIFF 头在标签之后——从标签尾读头部再算时长。
   static Future<int> _calculateWavDurationAfter(File file, int start) async {
     try {
-      final headerBytes = await file
-          .openRead(start, start + 64)
-          .fold<List<int>>([], (p, e) => p..addAll(e));
+      final headerBytes = await _readFileSlice(file, start, 64);
       return await _calculateWavDuration(
         file,
-        Uint8List.fromList(headerBytes),
+        headerBytes,
         dataStart: start + 44,
       );
     } catch (_) {
@@ -1042,10 +1126,7 @@ class MetadataExtractor {
   /// 从标签尾定位 STREAMINFO 块补算时长。
   static Future<int> _calculateFlacDurationAfter(File file, int start) async {
     try {
-      final head = await file
-          .openRead(start, start + 65536)
-          .fold<List<int>>([], (p, e) => p..addAll(e));
-      final data = Uint8List.fromList(head);
+      final data = await _readFileSlice(file, start, 65536);
       if (data.length < 26 ||
           data[0] != 0x66 ||
           data[1] != 0x4C ||
@@ -1084,9 +1165,7 @@ class MetadataExtractor {
       final len = await file.length();
       if (len < 128) return null;
 
-      final id3v1Bytes = await file
-          .openRead(len - 128, len)
-          .fold<List<int>>([], (prev, elem) => prev..addAll(elem));
+      final id3v1Bytes = await _readFileSlice(file, len - 128, 128);
       if (id3v1Bytes.length == 128 &&
           id3v1Bytes[0] == 0x54 && // 'T'
           id3v1Bytes[1] == 0x41 && // 'A'
@@ -1224,14 +1303,44 @@ class MetadataExtractor {
   // ==========================================
   // 5. Local Folder Artwork Scanner
   // ==========================================
-  static Future<String?> _findLocalDirectoryCover(String audioFilePath) async {
+  static Future<String?> _findLocalDirectoryCover(
+    String audioFilePath, {
+    Map<String, List<String>>? dirImageCache,
+  }) async {
     try {
-      final dir = Directory(p.dirname(audioFilePath));
-      if (!await dir.exists()) return null;
-
+      final dirPath = p.dirname(audioFilePath);
       final songBaseName = p
           .basenameWithoutExtension(audioFilePath)
           .toLowerCase();
+
+      List<String>? cachedImages = dirImageCache?[dirPath];
+      if (cachedImages == null) {
+        final dir = Directory(dirPath);
+        if (!await dir.exists()) {
+          dirImageCache?[dirPath] = const [];
+          return null;
+        }
+        final listed = <String>[];
+        await for (final entity in dir.list(followLinks: false)) {
+          if (entity is File) {
+            final ext = p.extension(entity.path).toLowerCase();
+            if (ext == '.jpg' ||
+                ext == '.jpeg' ||
+                ext == '.png' ||
+                ext == '.webp') {
+              listed.add(entity.path);
+            }
+          }
+        }
+        dirImageCache?[dirPath] = listed;
+        cachedImages = listed;
+      }
+
+      if (cachedImages.isEmpty) return null;
+
+      final byLowerName = <String, String>{
+        for (final path in cachedImages) p.basename(path).toLowerCase(): path,
+      };
       final commonCoverNames = [
         'cover.jpg',
         'cover.png',
@@ -1252,20 +1361,12 @@ class MetadataExtractor {
       ];
 
       for (final name in commonCoverNames) {
-        final coverFile = File(p.join(dir.path, name));
-        if (await coverFile.exists()) {
-          return coverFile.uri.toString();
+        final matched = byLowerName[name];
+        if (matched != null) {
+          return File(matched).uri.toString();
         }
       }
-
-      await for (final entity in dir.list(followLinks: false)) {
-        if (entity is File) {
-          final ext = p.extension(entity.path).toLowerCase();
-          if (['.jpg', '.jpeg', '.png', '.webp'].contains(ext)) {
-            return entity.uri.toString();
-          }
-        }
-      }
+      return File(cachedImages.first).uri.toString();
     } catch (_) {}
     return null;
   }
@@ -1387,13 +1488,17 @@ class MetadataExtractor {
       album = fallback.album;
     }
 
+    final hasCachedUri =
+        res.albumArtUri != null && res.albumArtUri!.isNotEmpty;
     return AudioMetadataResult(
       title: title,
       artist: artist,
       album: album,
       durationMs: res.durationMs > 0 ? res.durationMs : fallback.durationMs,
       albumArtUri: res.albumArtUri,
-      albumArtBytes: res.albumArtBytes,
+      // Drop raw embedded art bytes once cached to disk to prevent OOM across
+      // isolate transfers and library state retention.
+      albumArtBytes: hasCachedUri ? null : res.albumArtBytes,
       year: res.year,
       lyrics: res.lyrics,
     );

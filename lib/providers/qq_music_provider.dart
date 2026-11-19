@@ -26,6 +26,7 @@ class QQMusicFavoritesState {
   final QQMusicConfig config;
   final List<Song> remoteSongs;
   final List<Song> mergedSongs;
+  final int localMatchedCount;
   final bool isSyncing;
   final String? syncError;
   final QQMusicCloudStatsSummary cloudStatsSummary;
@@ -34,15 +35,41 @@ class QQMusicFavoritesState {
     this.config = const QQMusicConfig(),
     this.remoteSongs = const [],
     this.mergedSongs = const [],
+    this.localMatchedCount = 0,
     this.isSyncing = false,
     this.syncError,
     this.cloudStatsSummary = const QQMusicCloudStatsSummary(),
   });
 
-  bool get isBound => config.isBound;
+  factory QQMusicFavoritesState.computed({
+    QQMusicConfig config = const QQMusicConfig(),
+    List<Song> remoteSongs = const [],
+    List<Song> mergedSongs = const [],
+    bool isSyncing = false,
+    String? syncError,
+    QQMusicCloudStatsSummary cloudStatsSummary =
+        const QQMusicCloudStatsSummary(),
+  }) {
+    return QQMusicFavoritesState(
+      config: config,
+      remoteSongs: remoteSongs,
+      mergedSongs: mergedSongs,
+      localMatchedCount: _countLocalMatched(mergedSongs),
+      isSyncing: isSyncing,
+      syncError: syncError,
+      cloudStatsSummary: cloudStatsSummary,
+    );
+  }
 
-  int get localMatchedCount =>
-      mergedSongs.where((s) => s.hasLocalFile).length;
+  static int _countLocalMatched(List<Song> songs) {
+    var count = 0;
+    for (final s in songs) {
+      if (s.hasLocalFile) count++;
+    }
+    return count;
+  }
+
+  bool get isBound => config.isBound;
 
   QQMusicFavoritesState copyWith({
     QQMusicConfig? config,
@@ -53,15 +80,66 @@ class QQMusicFavoritesState {
     bool clearSyncError = false,
     QQMusicCloudStatsSummary? cloudStatsSummary,
   }) {
+    final nextMerged = mergedSongs ?? this.mergedSongs;
     return QQMusicFavoritesState(
       config: config ?? this.config,
       remoteSongs: remoteSongs ?? this.remoteSongs,
-      mergedSongs: mergedSongs ?? this.mergedSongs,
+      mergedSongs: nextMerged,
+      localMatchedCount: mergedSongs != null
+          ? _countLocalMatched(nextMerged)
+          : localMatchedCount,
       isSyncing: isSyncing ?? this.isSyncing,
       syncError: clearSyncError ? null : (syncError ?? this.syncError),
       cloudStatsSummary: cloudStatsSummary ?? this.cloudStatsSummary,
     );
   }
+
+  static bool _songsListEqual(List<Song> a, List<Song> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final sa = a[i];
+      final sb = b[i];
+      if (identical(sa, sb)) continue;
+      if (sa.id != sb.id ||
+          sa.title != sb.title ||
+          sa.artist != sb.artist ||
+          sa.album != sb.album ||
+          sa.filePath != sb.filePath ||
+          sa.albumArtUri != sb.albumArtUri ||
+          sa.playCount != sb.playCount ||
+          sa.isFavorite != sb.isFavorite ||
+          sa.qqSongMid != sb.qqSongMid ||
+          sa.source != sb.source) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QQMusicFavoritesState &&
+          runtimeType == other.runtimeType &&
+          config == other.config &&
+          isSyncing == other.isSyncing &&
+          syncError == other.syncError &&
+          localMatchedCount == other.localMatchedCount &&
+          cloudStatsSummary == other.cloudStatsSummary &&
+          _songsListEqual(mergedSongs, other.mergedSongs) &&
+          _songsListEqual(remoteSongs, other.remoteSongs);
+
+  @override
+  int get hashCode => Object.hash(
+        config,
+        isSyncing,
+        syncError,
+        localMatchedCount,
+        cloudStatsSummary,
+        mergedSongs.length,
+        remoteSongs.length,
+      );
 }
 
 class QQMusicFavoritesNotifier extends StateNotifier<QQMusicFavoritesState> {
@@ -88,7 +166,7 @@ class QQMusicFavoritesNotifier extends StateNotifier<QQMusicFavoritesState> {
     final cloudStats = _storageService.getQQMusicCloudStatsSummary();
 
     final (merged, _) = _mergeWithLocal(cachedRemote, localSongs);
-    state = QQMusicFavoritesState(
+    state = QQMusicFavoritesState.computed(
       config: savedConfig,
       remoteSongs: cachedRemote,
       mergedSongs: merged,
@@ -109,22 +187,40 @@ class QQMusicFavoritesNotifier extends StateNotifier<QQMusicFavoritesState> {
   void onLocalLibraryUpdated(List<Song> localSongs) {
     if (!mounted) return;
     final (merged, _) = _mergeWithLocal(state.remoteSongs, localSongs);
+    if (QQMusicFavoritesState._songsListEqual(merged, state.mergedSongs)) {
+      return;
+    }
     state = state.copyWith(mergedSongs: merged);
   }
 
   /// 当一首 QQ 音乐在线曲目或关联曲目开始播放后，从 StorageService 刷新内存中的播放次数与云端统计摘要。
   void refreshPlayCountFromStorage(String songId) {
     if (!mounted) return;
-    final cachedRemote = _storageService.getQQMusicFavoritesCache();
     final cloudStats = _storageService.getQQMusicCloudStatsSummary();
+    final cachedRemote = _storageService.getQQMusicFavoritesCache();
+    final remoteUnchanged = QQMusicFavoritesState._songsListEqual(
+      cachedRemote,
+      state.remoteSongs,
+    );
     if (cachedRemote.isEmpty) {
+      if (cloudStats == state.cloudStatsSummary) return;
       state = state.copyWith(cloudStatsSummary: cloudStats);
+      return;
+    }
+    if (remoteUnchanged &&
+        cloudStats == state.cloudStatsSummary &&
+        !state.mergedSongs.any((s) => s.id == songId)) {
       return;
     }
     final (merged, _) = _mergeWithLocal(
       cachedRemote,
       _libraryNotifier.state.songs,
     );
+    if (remoteUnchanged &&
+        cloudStats == state.cloudStatsSummary &&
+        QQMusicFavoritesState._songsListEqual(merged, state.mergedSongs)) {
+      return;
+    }
     state = state.copyWith(
       remoteSongs: cachedRemote,
       mergedSongs: merged,
@@ -135,9 +231,9 @@ class QQMusicFavoritesNotifier extends StateNotifier<QQMusicFavoritesState> {
   /// 刷新云端听歌上报与同步摘要状态。
   void refreshCloudStatsSummary() {
     if (!mounted) return;
-    state = state.copyWith(
-      cloudStatsSummary: _storageService.getQQMusicCloudStatsSummary(),
-    );
+    final nextSummary = _storageService.getQQMusicCloudStatsSummary();
+    if (nextSummary == state.cloudStatsSummary) return;
+    state = state.copyWith(cloudStatsSummary: nextSummary);
   }
 
   /// 绑定/更新 QQ 音乐配置并立即执行一次同步。
@@ -238,18 +334,18 @@ class QQMusicFavoritesNotifier extends StateNotifier<QQMusicFavoritesState> {
         localSongs,
       );
 
-      // 将匹配到的本地歌曲的 qqSongMid 与 isFavorite 状态同步写回本地曲库
-      for (final upgraded in upgradedLocals) {
-        await _libraryNotifier.updateSongMerged(
-          upgraded.id,
-          (current) => current.copyWith(
-            isFavorite: true,
-            qqSongMid: current.qqSongMid ?? upgraded.qqSongMid,
-            qqSongId: current.qqSongId ?? upgraded.qqSongId,
-            qqMediaMid: current.qqMediaMid ?? upgraded.qqMediaMid,
-            isVip: current.isVip || upgraded.isVip,
-          ),
-        );
+      // 将匹配到的本地歌曲的 qqSongMid 与 isFavorite 状态批量写回本地曲库
+      if (upgradedLocals.isNotEmpty) {
+        await _libraryNotifier.updateSongsMerged({
+          for (final upgraded in upgradedLocals)
+            upgraded.id: (current) => current.copyWith(
+              isFavorite: true,
+              qqSongMid: current.qqSongMid ?? upgraded.qqSongMid,
+              qqSongId: current.qqSongId ?? upgraded.qqSongId,
+              qqMediaMid: current.qqMediaMid ?? upgraded.qqMediaMid,
+              isVip: current.isVip || upgraded.isVip,
+            ),
+        });
       }
 
       if (!mounted) return '';
@@ -262,7 +358,7 @@ class QQMusicFavoritesNotifier extends StateNotifier<QQMusicFavoritesState> {
         cloudStatsSummary: _storageService.getQQMusicCloudStatsSummary(),
       );
 
-      final matchedCount = merged.where((s) => s.hasLocalFile).length;
+      final matchedCount = state.localMatchedCount;
       final statsParts = <String>[
         if (updatedCloudStats > 0) '已更新 $updatedCloudStats 首云端播放次数',
         if ((cloudTodaySeconds ?? 0) > 0)

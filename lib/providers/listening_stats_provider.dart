@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../core/utils/formatters.dart';
 import '../models/listening_stats.dart';
+import '../models/song.dart';
 import '../services/storage_service.dart';
 import 'audio_provider.dart';
 import 'qq_music_provider.dart';
@@ -565,21 +566,22 @@ List<SongStatItem> _extractTopSongs(
   if (storage != null) {
     // Enrich metadata from live library and QQ Music favorites cache, and for
     // All-Time play count leaderboard ensure songs with higher persisted
-    // playCount are reflected.
-    final liveSongs = [
-      ...storage.getAllSongs(),
-      ...storage.getQQMusicFavoritesCache(),
-    ];
-    for (final s in liveSongs) {
-      final existingMeta = metaMap[s.id];
-      if (existingMeta == null ||
-          (existingMeta.qqSongMid == null && s.qqSongMid != null)) {
-        metaMap[s.id] = SongMetaSnapshot.fromSong(s);
-      }
-      if (sortByPlayCount && s.playCount > (playCountMap[s.id] ?? 0)) {
-        playCountMap[s.id] = s.playCount;
+    // playCount are reflected without copying into an intermediate list.
+    void applyLive(List<Song> songs) {
+      for (final s in songs) {
+        final existingMeta = metaMap[s.id];
+        if (existingMeta == null ||
+            (existingMeta.qqSongMid == null && s.qqSongMid != null)) {
+          metaMap[s.id] = SongMetaSnapshot.fromSong(s);
+        }
+        if (sortByPlayCount && s.playCount > (playCountMap[s.id] ?? 0)) {
+          playCountMap[s.id] = s.playCount;
+        }
       }
     }
+
+    applyLive(storage.getAllSongs());
+    applyLive(storage.getQQMusicFavoritesCache());
   }
 
   // A song can have a play count without flushed listening seconds yet,

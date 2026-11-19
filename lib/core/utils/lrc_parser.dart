@@ -18,6 +18,9 @@ class LrcParser {
   );
   // Matches any angle-bracket tag (used for stripping and splitting).
   static final RegExp _angleTagAnyRegex = RegExp(r'<[^>]+>');
+  // Matches any square-bracket tag and line breaks (reused across every line).
+  static final RegExp _squareTagAnyRegex = RegExp(r'\[[^\]]+\]');
+  static final RegExp _lineBreakRegex = RegExp(r'\r?\n');
 
   /// Parses raw LRC (standard, multi-timestamp, or word-by-word <mm:ss.xxx>) string into a sorted list of [LyricLine]
   static List<LyricLine> parse(String? rawLrc) {
@@ -34,7 +37,7 @@ class LrcParser {
     }
 
     final List<LyricLine> lines = [];
-    final rawLines = rawLrc.split(RegExp(r'\r?\n'));
+    final rawLines = rawLrc.split(_lineBreakRegex);
 
     for (final rawLine in rawLines) {
       final line = rawLine.trim();
@@ -123,7 +126,7 @@ class LrcParser {
   static String _stripAllTags(String line) {
     return line
         .replaceAll(_angleTagAnyRegex, '')
-        .replaceAll(RegExp(r'\[[^\]]+\]'), '')
+        .replaceAll(_squareTagAnyRegex, '')
         .trim();
   }
 
@@ -144,7 +147,7 @@ class LrcParser {
           : rawLine.length;
       final text = rawLine
           .substring(runStart, runEnd)
-          .replaceAll(RegExp(r'\[[^\]]+\]'), '');
+          .replaceAll(_squareTagAnyRegex, '');
       if (text.isEmpty) continue;
       words.add(
         LyricWord(
