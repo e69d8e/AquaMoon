@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -17,6 +19,7 @@ import '../../playlists/playlist_detail_page.dart';
 import '../../widgets/empty_state_view.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/song_artwork.dart';
+import '../../widgets/ui_helpers.dart';
 
 class PlaylistsTab extends ConsumerWidget {
   const PlaylistsTab({super.key});
@@ -28,148 +31,171 @@ class PlaylistsTab extends ConsumerWidget {
     final theme = Theme.of(context);
     final appColors = AppColors.of(context);
 
-    return Column(
-      children: [
-        // 轻量顶部动作行
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: Row(
-            children: [
-              Text(
-                '共 ${playlists.length} 个歌单',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w500,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+    return ResponsivePageContainer(
+      maxWidth: 960,
+      child: Column(
+        children: [
+          // 轻量顶部动作行：窄屏或大字号自动折行。
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    '共 ${playlists.length} 个歌单',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => _importM3uPlaylist(context, ref),
+                        icon: const Icon(Icons.note_add_outlined, size: 16),
+                        label: const Text('导入 M3U'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 6,
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () => _showCreatePlaylistDialog(context, ref),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('新建歌单'),
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const Spacer(),
-              OutlinedButton.icon(
-                onPressed: () => _importM3uPlaylist(context, ref),
-                icon: const Icon(Icons.note_add_outlined, size: 16),
-                label: const Text('导入 M3U'),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 11,
-                    vertical: 6,
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: () => _showCreatePlaylistDialog(context, ref),
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('新建歌单'),
-                style: FilledButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-        Expanded(
-          child: playlists.isEmpty
-              ? EmptyStateView(
-                  icon: Icons.queue_music_rounded,
-                  title: '暂无自定义歌单',
-                  subtitle: '将喜欢的旋律整理成册，或导入已有的 M3U 播放列表',
-                  actions: [
-                    FilledButton.icon(
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('新建歌单'),
-                      onPressed: () => _showCreatePlaylistDialog(context, ref),
-                    ),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.note_add_outlined, size: 18),
-                      label: const Text('导入 M3U'),
-                      onPressed: () => _importM3uPlaylist(context, ref),
-                    ),
-                  ],
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    final crossAxisCount = width >= 980
-                        ? 4
-                        : width >= 620
-                        ? 3
-                        : 2;
+          Expanded(
+            child: playlists.isEmpty
+                ? EmptyStateView(
+                    icon: Icons.queue_music_rounded,
+                    title: '暂无自定义歌单',
+                    subtitle: '将喜欢的旋律整理成册，或导入已有的 M3U 播放列表',
+                    actions: [
+                      FilledButton.icon(
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text('新建歌单'),
+                        onPressed: () => _showCreatePlaylistDialog(context, ref),
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.note_add_outlined, size: 18),
+                        label: const Text('导入 M3U'),
+                        onPressed: () => _importM3uPlaylist(context, ref),
+                      ),
+                    ],
+                  )
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = constraints.maxWidth;
+                      final crossAxisCount = width >= 920
+                          ? 4
+                          : width >= 600
+                          ? 3
+                          : 2;
+                      final textScale =
+                          MediaQuery.textScalerOf(context).scale(1.0);
+                      const crossSpacing = 14.0;
+                      final tileWidth =
+                          (width - 32 - (crossAxisCount - 1) * crossSpacing) /
+                          crossAxisCount;
+                      // 正方形封面 + 底部两行文案按系统字体缩放比例自适应高度。
+                      final cardExtent =
+                          tileWidth + 12 + 44 * textScale.clamp(1.0, 2.5);
 
-                    return GridView.builder(
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        4,
-                        16,
-                        MediaQuery.paddingOf(context).bottom + 108,
-                      ),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: 14,
-                        mainAxisSpacing: 18,
-                        // 正方形封面 + 底部标题/副标题留白
-                        childAspectRatio: 0.76,
-                      ),
-                      itemCount: playlists.length,
-                      itemBuilder: (context, index) {
-                        final pl = playlists[index];
-                        final resolvedSongs = pl.songIds
-                            .map((id) => songMap[id])
-                            .whereType<Song>()
-                            .toList(growable: false);
-                        return _PlaylistGridCard(
-                          playlist: pl,
-                          songs: resolvedSongs,
-                          borderColor: appColors.glassBorder,
-                          onOpen: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    PlaylistDetailPage(playlist: pl),
-                              ),
-                            );
-                          },
-                          onQuickPlay: resolvedSongs.isEmpty
-                              ? null
-                              : () {
-                                  ref
-                                      .read(audioControllerProvider)
-                                      .playSong(
-                                        resolvedSongs.first,
-                                        queue: resolvedSongs,
-                                      );
-                                  AppToast.show(
-                                    context,
-                                    '开始播放《${pl.name}》',
-                                    icon: Icons.play_arrow_rounded,
-                                  );
-                                },
-                        );
-                      },
-                    );
-                  },
-                ),
-        ),
-      ],
+                      return GridView.builder(
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          4,
+                          16,
+                          MediaQuery.paddingOf(context).bottom + 108,
+                        ),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: crossSpacing,
+                          mainAxisSpacing: 18,
+                          mainAxisExtent: cardExtent,
+                        ),
+                        itemCount: playlists.length,
+                        itemBuilder: (context, index) {
+                          final pl = playlists[index];
+                          final resolvedSongs = pl.songIds
+                              .map((id) => songMap[id])
+                              .whereType<Song>()
+                              .toList(growable: false);
+                          return _PlaylistGridCard(
+                            playlist: pl,
+                            songs: resolvedSongs,
+                            borderColor: appColors.glassBorder,
+                            onOpen: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      PlaylistDetailPage(playlist: pl),
+                                ),
+                              );
+                            },
+                            onQuickPlay: resolvedSongs.isEmpty
+                                ? null
+                                : () {
+                                    ref
+                                        .read(audioControllerProvider)
+                                        .playSong(
+                                          resolvedSongs.first,
+                                          queue: resolvedSongs,
+                                        );
+                                    AppToast.show(
+                                      context,
+                                      '开始播放《${pl.name}》',
+                                      icon: Icons.play_arrow_rounded,
+                                    );
+                                  },
+                          );
+                        },
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -187,13 +213,19 @@ class PlaylistsTab extends ConsumerWidget {
     }
     // 某些平台取消时可能返回空列表而非 null（List.single 会抛 StateError）。
     if (picked == null || picked.isEmpty) return;
-    final filePath = picked.first.path;
-    if (filePath == null || !context.mounted) return;
+    final pickedFile = picked.first;
+    final filePath = pickedFile.path;
+    if (!context.mounted) return;
 
     final library = ref.read(libraryNotifierProvider.select((s) => s.songs));
     final String content;
     try {
-      content = await File(filePath).readAsString();
+      if (kIsWeb || filePath == null) {
+        final bytes = await pickedFile.readAsBytes();
+        content = utf8.decode(bytes);
+      } else {
+        content = await File(filePath).readAsString();
+      }
     } catch (_) {
       if (context.mounted) {
         AppToast.show(context, '歌单文件读取失败', icon: Icons.error_outline_rounded);
@@ -213,8 +245,10 @@ class PlaylistsTab extends ConsumerWidget {
       return;
     }
 
-    final name =
-        _extractPlaylistName(content) ?? p.basenameWithoutExtension(filePath);
+    final fallbackName = filePath != null
+        ? p.basenameWithoutExtension(filePath)
+        : p.basenameWithoutExtension(pickedFile.name);
+    final name = _extractPlaylistName(content) ?? fallbackName;
 
     final playlist = await ref
         .read(playlistNotifierProvider.notifier)
@@ -387,32 +421,38 @@ class _PlaylistGridCard extends StatelessWidget {
                         borderRadius: 0,
                       ),
                     ),
-                  // 右下角磨砂直播圆钮
+                  // 右下角磨砂直播圆钮（保证 44x44 触控热区）
                   if (onQuickPlay != null)
                     Positioned(
-                      right: 8,
-                      bottom: 8,
+                      right: 4,
+                      bottom: 4,
                       child: Tooltip(
-                        message: '播放歌单',
-                        child: GlassContainer(
-                          width: 34,
-                          height: 34,
-                          borderRadius: BorderRadius.circular(17),
-                          enableBlur: false,
-                          tint: theme.colorScheme.surface.withValues(
-                            alpha: isLight ? 0.92 : 0.88,
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            shape: const CircleBorder(),
-                            child: InkWell(
-                              customBorder: const CircleBorder(),
-                              onTap: onQuickPlay,
+                        message: '播放歌单 ${playlist.name}',
+                        child: Material(
+                          color: Colors.transparent,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: onQuickPlay,
+                            child: SizedBox(
+                              width: 44,
+                              height: 44,
                               child: Center(
-                                child: Icon(
-                                  Icons.play_arrow_rounded,
-                                  size: 20,
-                                  color: theme.colorScheme.primary,
+                                child: GlassContainer(
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: BorderRadius.circular(18),
+                                  enableBlur: false,
+                                  tint: theme.colorScheme.surface.withValues(
+                                    alpha: isLight ? 0.94 : 0.90,
+                                  ),
+                                  child: Center(
+                                    child: Icon(
+                                      Icons.play_arrow_rounded,
+                                      size: 20,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -21,6 +22,7 @@ import '../widgets/edit_song_dialog.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/online_candidate_dialog.dart';
 import '../widgets/song_artwork.dart';
+import '../widgets/ui_helpers.dart';
 import 'lyrics_view.dart';
 
 class FullPlayerPage extends ConsumerStatefulWidget {
@@ -41,13 +43,16 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
   }
 
   void _animateToPage(int page) {
-    if (_pageController.hasClients) {
-      _pageController.animateToPage(
-        page,
-        duration: const Duration(milliseconds: 340),
-        curve: Curves.easeOutCubic,
-      );
+    if (!_pageController.hasClients) return;
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _pageController.jumpToPage(page);
+      return;
     }
+    _pageController.animateToPage(
+      page,
+      duration: const Duration(milliseconds: 340),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _saveCurrentCover(Song song) async {
@@ -198,8 +203,15 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     final size = MediaQuery.sizeOf(context);
     final isSplitStudio = size.width >= 720 && size.height >= 500;
 
-    return Scaffold(
-      body: Stack(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          body: Stack(
         children: [
           // 三段式水墨宣纸渐变底幕
           Container(
@@ -253,6 +265,8 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                   ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }
@@ -426,31 +440,27 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
             },
             children: [
               // Page 0: 封面 + 歌曲信息 + 收藏 + 双行歌词预览
-              GestureDetector(
-                onTap: () => _animateToPage(1),
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 28),
-                  child: Column(
-                    children: [
-                      const Spacer(flex: 2),
-                      _buildArtworkFrame(
-                        context,
-                        song: song,
-                        size: coverSize,
-                        isPlaying: isPlaying,
-                      ),
-                      const Spacer(flex: 2),
-                      _buildTrackMetaRow(context, song),
-                      const SizedBox(height: 16),
-                      _FullPlayerLyricPreview(
-                        primaryTextColor: colorScheme.onSurface,
-                        secondaryTextColor: colorScheme.onSurfaceVariant,
-                        onTap: () => _animateToPage(1),
-                      ),
-                      const Spacer(flex: 1),
-                    ],
-                  ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Column(
+                  children: [
+                    const Spacer(flex: 2),
+                    _buildArtworkFrame(
+                      context,
+                      song: song,
+                      size: coverSize,
+                      isPlaying: isPlaying,
+                    ),
+                    const Spacer(flex: 2),
+                    _buildTrackMetaRow(context, song),
+                    const SizedBox(height: 16),
+                    _FullPlayerLyricPreview(
+                      primaryTextColor: colorScheme.onSurface,
+                      secondaryTextColor: colorScheme.onSurfaceVariant,
+                      onTap: () => _animateToPage(1),
+                    ),
+                    const Spacer(flex: 1),
+                  ],
                 ),
               ),
 
@@ -542,40 +552,53 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
 
     Widget tabButton(String label, int index) {
       final selected = _currentPage == index;
-      return GestureDetector(
-        onTap: () => _animateToPage(index),
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-          decoration: BoxDecoration(
-            color: selected
-                ? theme.colorScheme.surface.withValues(
-                    alpha: isLight ? 0.92 : 0.85,
-                  )
-                : Colors.transparent,
+      return Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: () => _animateToPage(index),
             borderRadius: BorderRadius.circular(16),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(
-                        alpha: isLight ? 0.06 : 0.25,
-                      ),
-                      blurRadius: 6,
-                      offset: const Offset(0, 1),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected
-                  ? theme.colorScheme.onSurface
-                  : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.78),
+            child: AnimatedContainer(
+              duration: motionDuration(
+                context,
+                const Duration(milliseconds: 220),
+              ),
+              curve: Curves.easeOutCubic,
+              constraints: const BoxConstraints(minHeight: 36),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected
+                    ? theme.colorScheme.surface.withValues(
+                        alpha: isLight ? 0.92 : 0.85,
+                      )
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withValues(
+                            alpha: isLight ? 0.06 : 0.25,
+                          ),
+                          blurRadius: 6,
+                          offset: const Offset(0, 1),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
           ),
         ),
@@ -612,7 +635,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     return RepaintBoundary(
       child: AnimatedScale(
         scale: (isPlaying || reduceMotion) ? 1.0 : 0.935,
-        duration: const Duration(milliseconds: 420),
+        duration: motionDuration(context, const Duration(milliseconds: 420)),
         curve: Curves.easeOutCubic,
         child: Container(
           width: size,
@@ -702,7 +725,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     return IconButton(
       tooltip: song.isFavorite ? '取消收藏' : '收藏',
       icon: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
+        duration: motionDuration(context, const Duration(milliseconds: 220)),
         transitionBuilder: (child, anim) =>
             ScaleTransition(scale: anim, child: child),
         child: Icon(
@@ -746,7 +769,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                   size: 23,
                   color: isModeHighlighted
                       ? colorScheme.primary
-                      : colorScheme.onSurface.withValues(alpha: 0.52),
+                      : colorScheme.onSurface.withValues(alpha: 0.72),
                 ),
                 tooltip: playbackMode.label,
                 onPressed: () {
@@ -763,7 +786,10 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
               Positioned(
                 bottom: 5,
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                  duration: motionDuration(
+                    context,
+                    const Duration(milliseconds: 200),
+                  ),
                   width: isModeHighlighted ? 4 : 0,
                   height: 4,
                   decoration: BoxDecoration(
@@ -821,7 +847,10 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                           ),
                         )
                       : AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 180),
+                          duration: motionDuration(
+                            context,
+                            const Duration(milliseconds: 180),
+                          ),
                           transitionBuilder: (child, anim) =>
                               ScaleTransition(scale: anim, child: child),
                           child: Icon(
@@ -1043,24 +1072,6 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
     }
   }
 
-  Widget _buildSheetDragHandle(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 4),
-      child: Center(
-        child: Container(
-          width: 36,
-          height: 4,
-          decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.outline.withValues(alpha: 0.42),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showSleepTimerSheet() {
     final options = [
       (label: '15 分钟', duration: const Duration(minutes: 15)),
@@ -1084,44 +1095,42 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                 final remaining = sheetRef.watch(
                   sleepTimerStreamProvider.select((v) => v.valueOrNull),
                 );
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildSheetDragHandle(context),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.bedtime_outlined,
-                            size: 20,
-                            color: theme.colorScheme.primary,
+                return SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ModalSheetHeader(
+                        leading: Icon(
+                          Icons.bedtime_outlined,
+                          size: 20,
+                          color: theme.colorScheme.primary,
+                        ),
+                        title: const Text(
+                          '睡眠定时器',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
                           ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            '睡眠定时器',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const Spacer(),
+                        ),
+                        trailingActions: [
                           if (remaining != null)
-                            Text(
-                              '${remaining.inMinutes}分${(remaining.inSeconds % 60).toString().padLeft(2, '0')}秒后停止',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
+                            Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: Text(
+                                '${remaining.inMinutes}分${(remaining.inSeconds % 60).toString().padLeft(2, '0')}秒后停止',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                         ],
                       ),
-                    ),
-                    const Divider(height: 1),
+                      const Divider(height: 1),
                     ...List.generate(options.length, (i) {
                       final option = options[i];
                       return ListTile(
@@ -1177,6 +1186,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                     ),
                     const SizedBox(height: 8),
                   ],
+                ),
                 );
               },
             ),
@@ -1218,67 +1228,40 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                 ),
                 child: Column(
                   children: [
-                    _buildSheetDragHandle(context),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 6, 12, 10),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '当前播放队列 (${queue.length})',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              color: theme.colorScheme.onSurface,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: queue.isEmpty
-                                ? null
-                                : () async {
-                                    final confirmed = await showDialog<bool>(
-                                      context: context,
-                                      builder: (dialogContext) => AlertDialog(
-                                        title: const Text('清空播放队列？'),
-                                        content: const Text(
-                                          '将移除队列中的全部歌曲并停止播放，此操作不可撤销。',
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.of(
-                                              dialogContext,
-                                            ).pop(false),
-                                            child: const Text('取消'),
-                                          ),
-                                          FilledButton(
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor:
-                                                  theme.colorScheme.error,
-                                              foregroundColor:
-                                                  theme.colorScheme.onError,
-                                            ),
-                                            onPressed: () => Navigator.of(
-                                              dialogContext,
-                                            ).pop(true),
-                                            child: const Text('清空'),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    if (confirmed == true && context.mounted) {
-                                      ref
-                                          .read(audioControllerProvider)
-                                          .clearQueue();
-                                      Navigator.of(context).pop();
-                                    }
-                                  },
-                            child: Text(
-                              '清空队列',
-                              style: TextStyle(color: theme.colorScheme.error),
-                            ),
-                          ),
-                        ],
+                    ModalSheetHeader(
+                      title: Text(
+                        '当前播放队列 (${queue.length})',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: theme.colorScheme.onSurface,
+                        ),
                       ),
+                      trailingActions: [
+                        TextButton(
+                          onPressed: queue.isEmpty
+                              ? null
+                              : () async {
+                                  final confirmed =
+                                      await showDestructiveConfirmDialog(
+                                    context,
+                                    title: '清空播放队列？',
+                                    message: '将移除队列中的全部歌曲并停止播放，此操作不可撤销。',
+                                    confirmLabel: '清空',
+                                  );
+                                  if (confirmed && context.mounted) {
+                                    ref
+                                        .read(audioControllerProvider)
+                                        .clearQueue();
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                          child: Text(
+                            '清空队列',
+                            style: TextStyle(color: theme.colorScheme.error),
+                          ),
+                        ),
+                      ],
                     ),
                     const Divider(height: 1),
                     Expanded(
@@ -1293,7 +1276,6 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                             )
                           : ReorderableListView.builder(
                               scrollController: scrollController,
-                              itemExtent: 72.0,
                               itemCount: queue.length,
                               onReorderItem: (oldIndex, newIndex) {
                                 ref
@@ -1351,6 +1333,7 @@ class _FullPlayerPageState extends ConsumerState<FullPlayerPage> {
                                     ),
                                   ),
                                   trailing: IconButton(
+                                    tooltip: '从队列移除',
                                     icon: Icon(
                                       Icons.close_rounded,
                                       size: 19,
@@ -1402,43 +1385,59 @@ class _SleepTimerChip extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => ref.read(audioControllerProvider).cancelSleepTimer(),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4.5),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: theme.colorScheme.primary.withValues(alpha: 0.28),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.bedtime_rounded,
-                size: 13,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                '$label 后停止',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.primary,
+      child: Semantics(
+        button: true,
+        label: '睡眠定时器 $label 后停止，点击取消',
+        child: Tooltip(
+          message: '点击取消睡眠定时器',
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => ref.read(audioControllerProvider).cancelSleepTimer(),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 40),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.bedtime_rounded,
+                        size: 14,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        '$label 后停止',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Icon(
+                        Icons.close_rounded,
+                        size: 13,
+                        color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(width: 5),
-              Icon(
-                Icons.close_rounded,
-                size: 12,
-                color: theme.colorScheme.primary.withValues(alpha: 0.7),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1502,47 +1501,63 @@ class _FullPlayerLyricPreview extends ConsumerWidget {
       }
     }
 
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: double.infinity,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              child: Text(
-                activeLyricText,
-                key: ValueKey(activeLyricText),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w600,
-                  color: primaryTextColor.withValues(alpha: 0.92),
-                  height: 1.45,
-                ),
+    return Semantics(
+      button: true,
+      label: '切换到歌词视图',
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedSwitcher(
+                    duration: motionDuration(
+                      context,
+                      const Duration(milliseconds: 260),
+                    ),
+                    child: Text(
+                      activeLyricText,
+                      key: ValueKey(activeLyricText),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: primaryTextColor.withValues(alpha: 0.94),
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  AnimatedSwitcher(
+                    duration: motionDuration(
+                      context,
+                      const Duration(milliseconds: 260),
+                    ),
+                    child: Text(
+                      nextLyricText ?? '轻触查看完整歌词',
+                      key: ValueKey(nextLyricText ?? '__hint__'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w400,
+                        color: secondaryTextColor.withValues(alpha: 0.82),
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 3),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              child: Text(
-                nextLyricText ?? '轻触查看完整歌词',
-                key: ValueKey(nextLyricText ?? '__hint__'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w400,
-                  color: secondaryTextColor.withValues(alpha: 0.65),
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

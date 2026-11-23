@@ -14,6 +14,7 @@ import '../../providers/lyrics_settings_provider.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/online_candidate_dialog.dart';
+import '../widgets/ui_helpers.dart';
 
 class LyricsView extends ConsumerStatefulWidget {
   final Song song;
@@ -202,8 +203,10 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     );
 
     // Snap on first positioning (page just opened or song changed) so the
-    // list never visibly "flies" from the top; glide as lines advance.
-    if (isFirstPositioning && !force) {
+    // list never visibly "flies" from the top; glide as lines advance, unless
+    // reduced motion is preferred.
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (reduceMotion || (isFirstPositioning && !force)) {
       _stopAutoScroll();
       _scrollController.jumpTo(clampedOffset);
     } else {
@@ -424,8 +427,8 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                           ? (index - activeIndex).abs()
                           : 1;
                       final inactiveAlpha = distance <= 1
-                          ? (isLight ? 0.48 : 0.54)
-                          : (isLight ? 0.30 : 0.36);
+                          ? (isLight ? 0.64 : 0.68)
+                          : (isLight ? 0.48 : 0.52);
                       final key = _itemKeys.putIfAbsent(
                         index,
                         () => GlobalKey(),
@@ -457,25 +460,30 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                         );
                       } else {
                         lineChild = AnimatedDefaultTextStyle(
-                          duration: _highlightDuration,
+                          duration: motionDuration(context, _highlightDuration),
                           curve: Curves.easeOutCubic,
                           style: baseStyle,
                           child: Text(line.text, textAlign: TextAlign.center),
                         );
                       }
 
-                      return InkWell(
-                        key: key,
-                        onTap: () {
-                          ref.read(audioControllerProvider).seek(line.time);
-                        },
-                        borderRadius: BorderRadius.circular(14),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 12,
-                            horizontal: 16,
+                      return Semantics(
+                        button: true,
+                        selected: isActive,
+                        hint: '点按跳转到此句歌词',
+                        child: InkWell(
+                          key: key,
+                          onTap: () {
+                            ref.read(audioControllerProvider).seek(line.time);
+                          },
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 16,
+                            ),
+                            child: lineChild,
                           ),
-                          child: lineChild,
                         ),
                       );
                     },
@@ -487,36 +495,48 @@ class _LyricsViewState extends ConsumerState<LyricsView>
               Positioned(
                 right: 20,
                 bottom: 14,
-                child: GlassContainer(
-                  borderRadius: BorderRadius.circular(20),
-                  blurSigma: 16,
-                  child: InkWell(
+                child: Semantics(
+                  button: true,
+                  label: '回到当前播放歌词',
+                  child: GlassContainer(
                     borderRadius: BorderRadius.circular(20),
-                    onTap: () =>
-                        _recenterToActive(activeIndex, lyricsState.lines.length),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 7,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.my_location_rounded,
-                            size: 14,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            '回到当前句',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.onSurface,
+                    blurSigma: 16,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () => _recenterToActive(
+                          activeIndex,
+                          lyricsState.lines.length,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 40),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.my_location_rounded,
+                                  size: 15,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '回到当前句',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -580,7 +600,9 @@ class _KaraokeLyricLineState extends ConsumerState<_KaraokeLyricLine> {
           TextSpan(
             text: _graphemes.skip(litCount).join(),
             style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.28),
+              color: theme.colorScheme.onSurface.withValues(
+                alpha: theme.brightness == Brightness.light ? 0.50 : 0.45,
+              ),
             ),
           ),
         ],

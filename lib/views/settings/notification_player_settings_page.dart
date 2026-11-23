@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../providers/audio_provider.dart';
+import '../player/mini_player.dart';
+import '../widgets/ui_helpers.dart';
 
 class NotificationPlayerSettingsPage extends ConsumerStatefulWidget {
   const NotificationPlayerSettingsPage({super.key});
@@ -42,7 +46,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
   }
 
   Future<void> _checkPermission() async {
-    if (!Platform.isAndroid && !Platform.isIOS) {
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
       setState(() {
         _hasNotificationPermission = true;
         _hasBatteryExemption = true;
@@ -54,7 +58,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
     try {
       final notifStatus = await Permission.notification.status;
       bool batteryGranted = true;
-      if (Platform.isAndroid) {
+      if (!kIsWeb && Platform.isAndroid) {
         final batteryStatus = await Permission.ignoreBatteryOptimizations.status;
         batteryGranted = batteryStatus.isGranted;
       }
@@ -74,7 +78,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
   }
 
   Future<void> _requestBatteryOptimization() async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     try {
       final status = await Permission.ignoreBatteryOptimizations.request();
       if (!mounted) return;
@@ -98,7 +102,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
   /// 水墨专属通知栏开关。开启时若无通知权限会先申请；关闭时立即撤下
   /// 自定义卡片，系统原生媒体通知保持不变。
   Future<void> _setCustomEnabled(bool enable) async {
-    if (!Platform.isAndroid && !Platform.isIOS) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
 
     if (enable && !_hasNotificationPermission) {
       final status = await Permission.notification.request();
@@ -128,7 +132,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
 
   /// 仅申请系统通知权限（供排查指南卡片使用），不改变水墨卡片开关。
   Future<void> _requestNotificationPermission() async {
-    if (!Platform.isAndroid && !Platform.isIOS) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     final status = await Permission.notification.request();
     if (!mounted) return;
     setState(() => _hasNotificationPermission = status.isGranted);
@@ -144,14 +148,15 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
   }
 
   void _showPermissionDeniedDialog() {
+    final appColors = AppColors.of(context);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.notifications_off_rounded, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('需要通知权限'),
+            Icon(Icons.notifications_off_rounded, color: appColors.warning),
+            const SizedBox(width: 8),
+            const Text('需要通知权限'),
           ],
         ),
         content: const Text(
@@ -160,6 +165,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
         ),
         actions: [
           TextButton(
+            autofocus: true,
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('暂不开启'),
           ),
@@ -179,16 +185,26 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('通知栏音乐播放器'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              children: [
+      body: Stack(
+        children: [
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : ResponsivePageContainer(
+                  maxWidth: 720,
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      12,
+                      16,
+                      MediaQuery.paddingOf(context).bottom + 104,
+                    ),
+                    children: [
                 // 1. Enable Switch Card
                 Card(
                   elevation: 0,
@@ -222,7 +238,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                                   color: !_hasNotificationPermission
                                       ? theme.colorScheme.error
                                       : _customEnabled
-                                          ? Colors.green
+                                          ? appColors.success
                                           : theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
@@ -254,32 +270,49 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                 ),
                 const SizedBox(height: 12),
 
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStyleCard(
-                        context,
-                        title: '水墨专属通知栏',
-                        subtitle: '专为小米HyperOS / 国产深度定制ROM优化，常驻通知中心',
-                        isSelected: _customEnabled,
-                        icon: Icons.brush_rounded,
-                        accentColor: theme.colorScheme.primary,
-                        onTap: () => _setCustomEnabled(true),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+                    final stackCards = constraints.maxWidth < 360 || textScale > 1.35;
+                    final inkwashCard = _buildStyleCard(
+                      context,
+                      title: '水墨专属通知栏',
+                      subtitle: '专为小米HyperOS / 国产深度定制ROM优化，常驻通知中心',
+                      isSelected: _customEnabled,
+                      icon: Icons.brush_rounded,
+                      accentColor: theme.colorScheme.primary,
+                      onTap: () => _setCustomEnabled(true),
+                    );
+                    final nativeCard = _buildStyleCard(
+                      context,
+                      title: '系统原生媒体流',
+                      subtitle: '遵循 Android MediaSession 标准规范，支持蓝牙与车机',
+                      isSelected: !_customEnabled,
+                      icon: Icons.phone_android_rounded,
+                      accentColor: theme.colorScheme.tertiary,
+                      onTap: () => _setCustomEnabled(false),
+                    );
+                    if (stackCards) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          inkwashCard,
+                          const SizedBox(height: 12),
+                          nativeCard,
+                        ],
+                      );
+                    }
+                    return IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: inkwashCard),
+                          const SizedBox(width: 12),
+                          Expanded(child: nativeCard),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStyleCard(
-                        context,
-                        title: '系统原生媒体流',
-                        subtitle: '遵循 Android MediaSession 标准规范，支持蓝牙与车机',
-                        isSelected: !_customEnabled,
-                        icon: Icons.phone_android_rounded,
-                        accentColor: theme.colorScheme.tertiary,
-                        onTap: () => _setCustomEnabled(false),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
                 Padding(
@@ -369,6 +402,15 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                 const SizedBox(height: 32),
               ],
             ),
+            ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
+        ],
+      ),
     );
   }
 
@@ -383,53 +425,65 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
   }) {
     final theme = Theme.of(context);
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? accentColor.withValues(alpha: 0.08)
-              : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: '$title，$subtitle',
+      child: Material(
+        color: isSelected
+            ? accentColor.withValues(alpha: 0.08)
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? accentColor : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: accentColor.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, size: 22, color: accentColor),
-                ),
-                if (isSelected)
-                  Icon(Icons.check_circle_rounded, color: accentColor, size: 22),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.3,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected
+                    ? accentColor
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                width: isSelected ? 2 : 1,
               ),
             ),
-          ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, size: 22, color: accentColor),
+                    ),
+                    if (isSelected)
+                      Icon(Icons.check_circle_rounded, color: accentColor, size: 22),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -446,6 +500,7 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
     required VoidCallback onAction,
   }) {
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
 
     return Card(
       elevation: 0,
@@ -488,15 +543,15 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.15),
+                            color: appColors.success.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             goodText ?? '正常',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
-                              color: Colors.green,
+                              color: appColors.success,
                             ),
                           ),
                         ),
@@ -519,9 +574,8 @@ class _NotificationPlayerSettingsPageState extends ConsumerState<NotificationPla
             TextButton(
               onPressed: onAction,
               style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: const Size(48, 36),
               ),
               child: Text(actionText),
             ),

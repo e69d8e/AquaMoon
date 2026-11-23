@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../models/song.dart';
 import '../../providers/lyrics_provider.dart';
@@ -358,6 +359,7 @@ class _OnlineCandidateSelectDialogState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -407,6 +409,7 @@ class _OnlineCandidateSelectDialogState
                   ),
                   IconButton(
                     icon: const Icon(Icons.close_rounded),
+                    tooltip: '关闭',
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
@@ -458,47 +461,41 @@ class _OnlineCandidateSelectDialogState
               const SizedBox(height: 12),
 
               // Search Bar
-              Row(
-                children: [
-                  Expanded(
-                    flex: 5,
-                    child: TextField(
-                      controller: _titleController,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
-                        labelText: '歌曲名称',
-                        isDense: true,
-                        prefixIcon: Icon(Icons.music_note_rounded, size: 18),
-                        border: OutlineInputBorder(),
-                      ),
-                      onSubmitted: (_) => _performSearch(),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final titleField = TextField(
+                    controller: _titleController,
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: const InputDecoration(
+                      labelText: '歌曲名称',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.music_note_rounded, size: 18),
+                      border: OutlineInputBorder(),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 4,
-                    child: TextField(
-                      controller: _artistController,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
-                        labelText: '歌手名',
-                        isDense: true,
-                        prefixIcon: Icon(Icons.person_rounded, size: 18),
-                        border: OutlineInputBorder(),
-                      ),
-                      onSubmitted: (_) => _performSearch(),
+                    onSubmitted: (_) => _performSearch(),
+                  );
+                  final artistField = TextField(
+                    controller: _artistController,
+                    textInputAction: TextInputAction.search,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: const InputDecoration(
+                      labelText: '歌手名',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.person_rounded, size: 18),
+                      border: OutlineInputBorder(),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
+                    onSubmitted: (_) => _performSearch(),
+                  );
+                  final searchButton = FilledButton.icon(
                     onPressed: _isLoading ? null : _performSearch,
                     icon: _isLoading
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 14,
                             height: 14,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: theme.colorScheme.onPrimary,
                             ),
                           )
                         : const Icon(Icons.search_rounded, size: 18),
@@ -509,8 +506,33 @@ class _OnlineCandidateSelectDialogState
                         vertical: 14,
                       ),
                     ),
-                  ),
-                ],
+                  );
+                  if (constraints.maxWidth < 400) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        titleField,
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: artistField),
+                            const SizedBox(width: 8),
+                            searchButton,
+                          ],
+                        ),
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(flex: 5, child: titleField),
+                      const SizedBox(width: 8),
+                      Expanded(flex: 4, child: artistField),
+                      const SizedBox(width: 8),
+                      searchButton,
+                    ],
+                  );
+                },
               ),
 
               const SizedBox(height: 14),
@@ -568,11 +590,11 @@ class _OnlineCandidateSelectDialogState
                               ? '歌词获取中…'
                               : '无歌词';
                           final lyricTagColor = hasSyncedLyrics
-                              ? Colors.green
+                              ? appColors.success
                               : hasPlainLyrics
-                              ? Colors.blue
+                              ? appColors.info
                               : isFetchingLyrics
-                              ? Colors.orange
+                              ? appColors.warning
                               : theme.colorScheme.onSurfaceVariant;
 
                           return Card(
@@ -769,8 +791,8 @@ class _OnlineCandidateSelectDialogState
                                                                   .schedule_rounded,
                                                         size: 13,
                                                         color: diffSec <= 3
-                                                            ? Colors.green
-                                                            : Colors.orange,
+                                                            ? appColors.success
+                                                            : appColors.warning,
                                                       ),
                                                       const SizedBox(width: 3),
                                                       Text(
@@ -780,8 +802,8 @@ class _OnlineCandidateSelectDialogState
                                                           fontWeight:
                                                               FontWeight.w500,
                                                           color: diffSec <= 3
-                                                              ? Colors.green
-                                                              : Colors.orange,
+                                                              ? appColors.success
+                                                              : appColors.warning,
                                                         ),
                                                       ),
                                                     ],
@@ -857,30 +879,22 @@ class _OnlineCandidateSelectDialogState
                                                   VisualDensity.compact,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 3,
+                                                    horizontal: 8,
+                                                    vertical: 4,
                                                   ),
-                                              tapTargetSize:
-                                                  MaterialTapTargetSize
-                                                      .shrinkWrap,
+                                              minimumSize: const Size(40, 36),
                                             ),
                                           ),
                                           if (item.coverUrl != null)
                                             IconButton(
                                               icon: const Icon(
                                                 Icons.image_outlined,
-                                                size: 16,
+                                                size: 18,
                                               ),
                                               tooltip: '下载此封面',
-                                              visualDensity:
-                                                  VisualDensity.compact,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 2,
-                                                  ),
                                               constraints: const BoxConstraints(
-                                                minWidth: 28,
-                                                minHeight: 28,
+                                                minWidth: 40,
+                                                minHeight: 40,
                                               ),
                                               onPressed: () =>
                                                   _downloadCover(item),
@@ -888,17 +902,12 @@ class _OnlineCandidateSelectDialogState
                                           IconButton(
                                             icon: const Icon(
                                               Icons.download_rounded,
-                                              size: 16,
+                                              size: 18,
                                             ),
                                             tooltip: '下载此 LRC 歌词',
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 2,
-                                            ),
                                             constraints: const BoxConstraints(
-                                              minWidth: 28,
-                                              minHeight: 28,
+                                              minWidth: 40,
+                                              minHeight: 40,
                                             ),
                                             onPressed: () =>
                                                 _downloadLyrics(item),

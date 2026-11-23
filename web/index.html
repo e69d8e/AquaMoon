@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -17,30 +17,126 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#F7F4ED" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="水墨禅意音乐播放器 - AquaMoon">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="水月音">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>水月音</title>
+  <title>水月音 · AquaMoon</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --aq-bg: #F7F4ED;
+      --aq-fg: #26241F;
+      --aq-muted: #6E6A5F;
+      --aq-accent: #B03E2D;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --aq-bg: #141210;
+        --aq-fg: #ECE7DC;
+        --aq-muted: #A39C8E;
+        --aq-accent: #D97263;
+      }
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background-color: var(--aq-bg);
+      color: var(--aq-fg);
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    #aq-loading {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 1.5rem;
+      background-color: var(--aq-bg);
+      color: var(--aq-fg);
+      z-index: 1;
+    }
+
+    #aq-loading[hidden] {
+      display: none;
+    }
+
+    .aq-loader-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      text-align: center;
+    }
+
+    .aq-loader-ring {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 50%;
+      border: 2.5px solid color-mix(in srgb, var(--aq-accent) 22%, transparent);
+      border-top-color: var(--aq-accent);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .aq-loader-ring {
+        animation: aq-spin 0.9s linear infinite;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .aq-loader-ring {
+        animation: aq-spin 12s linear infinite;
+      }
+    }
+
+    @keyframes aq-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .aq-loader-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .aq-loader-sub {
+      font-size: 0.85rem;
+      color: var(--aq-muted);
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <div id="aq-loading" role="status" aria-live="polite">
+    <div class="aq-loader-card">
+      <div class="aq-loader-ring" aria-hidden="true"></div>
+      <div class="aq-loader-title">水月音 · AquaMoon</div>
+      <div class="aq-loader-sub">正在准备静谧聆听空间…</div>
+    </div>
+  </div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('aq-loading');
+      if (el) el.hidden = true;
+    }, { once: true });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

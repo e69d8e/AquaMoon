@@ -22,10 +22,12 @@ import '../../providers/theme_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../services/backup_service.dart';
 import '../../services/qq_music_service.dart';
+import '../player/mini_player.dart';
 import '../stats/listening_stats_page.dart';
 import '../widgets/aquamoon_mark.dart';
 import '../widgets/qq_music_auth_dialog.dart';
 import '../widgets/qq_music_quality_picker.dart';
+import '../widgets/ui_helpers.dart';
 import '../widgets/update_dialog.dart';
 import 'audio_effects_settings_page.dart';
 import 'lyrics_display_settings_page.dart';
@@ -95,10 +97,15 @@ class SettingsPage extends ConsumerWidget {
         ),
         actions: [
           TextButton(
+            autofocus: true,
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('取消'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('移除'),
           ),
@@ -132,30 +139,22 @@ class SettingsPage extends ConsumerWidget {
     }
     // 某些平台取消时可能返回空列表而非 null（List.single 会抛 StateError）。
     if (picked == null || picked.isEmpty) return;
+    if (kIsWeb) {
+      if (context.mounted) {
+        AppToast.show(context, 'Web 端暂不支持通过本地文件路径恢复备份');
+      }
+      return;
+    }
     final path = picked.first.path;
     if (path == null || !context.mounted) return;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('确认恢复备份？'),
-        content: const Text(
-          '恢复将覆盖当前的曲库、歌单、收藏、历史、统计与设置。建议先「导出全部数据」留存现状。\n\n恢复完成后需要重启应用生效。',
-          style: TextStyle(height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('开始恢复'),
-          ),
-        ],
-      ),
+    final confirmed = await showDestructiveConfirmDialog(
+      context,
+      title: '确认恢复备份？',
+      message: '恢复将覆盖当前的曲库、歌单、收藏、历史、统计与设置。建议先「导出全部数据」留存现状。\n\n恢复完成后需要重启应用生效。',
+      confirmLabel: '开始恢复',
     );
-    if (confirmed != true || !context.mounted) return;
+    if (!confirmed || !context.mounted) return;
 
     try {
       final summary = await BackupService(
@@ -245,12 +244,19 @@ class SettingsPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
-            children: [
+      body: Stack(
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  10,
+                  16,
+                  MediaQuery.paddingOf(context).bottom + 104,
+                ),
+                children: [
               // 1. 统一三栏概览卡：本地曲库 · QQ 收藏 · 今日听歌
               Card(
                 child: Column(
@@ -711,7 +717,7 @@ class SettingsPage extends ConsumerWidget {
           Card(
             child: Column(
               children: [
-                if (Platform.isAndroid) ...[
+                if (!kIsWeb && Platform.isAndroid) ...[
                   ListTile(
                     leading: const Icon(Icons.equalizer_rounded),
                     title: const Text(
@@ -795,24 +801,31 @@ class SettingsPage extends ConsumerWidget {
                     horizontal: 16,
                     vertical: 12,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.contrast_rounded,
-                        size: 22,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 16),
-                      const Expanded(
-                        child: Text(
-                          '主题模式',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+                      final stackMode = constraints.maxWidth < 380 || textScale > 1.25;
+                      final titleRow = Row(
+                        mainAxisSize: stackMode ? MainAxisSize.max : MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.contrast_rounded,
+                            size: 22,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
-                        ),
-                      ),
-                      SegmentedButton<ThemeMode>(
+                          const SizedBox(width: 16),
+                          const Flexible(
+                            child: Text(
+                              '主题模式',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                      final segmented = SegmentedButton<ThemeMode>(
                         segments: const [
                           ButtonSegment(
                             value: ThemeMode.light,
@@ -840,8 +853,28 @@ class SettingsPage extends ConsumerWidget {
                               .read(themeModeProvider.notifier)
                               .setThemeMode(selection.first);
                         },
-                      ),
-                    ],
+                      );
+                      if (stackMode) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            titleRow,
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: segmented,
+                            ),
+                          ],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          Expanded(child: titleRow),
+                          const SizedBox(width: 8),
+                          segmented,
+                        ],
+                      );
+                    },
                   ),
                 ),
                 const Divider(height: 1, indent: 56),
@@ -968,7 +1001,15 @@ class SettingsPage extends ConsumerWidget {
           ),
             ],
           ),
-        ),
+            ),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
+        ],
       ),
     );
   }

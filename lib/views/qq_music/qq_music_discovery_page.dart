@@ -14,9 +14,11 @@ import '../../providers/qq_music_download_provider.dart';
 import '../../providers/qq_music_provider.dart';
 import '../../providers/qq_music_session_provider.dart';
 import '../../services/qq_music_discovery_service.dart';
+import '../player/mini_player.dart';
 import '../widgets/qq_music_auth_dialog.dart';
 import '../widgets/qq_music_quality_picker.dart';
 import '../widgets/song_artwork.dart';
+import '../widgets/ui_helpers.dart';
 
 /// QQ 音乐在线发现页。
 ///
@@ -199,16 +201,29 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
           const SizedBox(width: 4),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          if (session.shouldPrompt) _buildCookieBanner(theme, session),
-          _buildSearchBar(theme),
-          _buildTabBar(theme, state, notifier),
-          if (state.tab == QQMusicDiscoveryTab.playlists &&
-              state.categories.isNotEmpty)
-            _buildCategoryChips(theme, state, notifier),
-          const Divider(height: 1, thickness: 0.5),
-          Expanded(child: _buildContent(theme, state, notifier)),
+          ResponsivePageContainer(
+            maxWidth: 880,
+            child: Column(
+              children: [
+                if (session.shouldPrompt) _buildCookieBanner(theme, session),
+                _buildSearchBar(theme),
+                _buildTabBar(theme, state, notifier),
+                if (state.tab == QQMusicDiscoveryTab.playlists &&
+                    state.categories.isNotEmpty)
+                  _buildCategoryChips(theme, state, notifier),
+                const Divider(height: 1, thickness: 0.5),
+                Expanded(child: _buildContent(theme, state, notifier)),
+              ],
+            ),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
         ],
       ),
     );
@@ -268,39 +283,49 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
       child: Row(
         children: [
           Expanded(
-            child: TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              style: const TextStyle(fontSize: 14.5),
-              decoration: InputDecoration(
-                hintText: '搜索歌曲 / 歌手 / 歌单 / 专辑，或粘贴分享链接',
-                hintStyle: TextStyle(
-                  fontSize: 13,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.7,
+            child: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _searchController,
+              builder: (context, value, _) {
+                return TextField(
+                  controller: _searchController,
+                  textInputAction: TextInputAction.search,
+                  style: const TextStyle(fontSize: 14.5),
+                  decoration: InputDecoration(
+                    hintText: '搜索歌曲 / 歌手 / 歌单 / 专辑，或粘贴分享链接',
+                    hintStyle: TextStyle(
+                      fontSize: 13,
+                      color: theme.colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.85,
+                      ),
+                    ),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 21),
+                    suffixIcon: value.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded, size: 18),
+                            tooltip: '清除搜索',
+                            constraints: const BoxConstraints(
+                              minWidth: 44,
+                              minHeight: 40,
+                            ),
+                            onPressed: _searchController.clear,
+                          )
+                        : null,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 11,
+                      horizontal: 12,
+                    ),
+                    filled: true,
+                    fillColor: theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.6),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
-                ),
-                prefixIcon: const Icon(Icons.search_rounded, size: 21),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.clear_rounded, size: 18),
-                  tooltip: '清空',
-                  onPressed: _searchController.clear,
-                ),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  vertical: 11,
-                  horizontal: 12,
-                ),
-                filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.6,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              onSubmitted: _submit,
+                  onSubmitted: _submit,
+                );
+              },
             ),
           ),
           const SizedBox(width: 8),
@@ -327,41 +352,40 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
     QQMusicDiscoveryState state,
     QQMusicDiscoveryNotifier notifier,
   ) {
-    return SizedBox(
-      height: 42,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: QQMusicDiscoveryTab.values.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final tab = QQMusicDiscoveryTab.values[index];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+      child: Row(
+        children: QQMusicDiscoveryTab.values.map((tab) {
           final selected = state.tab == tab;
-          return FilterChip(
-            label: Text(tab.label),
-            selected: selected,
-            showCheckmark: false,
-            labelStyle: TextStyle(
-              fontSize: 12.5,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-            selectedColor: theme.colorScheme.primaryContainer.withValues(
-              alpha: 0.5,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-              side: BorderSide(
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text(tab.label),
+              selected: selected,
+              showCheckmark: false,
+              labelStyle: TextStyle(
+                fontSize: 12.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 color: selected
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                    ? theme.colorScheme.onPrimaryContainer
+                    : theme.colorScheme.onSurfaceVariant,
               ),
+              selectedColor: theme.colorScheme.primaryContainer.withValues(
+                alpha: 0.5,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                ),
+              ),
+              onSelected: (_) => notifier.setTab(tab),
             ),
-            onSelected: (_) => notifier.setTab(tab),
           );
-        },
+        }).toList(),
       ),
     );
   }
@@ -371,33 +395,32 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
     QQMusicDiscoveryState state,
     QQMusicDiscoveryNotifier notifier,
   ) {
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-        itemCount: state.categories.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 6),
-        itemBuilder: (context, index) {
-          final category = state.categories[index];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+      child: Row(
+        children: state.categories.map((category) {
           final selected = (state.selectedCategoryId ?? '') == category.id;
-          return ActionChip(
-            label: Text(category.name, style: const TextStyle(fontSize: 12)),
-            backgroundColor: selected
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.6)
-                : theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.5,
-                  ),
-            side: BorderSide(
-              color: selected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-            ),
-            onPressed: () => notifier.selectCategory(
-              category.id.isEmpty ? null : category.id,
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ActionChip(
+              label: Text(category.name, style: const TextStyle(fontSize: 12)),
+              backgroundColor: selected
+                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.6)
+                  : theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.5,
+                    ),
+              side: BorderSide(
+                color: selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+              onPressed: () => notifier.selectCategory(
+                category.id.isEmpty ? null : category.id,
+              ),
             ),
           );
-        },
+        }).toList(),
       ),
     );
   }
@@ -824,11 +847,9 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
                 tooltip: '更多操作',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(
-                  minWidth: 32,
-                  minHeight: 32,
+                  minWidth: 40,
+                  minHeight: 40,
                 ),
                 onPressed: () => _showSongActions(song, queue),
               ),
@@ -915,20 +936,35 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
     QQMusicDiscoveryState state,
     QQMusicDiscoveryNotifier notifier,
   ) {
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 40),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 180,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.76,
-      ),
-      itemCount: state.collections.length,
-      itemBuilder: (context, index) {
-        return _buildCollectionCard(
-          theme,
-          state.collections[index],
-          notifier,
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final bottomPad = MediaQuery.paddingOf(context).bottom + 104;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const horizontalPadding = 28.0;
+        const crossSpacing = 12.0;
+        final availableWidth =
+            (constraints.maxWidth - horizontalPadding).clamp(160.0, 2000.0);
+        final columns =
+            (availableWidth / (180 + crossSpacing)).ceil().clamp(2, 8);
+        final tileWidth =
+            (availableWidth - crossSpacing * (columns - 1)) / columns;
+        final textAreaHeight = 62.0 * textScale.clamp(1.0, 2.2);
+        return GridView.builder(
+          padding: EdgeInsets.fromLTRB(14, 12, 14, bottomPad),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: crossSpacing,
+            mainAxisExtent: tileWidth + textAreaHeight,
+          ),
+          itemCount: state.collections.length,
+          itemBuilder: (context, index) {
+            return _buildCollectionCard(
+              theme,
+              state.collections[index],
+              notifier,
+            );
+          },
         );
       },
     );
@@ -1211,8 +1247,12 @@ class _QQMusicDiscoveryPageState extends ConsumerState<QQMusicDiscoveryPage> {
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 40),
-      itemExtent: 64.0,
+      padding: EdgeInsets.fromLTRB(
+        12,
+        6,
+        12,
+        MediaQuery.paddingOf(context).bottom + 104,
+      ),
       itemCount: songs.length,
       itemBuilder: (context, index) => Padding(
         padding: const EdgeInsets.only(bottom: 2),

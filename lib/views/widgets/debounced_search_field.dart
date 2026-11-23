@@ -69,6 +69,7 @@ class DebouncedSearchFieldState extends State<DebouncedSearchField> {
         return TextField(
           controller: _controller,
           focusNode: _focusNode,
+          textInputAction: TextInputAction.search,
           style: TextStyle(
             fontSize: 13.5,
             color: theme.colorScheme.onSurface,
@@ -77,35 +78,34 @@ class DebouncedSearchFieldState extends State<DebouncedSearchField> {
             hintText: widget.hintText,
             hintStyle: TextStyle(
               fontSize: 13,
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.65),
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.85),
             ),
             prefixIcon: Icon(
               Icons.search_rounded,
               size: 18,
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.85),
             ),
-            // 默认 prefixIcon 受 48dp 最小交互尺寸约束，会让整个输入框
-            // 无法低于 48dp；这里收紧到 38dp，使搜索框更紧凑利落。
+            // 收紧左侧图标留白，同时确保右侧清除按钮保持 44x40 触控热区。
             prefixIconConstraints: const BoxConstraints(
               minWidth: 38,
               minHeight: 38,
             ),
             suffixIcon: value.text.isNotEmpty
                 ? IconButton(
-                    icon: const Icon(Icons.clear_rounded, size: 15),
+                    icon: const Icon(Icons.clear_rounded, size: 16),
+                    tooltip: '清除搜索',
                     onPressed: clear,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(
-                      minWidth: 32,
-                      minHeight: 32,
+                      minWidth: 44,
+                      minHeight: 40,
                     ),
-                    visualDensity: VisualDensity.compact,
-                    splashRadius: 16,
+                    splashRadius: 18,
                   )
                 : null,
             suffixIconConstraints: const BoxConstraints(
-              minWidth: 32,
-              minHeight: 32,
+              minWidth: 44,
+              minHeight: 40,
             ),
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(

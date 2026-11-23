@@ -12,12 +12,16 @@ class MiniPlayer extends ConsumerWidget {
   const MiniPlayer({super.key});
 
   void _openFullPlayer(BuildContext context) {
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     Navigator.of(context).push(
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 340),
-        reverseTransitionDuration: const Duration(milliseconds: 280),
+        transitionDuration:
+            reduceMotion ? Duration.zero : const Duration(milliseconds: 340),
+        reverseTransitionDuration:
+            reduceMotion ? Duration.zero : const Duration(milliseconds: 280),
         pageBuilder: (context, anim1, anim2) => const FullPlayerPage(),
         transitionsBuilder: (context, anim1, anim2, child) {
+          if (reduceMotion) return child;
           final slideTween = Tween(
             begin: const Offset(0.0, 1.0),
             end: Offset.zero,
@@ -63,7 +67,6 @@ class MiniPlayer extends ConsumerWidget {
           maxWidth: isWide ? 660 : double.infinity,
         ),
         child: GestureDetector(
-          onTap: () => _openFullPlayer(context),
           onVerticalDragEnd: (details) {
             if ((details.primaryVelocity ?? 0) < -240) {
               _openFullPlayer(context);
@@ -97,136 +100,170 @@ class MiniPlayer extends ConsumerWidget {
                   offset: const Offset(0, 6),
                 ),
               ],
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 8, 8, 7),
-                    child: Row(
-                      children: [
-                        Hero(
-                          tag: 'player_artwork',
-                          child: SongArtwork(
-                            song: song,
-                            size: 46,
-                            borderRadius: 11,
-                          ),
-                        ),
-                        const SizedBox(width: 11),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                children: [
-                                  if (isPlaying) ...[
-                                    PlayingWaveIndicator(
-                                      isPlaying: true,
-                                      size: 12,
-                                      color: theme.colorScheme.primary,
-                                    ),
-                                    const SizedBox(width: 6),
-                                  ],
-                                  Expanded(
-                                    child: Text(
-                                      song.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: -0.15,
-                                        color: theme.colorScheme.onSurface,
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => _openFullPlayer(context),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 7, 6, 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Semantics(
+                                button: true,
+                                label:
+                                    '打开全屏播放页，${song.title}，${song.artist}',
+                                child: Row(
+                                  children: [
+                                    Hero(
+                                      tag: 'player_artwork',
+                                      child: SongArtwork(
+                                        song: song,
+                                        size: 46,
+                                        borderRadius: 11,
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                song.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.skip_previous_rounded,
-                            size: 24,
-                          ),
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.85,
-                          ),
-                          tooltip: '上一首',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () {
-                            ref.read(audioControllerProvider).previous();
-                          },
-                        ),
-                        const SizedBox(width: 2),
-                        // 印章感圆钮：与全屏播放页主按钮形成视觉呼应。
-                        Tooltip(
-                          message: isPlaying ? '暂停' : '播放',
-                          child: Material(
-                            color: theme.colorScheme.primary,
-                            shape: const CircleBorder(),
-                            child: InkWell(
-                              customBorder: const CircleBorder(),
-                              onTap: () {
-                                ref
-                                    .read(audioControllerProvider)
-                                    .togglePlayPause();
-                              },
-                              child: SizedBox(
-                                width: 38,
-                                height: 38,
-                                child: Center(
-                                  child: isBuffering
-                                      ? SizedBox(
-                                          width: 17,
-                                          height: 17,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2.2,
-                                            color: theme.colorScheme.onPrimary,
+                                    const SizedBox(width: 11),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              if (isPlaying) ...[
+                                                PlayingWaveIndicator(
+                                                  isPlaying: true,
+                                                  size: 12,
+                                                  color:
+                                                      theme.colorScheme.primary,
+                                                ),
+                                                const SizedBox(width: 6),
+                                              ],
+                                              Expanded(
+                                                child: Text(
+                                                  song.title,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w700,
+                                                    letterSpacing: -0.15,
+                                                    color: theme
+                                                        .colorScheme.onSurface,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
                                           ),
-                                        )
-                                      : Icon(
-                                          isPlaying
-                                              ? Icons.pause_rounded
-                                              : Icons.play_arrow_rounded,
-                                          size: 23,
-                                          color: theme.colorScheme.onPrimary,
-                                        ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            song.artist,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: theme
+                                                  .colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ),
+                            const SizedBox(width: 2),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.skip_previous_rounded,
+                                size: 24,
+                              ),
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.85,
+                              ),
+                              tooltip: '上一首',
+                              constraints: const BoxConstraints(
+                                minWidth: 44,
+                                minHeight: 44,
+                              ),
+                              onPressed: () {
+                                ref.read(audioControllerProvider).previous();
+                              },
+                            ),
+                            // 印章感圆钮：与全屏播放页主按钮形成视觉呼应。
+                            Semantics(
+                              button: true,
+                              label: isPlaying ? '暂停' : '播放',
+                              child: Tooltip(
+                                message: isPlaying ? '暂停' : '播放',
+                                child: Material(
+                                  color: theme.colorScheme.primary,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () {
+                                      ref
+                                          .read(audioControllerProvider)
+                                          .togglePlayPause();
+                                    },
+                                    child: SizedBox(
+                                      width: 44,
+                                      height: 44,
+                                      child: Center(
+                                        child: isBuffering
+                                            ? SizedBox(
+                                                width: 17,
+                                                height: 17,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2.2,
+                                                  color: theme
+                                                      .colorScheme.onPrimary,
+                                                ),
+                                              )
+                                            : Icon(
+                                                isPlaying
+                                                    ? Icons.pause_rounded
+                                                    : Icons.play_arrow_rounded,
+                                                size: 24,
+                                                color:
+                                                    theme.colorScheme.onPrimary,
+                                              ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.skip_next_rounded, size: 24),
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.85,
+                              ),
+                              tooltip: '下一首',
+                              constraints: const BoxConstraints(
+                                minWidth: 44,
+                                minHeight: 44,
+                              ),
+                              onPressed: () {
+                                ref.read(audioControllerProvider).next();
+                              },
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 2),
-                        IconButton(
-                          icon: const Icon(Icons.skip_next_rounded, size: 24),
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.85,
-                          ),
-                          tooltip: '下一首',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () {
-                            ref.read(audioControllerProvider).next();
-                          },
-                        ),
-                      ],
-                    ),
+                      ),
+                      const _MiniPlayerProgressIndicator(),
+                    ],
                   ),
-                  const _MiniPlayerProgressIndicator(),
-                ],
+                ),
               ),
             ),
           ),

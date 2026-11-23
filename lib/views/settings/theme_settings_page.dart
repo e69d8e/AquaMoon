@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/theme_provider.dart';
+import '../player/mini_player.dart';
+import '../widgets/ui_helpers.dart';
 
 /// 主题配色选择：每套方案呈现色标与浅色/深色双预览，点选即时生效并持久化。
 class ThemeSettingsPage extends ConsumerWidget {
@@ -16,12 +18,19 @@ class ThemeSettingsPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('主题配色')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 680),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
-            children: [
+      body: Stack(
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 680),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  10,
+                  16,
+                  MediaQuery.paddingOf(context).bottom + 104,
+                ),
+                children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
                 child: Text(
@@ -53,7 +62,15 @@ class ThemeSettingsPage extends ConsumerWidget {
               ),
             ],
           ),
-        ),
+            ),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
+        ],
       ),
     );
   }
@@ -70,9 +87,13 @@ class _PaletteCard extends ConsumerWidget {
     final theme = Theme.of(context);
     final appColors = AppColors.of(context);
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${palette.name}，${palette.tagline}',
+      child: AnimatedContainer(
+        duration: motionDuration(context, const Duration(milliseconds: 220)),
+        curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
@@ -166,7 +187,10 @@ class _PaletteCard extends ConsumerWidget {
                       ),
                     ),
                     AnimatedOpacity(
-                      duration: const Duration(milliseconds: 180),
+                      duration: motionDuration(
+                        context,
+                        const Duration(milliseconds: 180),
+                      ),
                       opacity: selected ? 1 : 0,
                       child: Icon(
                         Icons.check_circle_rounded,
@@ -181,6 +205,7 @@ class _PaletteCard extends ConsumerWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }
@@ -241,9 +266,10 @@ class _PalettePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 70,
-      padding: const EdgeInsets.all(10),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 70),
+      child: Container(
+        padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(13),
         gradient: LinearGradient(
@@ -307,7 +333,7 @@ class _PalettePreview extends StatelessWidget {
                   ),
                 ],
               ),
-              const Spacer(),
+              const SizedBox(height: 18),
               ClipRRect(
                 borderRadius: BorderRadius.circular(2),
                 child: SizedBox(
@@ -332,6 +358,7 @@ class _PalettePreview extends StatelessWidget {
             ],
           );
         },
+      ),
       ),
     );
   }

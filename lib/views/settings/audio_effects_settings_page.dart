@@ -1,11 +1,14 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/app_toast.dart';
 import '../../models/audio_effects.dart';
 import '../../providers/audio_provider.dart';
+import '../player/mini_player.dart';
+import '../widgets/ui_helpers.dart';
 
 /// 音效与均衡器设置页（仅 Android 提供）：
 /// - 淡入淡出：暂停/恢复与睡眠定时器到点时对音量做短促渐变；
@@ -61,15 +64,24 @@ class _AudioEffectsSettingsPageState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final supported = Platform.isAndroid;
+    final supported = !kIsWeb && Platform.isAndroid;
 
     return Scaffold(
       appBar: AppBar(title: const Text('音效与均衡器')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              children: [
+      body: Stack(
+        children: [
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : ResponsivePageContainer(
+                  maxWidth: 720,
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      12,
+                      16,
+                      MediaQuery.paddingOf(context).bottom + 104,
+                    ),
+                    children: [
                 if (!supported) ...[
                   const SizedBox(height: 40),
                   Icon(
@@ -144,6 +156,15 @@ class _AudioEffectsSettingsPageState
                 ],
               ],
             ),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -249,11 +270,16 @@ class _EqualizerCard extends StatelessWidget {
               ),
             ] else ...[
               AnimatedOpacity(
-                duration: const Duration(milliseconds: 200),
+                duration: motionDuration(
+                  context,
+                  const Duration(milliseconds: 200),
+                ),
                 opacity: enabled ? 1.0 : 0.45,
-                child: IgnorePointer(
-                  ignoring: !enabled,
-                  child: Column(
+                child: ExcludeFocus(
+                  excluding: !enabled,
+                  child: IgnorePointer(
+                    ignoring: !enabled,
+                    child: Column(
                     children: [
                       Align(
                         alignment: Alignment.centerRight,
@@ -278,12 +304,13 @@ class _EqualizerCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 11,
                           color: theme.colorScheme.onSurfaceVariant.withValues(
-                            alpha: 0.7,
+                            alpha: 0.72,
                           ),
                         ),
                       ),
                     ],
                   ),
+                ),
                 ),
               ),
             ],

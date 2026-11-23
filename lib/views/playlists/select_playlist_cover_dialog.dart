@@ -8,6 +8,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/song_artwork.dart';
+import '../widgets/ui_helpers.dart';
 
 class SelectPlaylistCoverDialog extends ConsumerStatefulWidget {
   final Playlist playlist;
@@ -70,98 +71,77 @@ class _SelectPlaylistCoverDialogState
       ),
       child: GlassContainer(
         enableBlur: false,
-        height: MediaQuery.sizeOf(context).height * 0.75,
+        height: MediaQuery.sizeOf(context).height * 0.85,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: Column(
           children: [
-            // Drag Handle
-            Container(
-              margin: const EdgeInsets.only(top: 10, bottom: 6),
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.3,
+            ModalSheetHeader(
+              title: Text(
+                '选择歌单封面',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
                 ),
-                borderRadius: BorderRadius.circular(2),
               ),
-            ),
-
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '选择歌单封面',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '点击选择任意歌曲的封面作为《${currentPlaylist.name}》的封面',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
+              subtitle: Text(
+                '点击选择任意歌曲的封面作为《${currentPlaylist.name}》的封面',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              trailingActions: [
+                if (currentPlaylist.coverArtUri != null)
+                  TextButton.icon(
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('恢复默认'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.onSurfaceVariant,
+                      textStyle: const TextStyle(fontSize: 12),
                     ),
+                    onPressed: () async {
+                      await ref
+                          .read(playlistNotifierProvider.notifier)
+                          .setPlaylistCover(currentPlaylist.id, null);
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        AppToast.show(
+                          context,
+                          '已恢复默认歌单封面',
+                          icon: Icons.check_circle_outline_rounded,
+                        );
+                      }
+                    },
                   ),
-                  if (currentPlaylist.coverArtUri != null)
-                    TextButton.icon(
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
-                      label: const Text('恢复默认'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: theme.colorScheme.onSurfaceVariant,
-                        textStyle: const TextStyle(fontSize: 12),
-                      ),
-                      onPressed: () async {
-                        await ref
-                            .read(playlistNotifierProvider.notifier)
-                            .setPlaylistCover(currentPlaylist.id, null);
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          AppToast.show(
-                            context,
-                            '已恢复默认歌单封面',
-                            icon: Icons.check_circle_outline_rounded,
-                          );
-                        }
-                      },
-                    ),
-                ],
-              ),
+              ],
             ),
 
             // Scope Switcher (Playlist Songs vs Entire Library)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Row(
-                children: [
-                  ChoiceChip(
-                    label: Text('歌单内歌曲 (${playlistSongs.length})'),
-                    selected: !_showAllLibrarySongs,
-                    onSelected: (val) {
-                      if (val) setState(() => _showAllLibrarySongs = false);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: Text('全部曲库 (${libraryArtworkSongs.length})'),
-                    selected: _showAllLibrarySongs,
-                    onSelected: (val) {
-                      if (val) setState(() => _showAllLibrarySongs = true);
-                    },
-                  ),
-                ],
+              child: SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    ChoiceChip(
+                      label: Text('歌单内歌曲 (${playlistSongs.length})'),
+                      selected: !_showAllLibrarySongs,
+                      onSelected: (val) {
+                        if (val) setState(() => _showAllLibrarySongs = false);
+                      },
+                    ),
+                    ChoiceChip(
+                      label: Text('全部曲库 (${libraryArtworkSongs.length})'),
+                      selected: _showAllLibrarySongs,
+                      onSelected: (val) {
+                        if (val) setState(() => _showAllLibrarySongs = true);
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
 
@@ -171,9 +151,10 @@ class _SelectPlaylistCoverDialogState
             Expanded(
               child: candidateSongs.isEmpty
                   ? Center(
-                      child: Padding(
+                      child: SingleChildScrollView(
                         padding: const EdgeInsets.all(24.0),
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
@@ -188,6 +169,7 @@ class _SelectPlaylistCoverDialogState
                                       libraryArtworkSongs.isNotEmpty
                                   ? '当前歌单内暂无带封面的歌曲'
                                   : '曲库中暂无带封面的歌曲',
+                              textAlign: TextAlign.center,
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w600,
@@ -205,110 +187,126 @@ class _SelectPlaylistCoverDialogState
                         ),
                       ),
                     )
-                  : GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                            childAspectRatio: 0.78,
-                          ),
-                      itemCount: candidateSongs.length,
-                      itemBuilder: (context, index) {
-                        final song = candidateSongs[index];
-                        final isSelected =
-                            currentPlaylist.coverArtUri == song.albumArtUri;
-
-                        return InkWell(
-                          onTap: () async {
-                            await ref
-                                .read(playlistNotifierProvider.notifier)
-                                .setPlaylistCover(
-                                  currentPlaylist.id,
-                                  song.albumArtUri,
-                                );
-
-                            if (context.mounted) {
-                              Navigator.pop(context);
-                              AppToast.show(
-                                context,
-                                '已将《${song.title}》封面设为歌单封面！',
-                                icon: Icons.check_circle_rounded,
-                              );
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isSelected
-                                    ? theme.colorScheme.primary
-                                    : Colors.transparent,
-                                width: 2.5,
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        const crossAxisCount = 3;
+                        const crossAxisSpacing = 12.0;
+                        const horizontalPad = 32.0;
+                        final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+                        final availableWidth =
+                            (constraints.maxWidth - horizontalPad)
+                                .clamp(120.0, 1200.0);
+                        final cellWidth =
+                            (availableWidth - crossAxisSpacing * (crossAxisCount - 1)) /
+                                crossAxisCount;
+                        final textHeight = 42.0 * textScale.clamp(1.0, 2.2);
+                        return GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                crossAxisSpacing: crossAxisSpacing,
+                                mainAxisSpacing: 12,
+                                mainAxisExtent: cellWidth + textHeight,
                               ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Stack(
-                                    children: [
-                                      Positioned.fill(
-                                        child: SongArtwork(
-                                          song: song,
-                                          size: 120,
-                                          borderRadius: 10,
-                                        ),
-                                      ),
-                                      if (isSelected)
-                                        Positioned(
-                                          right: 6,
-                                          top: 6,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(3),
-                                            decoration: BoxDecoration(
-                                              color: theme.colorScheme.primary,
-                                              shape: BoxShape.circle,
-                                            ),
-                                            child: const Icon(
-                                              Icons.check_rounded,
-                                              size: 14,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  song.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
+                          itemCount: candidateSongs.length,
+                          itemBuilder: (context, index) {
+                            final song = candidateSongs[index];
+                            final isSelected =
+                                currentPlaylist.coverArtUri == song.albumArtUri;
+
+                            return InkWell(
+                              onTap: () async {
+                                await ref
+                                    .read(playlistNotifierProvider.notifier)
+                                    .setPlaylistCover(
+                                      currentPlaylist.id,
+                                      song.albumArtUri,
+                                    );
+
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                  AppToast.show(
+                                    context,
+                                    '已将《${song.title}》封面设为歌单封面！',
+                                    icon: Icons.check_circle_rounded,
+                                  );
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
                                     color: isSelected
                                         ? theme.colorScheme.primary
-                                        : theme.colorScheme.onSurface,
+                                        : Colors.transparent,
+                                    width: 2.5,
                                   ),
                                 ),
-                                Text(
-                                  song.artist,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: SongArtwork(
+                                              song: song,
+                                              size: 120,
+                                              borderRadius: 10,
+                                            ),
+                                          ),
+                                          if (isSelected)
+                                            Positioned(
+                                              right: 6,
+                                              top: 6,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(3),
+                                                decoration: BoxDecoration(
+                                                  color: theme.colorScheme.primary,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: Icon(
+                                                  Icons.check_rounded,
+                                                  size: 14,
+                                                  color:
+                                                      theme.colorScheme.onPrimary,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      song.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: isSelected
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                        color: isSelected
+                                            ? theme.colorScheme.primary
+                                            : theme.colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    Text(
+                                      song.artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
+                            );
+                          },
                         );
                       },
                     ),

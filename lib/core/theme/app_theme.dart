@@ -26,6 +26,11 @@ class AppColors extends ThemeExtension<AppColors> {
   /// VIP 徽章色。
   final Color vipBadge;
 
+  /// 语义状态色（均保证在浅/深底色上达到 WCAG AA）。
+  final Color success;
+  final Color warning;
+  final Color info;
+
   const AppColors({
     required this.playerGradient,
     this.glassBorder = const Color(0x1826241F),
@@ -33,6 +38,9 @@ class AppColors extends ThemeExtension<AppColors> {
     this.favorite = const Color(0xFFD6453A),
     this.onlineBadge = const Color(0xFF2B7A72),
     this.vipBadge = const Color(0xFFB37B1C),
+    this.success = const Color(0xFF1E7A42),
+    this.warning = const Color(0xFF9A5B06),
+    this.info = const Color(0xFF1F5FA8),
   });
 
   /// 当 widget 运行在默认 `MaterialApp()` 测试容器内时，提供合理的降级 token。
@@ -56,6 +64,9 @@ class AppColors extends ThemeExtension<AppColors> {
       favorite: isLight ? const Color(0xFFD14338) : const Color(0xFFEF6C60),
       onlineBadge: isLight ? const Color(0xFF2B7A72) : const Color(0xFF69BBAE),
       vipBadge: isLight ? const Color(0xFFA66E12) : const Color(0xFFE3B14E),
+      success: isLight ? const Color(0xFF1E7A42) : const Color(0xFF5ED489),
+      warning: isLight ? const Color(0xFF9A5B06) : const Color(0xFFF2B44B),
+      info: isLight ? const Color(0xFF1F5FA8) : const Color(0xFF7AB8FF),
     );
   }
 
@@ -67,6 +78,9 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? favorite,
     Color? onlineBadge,
     Color? vipBadge,
+    Color? success,
+    Color? warning,
+    Color? info,
   }) => AppColors(
     playerGradient: playerGradient ?? this.playerGradient,
     glassBorder: glassBorder ?? this.glassBorder,
@@ -74,6 +88,9 @@ class AppColors extends ThemeExtension<AppColors> {
     favorite: favorite ?? this.favorite,
     onlineBadge: onlineBadge ?? this.onlineBadge,
     vipBadge: vipBadge ?? this.vipBadge,
+    success: success ?? this.success,
+    warning: warning ?? this.warning,
+    info: info ?? this.info,
   );
 
   @override
@@ -91,6 +108,9 @@ class AppColors extends ThemeExtension<AppColors> {
       favorite: Color.lerp(favorite, other.favorite, t)!,
       onlineBadge: Color.lerp(onlineBadge, other.onlineBadge, t)!,
       vipBadge: Color.lerp(vipBadge, other.vipBadge, t)!,
+      success: Color.lerp(success, other.success, t)!,
+      warning: Color.lerp(warning, other.warning, t)!,
+      info: Color.lerp(info, other.info, t)!,
     );
   }
 }
@@ -121,7 +141,7 @@ class AppTheme {
             onSurface: c.textPrimary,
             onSurfaceVariant: c.textSecondary,
             outline: c.textTertiary,
-            outlineVariant: c.textTertiary.withValues(alpha: 0.42),
+            outlineVariant: c.textTertiary.withValues(alpha: 0.65),
             error: errorColor,
             onError: Colors.white,
           )
@@ -138,7 +158,7 @@ class AppTheme {
             onSurface: c.textPrimary,
             onSurfaceVariant: c.textSecondary,
             outline: c.textTertiary,
-            outlineVariant: c.textTertiary.withValues(alpha: 0.32),
+            outlineVariant: c.textTertiary.withValues(alpha: 0.58),
             error: errorColor,
             onError: const Color(0xFF2B0B08),
           );
@@ -151,6 +171,8 @@ class AppTheme {
       colorScheme: colorScheme,
       extensions: [appColors],
       splashFactory: InkSparkle.splashFactory,
+      focusColor: c.primary.withValues(alpha: isLight ? 0.14 : 0.22),
+      hoverColor: c.textPrimary.withValues(alpha: isLight ? 0.05 : 0.08),
       dividerTheme: DividerThemeData(
         color: appColors.subtleDivider,
         thickness: 0.8,
@@ -358,7 +380,7 @@ class AppTheme {
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return c.onPrimary;
-          return c.textTertiary;
+          return c.textSecondary;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return c.primary;
@@ -366,7 +388,7 @@ class AppTheme {
         }),
         trackOutlineColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return Colors.transparent;
-          return c.textTertiary.withValues(alpha: 0.35);
+          return c.textTertiary;
         }),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(

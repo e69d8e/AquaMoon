@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -81,6 +82,7 @@ class _HomePageState extends ConsumerState<HomePage>
 
   /// Request Notification and Battery Optimization exemption at startup for Android 13+ Notification Drawer & Lockscreen media controls
   Future<void> _requestAppPermissions({bool silent = false}) async {
+    if (kIsWeb) return;
     if (Platform.isAndroid || Platform.isIOS) {
       try {
         var notifStatus = await Permission.notification.status;
@@ -129,6 +131,8 @@ class _HomePageState extends ConsumerState<HomePage>
           .checkForUpdate(currentVersion: currentVersion);
       await storage.saveLastUpdateCheckTime(now);
       if (!mounted || info == null) return;
+      // 若此时仍有权限引导或其它弹窗正在前台显示，避免连续堆叠打断用户。
+      if (ModalRoute.of(context)?.isCurrent != true) return;
       await showUpdateDialog(context, info);
     } catch (_) {
       // 自动检查失败不打扰用户。
@@ -245,17 +249,23 @@ class _HomePageState extends ConsumerState<HomePage>
                     Column(
                       children: [
                         // 极简顶栏：只承载当前栏目名称，不再堆砌六个孤立图标。
-                        Container(
-                          height: 58,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            currentTabTitle,
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.5,
-                              color: theme.colorScheme.onSurface,
+                        Semantics(
+                          header: true,
+                          child: Container(
+                            constraints: const BoxConstraints(minHeight: 58),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              currentTabTitle,
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.5,
+                                color: theme.colorScheme.onSurface,
+                              ),
                             ),
                           ),
                         ),
@@ -480,6 +490,13 @@ class _HomePageState extends ConsumerState<HomePage>
             top: BorderSide(color: appColors.glassBorder, width: 0.8),
           ),
           child: NavigationBar(
+            height:
+                66 +
+                ((MediaQuery.textScalerOf(context).scale(1.0) - 1.0).clamp(
+                      0.0,
+                      1.5,
+                    ) *
+                    20),
             elevation: 0,
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
@@ -685,56 +702,61 @@ class _SidebarItem extends StatelessWidget {
         ? theme.colorScheme.primary
         : theme.colorScheme.onSurfaceVariant;
 
-    final item = Material(
-      color: selected
-          ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.11 : 0.18)
-          : Colors.transparent,
-      borderRadius: BorderRadius.circular(11),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
+    final item = Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Material(
+        color: selected
+            ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.11 : 0.18)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(11),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              Icon(selected ? (selectedIcon ?? icon) : icon, size: 19, color: fg),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurface,
-                  ),
-                ),
-              ),
-              if (badgeCount > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6.5,
-                    vertical: 1.5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(11),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(selected ? (selectedIcon ?? icon) : icon, size: 19, color: fg),
+                const SizedBox(width: 11),
+                Expanded(
                   child: Text(
-                    '$badgeCount',
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      color: theme.colorScheme.primary,
+                      fontSize: 13.5,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
-            ],
+                if (badgeCount > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6.5,
+                      vertical: 1.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$badgeCount',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

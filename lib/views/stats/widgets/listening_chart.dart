@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../models/listening_stats.dart';
+import '../../widgets/ui_helpers.dart';
 
 class ListeningChart extends StatefulWidget {
   final List<ChartBarData> bars;
@@ -90,71 +91,83 @@ class _ListeningChartState extends State<ListeningChart> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 3,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _getChartTitle(widget.periodType),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-              if (selectedBar != null)
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: Container(
-                    key: ValueKey(selectedBar.label),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${selectedBar.label}: ${Formatters.formatListeningDuration(selectedBar.duration, short: true)}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 14,
+                      decoration: BoxDecoration(
                         color: theme.colorScheme.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        _getChartTitle(widget.periodType),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (selectedBar != null)
+                  AnimatedSwitcher(
+                    duration: motionDuration(
+                      context,
+                      const Duration(milliseconds: 200),
+                    ),
+                    child: Container(
+                      key: ValueKey(selectedBar.label),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${selectedBar.label}: ${Formatters.formatListeningDuration(selectedBar.duration, short: true)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Text(
+                    '最高 ${Formatters.formatListeningDuration(Duration(seconds: maxDurationSec), short: true)}',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: theme.colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.78,
                       ),
                     ),
                   ),
-                )
-              else
-                Text(
-                  '最高 ${Formatters.formatListeningDuration(Duration(seconds: maxDurationSec), short: true)}',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.72,
-                    ),
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
 
           const SizedBox(height: 18),
 
-          SizedBox(
-            height: 140,
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 140),
             child: isMonthView
                 ? SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -167,7 +180,7 @@ class _ListeningChartState extends State<ListeningChart> {
                           index: index,
                           bar: widget.bars[index],
                           maxSec: maxDurationSec,
-                          width: 14,
+                          width: 16,
                           margin: 4,
                           showLabel:
                               (index == 0 ||
@@ -234,82 +247,91 @@ class _ListeningChartState extends State<ListeningChart> {
       );
     }
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        setState(() {
-          if (_selectedBarIndex == index) {
-            _selectedBarIndex = null;
-          } else {
-            _selectedBarIndex = index;
-          }
-        });
-      },
-      child: Container(
-        margin: EdgeInsets.symmetric(horizontal: margin),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            SizedBox(
-              height: 14,
-              child: isSelected && bar.durationSeconds > 0
-                  ? Icon(
-                      Icons.arrow_drop_down,
-                      size: 16,
-                      color: theme.colorScheme.primary,
-                    )
-                  : (bar.isHighlighted && bar.durationSeconds > 0
-                        ? Container(
-                            width: 4,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary,
-                              shape: BoxShape.circle,
-                            ),
-                          )
-                        : null),
-            ),
-            const SizedBox(height: 2),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-              width: width ?? double.infinity,
-              height: barHeight,
-              decoration: BoxDecoration(
-                color: barColor,
-                borderRadius: BorderRadius.circular(
-                  width != null ? width / 2 : 4,
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label:
+          '${bar.label}：${Formatters.formatListeningDuration(bar.duration, short: true)}',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          setState(() {
+            if (_selectedBarIndex == index) {
+              _selectedBarIndex = null;
+            } else {
+              _selectedBarIndex = index;
+            }
+          });
+        },
+        child: Container(
+          margin: EdgeInsets.symmetric(horizontal: margin),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              SizedBox(
+                height: 14,
+                child: isSelected && bar.durationSeconds > 0
+                    ? Icon(
+                        Icons.arrow_drop_down,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      )
+                    : (bar.isHighlighted && bar.durationSeconds > 0
+                          ? Container(
+                              width: 4,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            )
+                          : null),
+              ),
+              const SizedBox(height: 2),
+              AnimatedContainer(
+                duration: motionDuration(
+                  context,
+                  const Duration(milliseconds: 250),
+                ),
+                curve: Curves.easeOutCubic,
+                width: width ?? double.infinity,
+                height: barHeight,
+                decoration: BoxDecoration(
+                  color: barColor,
+                  borderRadius: BorderRadius.circular(
+                    width != null ? width / 2 : 4,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Container(
-              height: 0.8,
-              width: double.infinity,
-              color: AppColors.of(context).subtleDivider,
-            ),
-            const SizedBox(height: 5),
-            SizedBox(
-              height: 18,
-              child: Text(
-                showLabel ? bar.sublabel : '',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  fontWeight: isSelected || bar.isHighlighted
-                      ? FontWeight.w700
-                      : FontWeight.normal,
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : (bar.isHighlighted
-                            ? theme.colorScheme.onSurface
-                            : theme.colorScheme.onSurfaceVariant.withValues(
-                                alpha: 0.62,
-                              )),
+              const SizedBox(height: 4),
+              Container(
+                height: 0.8,
+                width: double.infinity,
+                color: AppColors.of(context).subtleDivider,
+              ),
+              const SizedBox(height: 5),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 18),
+                child: Text(
+                  showLabel ? bar.sublabel : '',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    fontWeight: isSelected || bar.isHighlighted
+                        ? FontWeight.w700
+                        : FontWeight.normal,
+                    color: isSelected
+                        ? theme.colorScheme.primary
+                        : (bar.isHighlighted
+                              ? theme.colorScheme.onSurface
+                              : theme.colorScheme.onSurfaceVariant.withValues(
+                                  alpha: 0.78,
+                                )),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

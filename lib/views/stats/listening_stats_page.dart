@@ -9,9 +9,11 @@ import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/listening_stats_provider.dart';
 import '../../providers/qq_music_provider.dart';
+import '../player/mini_player.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/qq_music_auth_dialog.dart';
 import '../widgets/song_artwork.dart';
+import '../widgets/ui_helpers.dart';
 import 'widgets/listening_chart.dart';
 import 'widgets/listening_heatmap.dart';
 import 'widgets/stats_summary_card.dart';
@@ -55,12 +57,19 @@ class ListeningStatsPage extends ConsumerWidget {
           const SizedBox(width: 4),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            children: [
+      body: Stack(
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  8,
+                  16,
+                  MediaQuery.paddingOf(context).bottom + 104,
+                ),
+                children: [
           // 1. Period Selector Tabs (Day, Week, Month, Year, All-time)
           _buildPeriodSelector(context, ref, periodType),
 
@@ -132,10 +141,18 @@ class ListeningStatsPage extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 16),
             ],
           ),
-        ),
+            ),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
+        ],
       ),
     );
   }
@@ -160,32 +177,51 @@ class ListeningStatsPage extends ConsumerWidget {
         children: PeriodType.values.map((type) {
           final isSelected = type == activeType;
           return Expanded(
-            child: InkWell(
-              onTap: () {
-                if (!isSelected) {
-                  ref.read(statsPeriodTypeProvider.notifier).state = type;
-                }
-              },
-              borderRadius: BorderRadius.circular(10),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutCubic,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : Colors.transparent,
+            child: Semantics(
+              button: true,
+              selected: isSelected,
+              label: type.label,
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  onTap: () {
+                    if (!isSelected) {
+                      ref.read(statsPeriodTypeProvider.notifier).state = type;
+                    }
+                  },
                   borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  type.label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.onSurfaceVariant,
+                  child: AnimatedContainer(
+                    duration: motionDuration(
+                      context,
+                      const Duration(milliseconds: 200),
+                    ),
+                    curve: Curves.easeOutCubic,
+                    constraints: const BoxConstraints(minHeight: 40),
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? theme.colorScheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        type.label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          color: isSelected
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -219,33 +255,53 @@ class ListeningStatsPage extends ConsumerWidget {
             );
           },
         ),
-        GestureDetector(
-          onTap: () => _selectDate(context, ref, selectedDate),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(
-                alpha: 0.4,
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _formatDateTitle(periodType, selectedDate),
-                  style: const TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.bold,
+        Flexible(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Semantics(
+              button: true,
+              label: '选择日期：${_formatDateTitle(periodType, selectedDate)}',
+              child: Material(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.4,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => _selectDate(context, ref, selectedDate),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 44),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _formatDateTitle(periodType, selectedDate),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.arrow_drop_down_rounded,
+                            size: 18,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.arrow_drop_down_rounded,
-                  size: 18,
-                  color: theme.colorScheme.primary,
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -642,40 +698,26 @@ class ListeningStatsPage extends ConsumerWidget {
                   ),
                   child: Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.person_pin_rounded,
-                            size: 20,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              artist,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${periodType.label}周期内收听 ${songs.length} 首曲目',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+                ModalSheetHeader(
+                  leading: Icon(
+                    Icons.person_pin_rounded,
+                    size: 20,
+                    color: theme.colorScheme.primary,
+                  ),
+                  title: Text(
+                    artist,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${periodType.label}周期内收听 ${songs.length} 首曲目',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 const Divider(height: 1),

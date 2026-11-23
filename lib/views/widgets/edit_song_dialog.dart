@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +13,7 @@ import '../../providers/lyrics_provider.dart';
 import '../../services/file_export_service.dart';
 import 'online_candidate_dialog.dart';
 import 'song_artwork.dart';
+import 'ui_helpers.dart';
 
 class EditSongDialog extends ConsumerStatefulWidget {
   final Song song;
@@ -64,6 +66,12 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
   }
 
   Future<void> _pickLocalCoverImage() async {
+    if (kIsWeb) {
+      if (mounted) {
+        AppToast.show(context, 'Web 端暂不支持本地文件路径更换封面，可使用联网检索封面');
+      }
+      return;
+    }
     try {
       final pickedFiles = await FilePicker.pickFiles(type: FileType.image);
       if (pickedFiles.isNotEmpty) {
@@ -278,25 +286,14 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
       if (mounted) Navigator.of(context).pop();
       return;
     }
-    final discard = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('放弃修改？'),
-        content: const Text('当前编辑的内容尚未保存，放弃后将无法恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('继续编辑'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('放弃'),
-          ),
-        ],
-      ),
+    final discard = await showDestructiveConfirmDialog(
+      context,
+      title: '放弃修改？',
+      message: '当前编辑的内容尚未保存，放弃后将无法恢复。',
+      cancelLabel: '继续编辑',
+      confirmLabel: '放弃',
     );
-    if (discard == true && mounted) {
+    if (discard && mounted) {
       Navigator.of(context).pop();
     }
   }
@@ -494,33 +491,39 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
                 // Lyrics Management Expander
                 Row(
                   children: [
-                    InkWell(
-                      onTap: () {
-                        setState(() {
-                          _isEditingLyrics = !_isEditingLyrics;
-                        });
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6.0),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _isEditingLyrics
-                                  ? Icons.expand_less_rounded
-                                  : Icons.expand_more_rounded,
-                              color: theme.colorScheme.primary,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '歌词编辑与管理 (${_lrcController.text.trim().isNotEmpty ? "已有歌词" : "暂无歌词"})',
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
+                    Flexible(
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _isEditingLyrics = !_isEditingLyrics;
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _isEditingLyrics
+                                    ? Icons.expand_less_rounded
+                                    : Icons.expand_more_rounded,
                                 color: theme.colorScheme.primary,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  '歌词编辑与管理 (${_lrcController.text.trim().isNotEmpty ? "已有歌词" : "暂无歌词"})',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -529,13 +532,19 @@ class _EditSongDialogState extends ConsumerState<EditSongDialog> {
                       IconButton(
                         icon: const Icon(Icons.copy_rounded, size: 18),
                         tooltip: '复制歌词',
-                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(
+                          minWidth: 40,
+                          minHeight: 40,
+                        ),
                         onPressed: _copyLyrics,
                       ),
                       IconButton(
                         icon: const Icon(Icons.download_rounded, size: 18),
                         tooltip: '导出 LRC 歌词文件',
-                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(
+                          minWidth: 40,
+                          minHeight: 40,
+                        ),
                         onPressed: _exportLyrics,
                       ),
                     ],

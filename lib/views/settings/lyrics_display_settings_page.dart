@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../models/lyrics_display_settings.dart';
 import '../../providers/lyrics_settings_provider.dart';
+import '../player/mini_player.dart';
 
 /// 歌词显示设置：字号、行距、当前行高亮与自动滚动位置。
 class LyricsDisplaySettingsPage extends ConsumerWidget {
@@ -39,12 +40,19 @@ class LyricsDisplaySettingsPage extends ConsumerWidget {
           ),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 680),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
-            children: [
+      body: Stack(
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 680),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  10,
+                  16,
+                  MediaQuery.paddingOf(context).bottom + 104,
+                ),
+                children: [
               _LyricsPreviewCard(settings: settings),
               const SizedBox(height: 22),
               _sectionHeader(theme, '字号与行距'),
@@ -134,24 +142,33 @@ class LyricsDisplaySettingsPage extends ConsumerWidget {
                     horizontal: 16,
                     vertical: 12,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.vertical_align_center_rounded,
-                        size: 22,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 16),
-                      const Expanded(
-                        child: Text(
-                          '当前行停留位置',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+                      final stackAlignment =
+                          constraints.maxWidth < 400 || textScale > 1.25;
+                      final labelRow = Row(
+                        mainAxisSize:
+                            stackAlignment ? MainAxisSize.max : MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.vertical_align_center_rounded,
+                            size: 22,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
-                        ),
-                      ),
-                      SegmentedButton<double>(
+                          const SizedBox(width: 16),
+                          const Flexible(
+                            child: Text(
+                              '当前行停留位置',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                      final segmented = SegmentedButton<double>(
                         segments: _alignmentOptions
                             .map(
                               (option) => ButtonSegment(
@@ -173,14 +190,42 @@ class LyricsDisplaySettingsPage extends ConsumerWidget {
                             settings.copyWith(scrollAlignment: selection.first),
                           );
                         },
-                      ),
-                    ],
+                      );
+                      if (stackAlignment) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            labelRow,
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: segmented,
+                            ),
+                          ],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          Expanded(child: labelRow),
+                          const SizedBox(width: 8),
+                          segmented,
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
             ],
           ),
-        ),
+            ),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
+          ),
+        ],
       ),
     );
   }

@@ -8,6 +8,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/song_artwork.dart';
+import '../widgets/ui_helpers.dart';
 
 class AddSongsToPlaylistDialog extends ConsumerStatefulWidget {
   final Playlist playlist;
@@ -75,85 +76,64 @@ class _AddSongsToPlaylistDialogState
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: Column(
           children: [
-            // Drag Handle
-            Container(
-              margin: const EdgeInsets.only(top: 10, bottom: 6),
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.3,
+            ModalSheetHeader(
+              title: Text(
+                '添加歌曲到歌单',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
                 ),
-                borderRadius: BorderRadius.circular(2),
               ),
-            ),
-
-            // Header Bar
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '添加歌曲到歌单',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '《${currentPlaylist.name}》· 已包含 ${currentSongIds.length} 首',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: TextButton.styleFrom(
-                      foregroundColor: theme.colorScheme.primary,
-                      textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    child: const Text('完成'),
-                  ),
-                ],
+              subtitle: Text(
+                '《${currentPlaylist.name}》· 已包含 ${currentSongIds.length} 首',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
+              trailingActions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(
+                    foregroundColor: theme.colorScheme.primary,
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  child: const Text('完成'),
+                ),
+              ],
             ),
 
             // Source selector: local library or the full favorites list
             // (including QQ Music cloud favorites).
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-              child: Row(
-                children: [
-                  ChoiceChip(
-                    label: Text('曲库 (${librarySongs.length})'),
-                    selected: _source == _SongSource.library,
-                    showCheckmark: false,
-                    labelStyle: const TextStyle(fontSize: 12.5),
-                    visualDensity: VisualDensity.compact,
-                    onSelected: (_) =>
-                        setState(() => _source = _SongSource.library),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: Text('收藏 (${favoriteSongs.length})'),
-                    selected: _source == _SongSource.favorites,
-                    showCheckmark: false,
-                    labelStyle: const TextStyle(fontSize: 12.5),
-                    visualDensity: VisualDensity.compact,
-                    onSelected: (_) =>
-                        setState(() => _source = _SongSource.favorites),
-                  ),
-                ],
+              child: SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    ChoiceChip(
+                      label: Text('曲库 (${librarySongs.length})'),
+                      selected: _source == _SongSource.library,
+                      showCheckmark: false,
+                      labelStyle: const TextStyle(fontSize: 12.5),
+                      visualDensity: VisualDensity.compact,
+                      onSelected: (_) =>
+                          setState(() => _source = _SongSource.library),
+                    ),
+                    ChoiceChip(
+                      label: Text('收藏 (${favoriteSongs.length})'),
+                      selected: _source == _SongSource.favorites,
+                      showCheckmark: false,
+                      labelStyle: const TextStyle(fontSize: 12.5),
+                      visualDensity: VisualDensity.compact,
+                      onSelected: (_) =>
+                          setState(() => _source = _SongSource.favorites),
+                    ),
+                  ],
+                ),
               ),
             ),
 
@@ -168,13 +148,18 @@ class _AddSongsToPlaylistDialogState
                   hintStyle: TextStyle(
                     fontSize: 13,
                     color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.65,
+                      alpha: 0.85,
                     ),
                   ),
                   prefixIcon: const Icon(Icons.search_rounded, size: 18),
                   suffixIcon: _searchQuery.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear_rounded, size: 16),
+                          tooltip: '清除搜索',
+                          constraints: const BoxConstraints(
+                            minWidth: 44,
+                            minHeight: 40,
+                          ),
                           onPressed: () => setState(() => _searchQuery = ''),
                         )
                       : null,
@@ -199,53 +184,62 @@ class _AddSongsToPlaylistDialogState
             Expanded(
               child: sourceSongs.isEmpty
                   ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _source == _SongSource.library
-                                ? Icons.music_off_rounded
-                                : Icons.favorite_border_rounded,
-                            size: 48,
-                            color: theme.colorScheme.onSurfaceVariant
-                                .withValues(alpha: 0.5),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _source == _SongSource.library
-                                ? '曲库暂无本地歌曲'
-                                : '收藏暂无歌曲',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.onSurface,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _source == _SongSource.library
+                                  ? Icons.music_off_rounded
+                                  : Icons.favorite_border_rounded,
+                              size: 48,
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.5),
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _source == _SongSource.library
-                                ? '请先在曲库或设置中导入本地音乐'
-                                : '在收藏页点亮红心或接入 QQ 音乐收藏后再来添加',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              color: theme.colorScheme.onSurfaceVariant,
+                            const SizedBox(height: 12),
+                            Text(
+                              _source == _SongSource.library
+                                  ? '曲库暂无本地歌曲'
+                                  : '收藏暂无歌曲',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onSurface,
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 4),
+                            Text(
+                              _source == _SongSource.library
+                                  ? '请先在曲库或设置中导入本地音乐'
+                                  : '在收藏页点亮红心或接入 QQ 音乐收藏后再来添加',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     )
                   : filteredSongs.isEmpty
                   ? Center(
-                      child: Text(
-                        '未找到与「$_searchQuery」匹配的歌曲',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          color: theme.colorScheme.onSurfaceVariant,
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Text(
+                          '未找到与「$_searchQuery」匹配的歌曲',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     )
                   : ListView.builder(
-                      itemExtent: 58.0,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 4,

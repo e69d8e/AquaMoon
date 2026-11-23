@@ -17,6 +17,7 @@ import 'local_song_link_dialog.dart';
 import 'online_candidate_dialog.dart';
 import 'qq_music_quality_picker.dart';
 import 'song_artwork.dart';
+import 'ui_helpers.dart';
 
 class SongTile extends ConsumerWidget {
   final Song song;
@@ -78,212 +79,210 @@ class SongTile extends ConsumerWidget {
     } catch (_) {}
     final hasQqMid = song.qqSongMid != null && song.qqSongMid!.isNotEmpty;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-      child: Material(
-        color: isSelected
-            ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.12 : 0.18)
-            : isCurrent
-            ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.075 : 0.12)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: (isSelected || isCurrent) ? Clip.antiAlias : Clip.none,
-        child: InkWell(
-          onTap: selectionMode
-              ? onSelectionToggle
-              : onTap ??
-                    () {
-                      ref
-                          .read(audioControllerProvider)
-                          .playSong(song, queue: contextQueue);
-                    },
-          onLongPress: onLongPress,
+    return Semantics(
+      selected: isCurrent || isSelected,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+        child: Material(
+          color: isSelected
+              ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.12 : 0.18)
+              : isCurrent
+              ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.075 : 0.12)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          child: Stack(
-            children: [
-              // 当前播放曲目左侧极细朱砂/主题墨线标识。
-              if (isCurrent && !selectionMode)
-                Positioned(
-                  left: 0,
-                  top: 12,
-                  bottom: 12,
-                  child: Container(
-                    width: 3,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      borderRadius: const BorderRadius.horizontal(
-                        right: Radius.circular(3),
+          clipBehavior: (isSelected || isCurrent) ? Clip.antiAlias : Clip.none,
+          child: InkWell(
+            onTap: selectionMode
+                ? onSelectionToggle
+                : onTap ??
+                      () {
+                        ref
+                            .read(audioControllerProvider)
+                            .playSong(song, queue: contextQueue);
+                      },
+            onLongPress: onLongPress,
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              children: [
+                // 当前播放曲目左侧极细朱砂/主题墨线标识。
+                if (isCurrent && !selectionMode)
+                  Positioned(
+                    left: 0,
+                    top: 12,
+                    bottom: 12,
+                    child: Container(
+                      width: 3,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(3),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 5, 6, 5),
-                child: Row(
-                  children: [
-                    if (selectionMode) ...[
-                      Icon(
-                        isSelected
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        size: 21,
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurfaceVariant.withValues(
-                                alpha: 0.4,
-                              ),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                    SongArtwork(song: song, size: 44, borderRadius: 9),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              if (isCurrent) ...[
-                                PlayingWaveIndicator(
-                                  isPlaying: isPlaying,
-                                  size: 13,
-                                  color: theme.colorScheme.primary,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
+                  child: Row(
+                    children: [
+                      if (selectionMode) ...[
+                        Icon(
+                          isSelected
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          size: 21,
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurfaceVariant.withValues(
+                                  alpha: 0.72,
                                 ),
-                                const SizedBox(width: 6),
-                              ],
-                              Expanded(
-                                child: Text(
-                                  song.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 14.2,
-                                    fontWeight: isCurrent
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    letterSpacing: -0.1,
-                                    color: isCurrent
-                                        ? theme.colorScheme.primary
-                                        : theme.colorScheme.onSurface,
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      SongArtwork(song: song, size: 44, borderRadius: 9),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                if (isCurrent) ...[
+                                  PlayingWaveIndicator(
+                                    isPlaying: isPlaying,
+                                    size: 13,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                Expanded(
+                                  child: Text(
+                                    song.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 14.2,
+                                      fontWeight: isCurrent
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      letterSpacing: -0.1,
+                                      color: isCurrent
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurface,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2.5),
-                          Row(
-                            children: [
-                              if (song.qqSongMid != null &&
-                                  song.qqSongMid!.isNotEmpty) ...[
-                                _buildSourceBadge(
-                                  theme,
-                                  appColors,
-                                  label: song.hasLocalFile ? '本地' : 'QQ音乐',
-                                  isLocal: song.hasLocalFile,
-                                ),
-                                const SizedBox(width: 5),
                               ],
-                              if (song.isVip && song.isQQMusicOnline) ...[
-                                _buildVipBadge(appColors),
-                                const SizedBox(width: 5),
-                              ],
-                              Expanded(
-                                child: Text(
-                                  song.album.isNotEmpty &&
-                                          song.album != song.title &&
-                                          song.album != song.artist
-                                      ? '${song.artist} · ${song.album}'
-                                      : song.artist,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: theme.colorScheme.onSurfaceVariant
-                                        .withValues(alpha: 0.82),
+                            ),
+                            const SizedBox(height: 2.5),
+                            Row(
+                              children: [
+                                if (song.qqSongMid != null &&
+                                    song.qqSongMid!.isNotEmpty) ...[
+                                  _buildSourceBadge(
+                                    theme,
+                                    appColors,
+                                    label: song.hasLocalFile ? '本地' : 'QQ音乐',
+                                    isLocal: song.hasLocalFile,
+                                  ),
+                                  const SizedBox(width: 5),
+                                ],
+                                if (song.isVip && song.isQQMusicOnline) ...[
+                                  _buildVipBadge(appColors),
+                                  const SizedBox(width: 5),
+                                ],
+                                Expanded(
+                                  child: Text(
+                                    song.album.isNotEmpty &&
+                                            song.album != song.title &&
+                                            song.album != song.artist
+                                        ? '${song.artist} · ${song.album}'
+                                        : song.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: theme.colorScheme.onSurfaceVariant
+                                          .withValues(alpha: 0.92),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (song.playCount > 0) ...[
-                      Icon(
-                        Icons.play_arrow_rounded,
-                        size: 13,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.48,
+                              ],
+                            ),
+                          ],
                         ),
                       ),
+                      const SizedBox(width: 6),
+                      if (song.playCount > 0) ...[
+                        Icon(
+                          Icons.play_arrow_rounded,
+                          size: 13,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.85,
+                          ),
+                        ),
+                        Text(
+                          '${song.playCount}',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.90),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       Text(
-                        '${song.playCount}',
+                        Formatters.formatDuration(song.duration),
                         style: TextStyle(
                           fontSize: 11.5,
                           fontFeatures: const [FontFeature.tabularFigures()],
                           color: theme.colorScheme.onSurfaceVariant.withValues(
-                            alpha: 0.58,
+                            alpha: 0.90,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                    ],
-                    Text(
-                      Formatters.formatDuration(song.duration),
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.62,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    if (selectionMode)
-                      const SizedBox(width: 26)
-                    else ...[
-                      if (showQuickLinkAction &&
-                          isQQBound &&
-                          !song.hasLocalFile &&
-                          hasQqMid)
-                        IconButton(
+                      const SizedBox(width: 2),
+                      if (selectionMode)
+                        const SizedBox(width: 26)
+                      else ...[
+                        if (showQuickLinkAction &&
+                            isQQBound &&
+                            !song.hasLocalFile &&
+                            hasQqMid)
+                          IconButton(
+                            icon: Icon(
+                              Icons.link_rounded,
+                              size: 19,
+                              color: theme.colorScheme.primary,
+                            ),
+                            tooltip: '关联本地音频',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 44,
+                              minHeight: 44,
+                            ),
+                            onPressed: () => _linkLocalSong(context),
+                          ),
+                        // Favorite toggle and all other per-song operations live in
+                        // the overflow menu so each row carries a single trailing
+                        // control.
+                        PopupMenuButton<String>(
                           icon: Icon(
-                            Icons.link_rounded,
-                            size: 19,
-                            color: theme.colorScheme.primary,
+                            Icons.more_vert_rounded,
+                            size: 18,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.80),
                           ),
-                          tooltip: '关联本地音频',
+                          tooltip: '歌曲操作：${song.title}',
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(
-                            minWidth: 32,
-                            minHeight: 32,
+                            minWidth: 44,
+                            minHeight: 44,
                           ),
-                          style: IconButton.styleFrom(
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          onPressed: () => _linkLocalSong(context),
-                        ),
-                      // Favorite toggle and all other per-song operations live in
-                      // the overflow menu so each row carries a single trailing
-                      // control.
-                      PopupMenuButton<String>(
-                        icon: Icon(
-                          Icons.more_vert_rounded,
-                          size: 18,
-                          color: theme.colorScheme.onSurfaceVariant.withValues(
-                            alpha: 0.52,
-                          ),
-                        ),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 28,
-                          minHeight: 32,
-                        ),
-                        onSelected: (action) =>
-                            _handleAction(context, ref, action),
+                          onSelected: (action) =>
+                              _handleAction(context, ref, action),
                         itemBuilder: (context) => [
                           PopupMenuItem(
                             value: 'toggle_favorite',
@@ -432,6 +431,7 @@ class SongTile extends ConsumerWidget {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -663,45 +663,24 @@ class SongTile extends ConsumerWidget {
     }
   }
 
-  void _confirmDeleteFromLibrary(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error),
-            const SizedBox(width: 8),
-            const Text('从曲库移除'),
-          ],
-        ),
-        content: Text(
-          '确定将《${song.title}》从曲库移除吗？\n\n提示：设备中的本地原音频文件不会被删除。',
-          style: const TextStyle(height: 1.45),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.colorScheme.error,
-              foregroundColor: theme.colorScheme.onError,
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              ref.read(libraryNotifierProvider.notifier).deleteSong(song);
-              AppToast.show(
-                context,
-                '已从曲库移除《${song.title}》',
-                icon: Icons.delete_sweep_rounded,
-              );
-            },
-            child: const Text('确认移除'),
-          ),
-        ],
-      ),
+  Future<void> _confirmDeleteFromLibrary(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final library = ref.read(libraryNotifierProvider.notifier);
+    final confirmed = await showDestructiveConfirmDialog(
+      context,
+      title: '从曲库移除',
+      message: '确定将《${song.title}》从曲库移除吗？\n\n提示：设备中的本地原音频文件不会被删除。',
+      confirmLabel: '确认移除',
+      icon: Icons.delete_outline_rounded,
+    );
+    if (!confirmed || !context.mounted) return;
+    library.deleteSong(song);
+    AppToast.show(
+      context,
+      '已从曲库移除《${song.title}》',
+      icon: Icons.delete_sweep_rounded,
     );
   }
 

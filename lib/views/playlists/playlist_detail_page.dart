@@ -12,6 +12,7 @@ import '../player/mini_player.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/song_artwork.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/ui_helpers.dart';
 import 'add_songs_to_playlist_dialog.dart';
 import 'select_playlist_cover_dialog.dart';
 
@@ -122,78 +123,87 @@ class PlaylistDetailPage extends ConsumerWidget {
       ),
       body: Stack(
         children: [
-          Column(
-            children: [
-              // 简洁编辑态歌单头部卡片（去除了繁杂渐变底，以素净细框托起封面）
-              Container(
-                padding: const EdgeInsets.all(16),
-                margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: appColors.glassBorder, width: 1),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Tooltip(
-                      message: '点击更换歌单封面',
-                      child: InkWell(
-                        onTap: () => SelectPlaylistCoverDialog.show(
-                          context,
-                          currentPlaylist,
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Stack(
-                          children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(
-                                      alpha: isLight ? 0.08 : 0.30,
-                                    ),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
+          ResponsivePageContainer(
+            maxWidth: 900,
+            child: Column(
+              children: [
+                // 简洁编辑态歌单头部卡片（去除了繁杂渐变底，以素净细框托起封面）
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: appColors.glassBorder, width: 1),
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+                      final stackHeader =
+                          constraints.maxWidth < 340 || textScale > 1.45;
+                      final coverWidget = Semantics(
+                        button: true,
+                        label: '更换歌单封面',
+                        child: Tooltip(
+                          message: '点击更换歌单封面',
+                          child: InkWell(
+                            onTap: () => SelectPlaylistCoverDialog.show(
+                              context,
+                              currentPlaylist,
+                            ),
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              children: [
+                                Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: isLight ? 0.08 : 0.30,
+                                        ),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                              child: SongArtwork(
-                                artUri: effectiveCoverArtUri,
-                                size: 86,
-                                borderRadius: 14,
-                              ),
-                            ),
-                            Positioned(
-                              right: 5,
-                              bottom: 5,
-                              child: Container(
-                                padding: const EdgeInsets.all(4.5),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.62),
-                                  shape: BoxShape.circle,
+                                  child: SongArtwork(
+                                    artUri: effectiveCoverArtUri,
+                                    size: stackHeader ? 96 : 86,
+                                    borderRadius: 14,
+                                  ),
                                 ),
-                                child: const Icon(
-                                  Icons.photo_camera_rounded,
-                                  size: 12,
-                                  color: Colors.white,
+                                Positioned(
+                                  right: 5,
+                                  bottom: 5,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4.5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.72),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.photo_camera_rounded,
+                                      size: 12,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      );
+                      final infoWidget = Column(
+                        crossAxisAlignment: stackHeader
+                            ? CrossAxisAlignment.center
+                            : CrossAxisAlignment.start,
                         children: [
                           Text(
                             currentPlaylist.name,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                            textAlign: stackHeader ? TextAlign.center : TextAlign.start,
                             style: const TextStyle(
                               fontSize: 18.5,
                               fontWeight: FontWeight.w700,
@@ -207,6 +217,7 @@ class PlaylistDetailPage extends ConsumerWidget {
                                 : '共 ${songs.length} 首歌曲',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                            textAlign: stackHeader ? TextAlign.center : TextAlign.start,
                             style: TextStyle(
                               fontSize: 12.5,
                               color: theme.colorScheme.onSurfaceVariant,
@@ -214,6 +225,9 @@ class PlaylistDetailPage extends ConsumerWidget {
                           ),
                           const SizedBox(height: 12),
                           Wrap(
+                            alignment: stackHeader
+                                ? WrapAlignment.center
+                                : WrapAlignment.start,
                             spacing: 8,
                             runSpacing: 6,
                             children: [
@@ -288,11 +302,27 @@ class PlaylistDetailPage extends ConsumerWidget {
                             ],
                           ),
                         ],
-                      ),
-                    ),
-                  ],
+                      );
+                      if (stackHeader) {
+                        return Column(
+                          children: [
+                            coverWidget,
+                            const SizedBox(height: 12),
+                            infoWidget,
+                          ],
+                        );
+                      }
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          coverWidget,
+                          const SizedBox(width: 16),
+                          Expanded(child: infoWidget),
+                        ],
+                      );
+                    },
+                  ),
                 ),
-              ),
 
               // Songs List
               Expanded(
@@ -314,7 +344,6 @@ class PlaylistDetailPage extends ConsumerWidget {
                       )
                     : ReorderableListView.builder(
                         buildDefaultDragHandles: false,
-                        itemExtent: 58.0,
                         padding: EdgeInsets.only(
                           bottom: MediaQuery.paddingOf(context).bottom + 104,
                         ),
@@ -369,49 +398,26 @@ class PlaylistDetailPage extends ConsumerWidget {
                                   );
                                 }
                               },
-                              onDelete: () {
-                                showDialog<void>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: const Text('从歌单移除'),
-                                    content: Text(
+                              onDelete: () async {
+                                final confirmed =
+                                    await showDestructiveConfirmDialog(
+                                  context,
+                                  title: '从歌单移除',
+                                  message:
                                       '确定将《${song.title}》从歌单《${currentPlaylist.name}》中移除吗？\n\n提示：歌曲仍保留在本地曲库中。',
-                                      style: const TextStyle(height: 1.45),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(ctx).pop(),
-                                        child: const Text('取消'),
-                                      ),
-                                      FilledButton(
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor:
-                                              theme.colorScheme.error,
-                                          foregroundColor:
-                                              theme.colorScheme.onError,
-                                        ),
-                                        onPressed: () {
-                                          Navigator.of(ctx).pop();
-                                          ref
-                                              .read(
-                                                playlistNotifierProvider
-                                                    .notifier,
-                                              )
-                                              .removeSongFromPlaylist(
-                                                currentPlaylist.id,
-                                                song.id,
-                                              );
-                                          AppToast.show(
-                                            context,
-                                            '已从歌单移除《${song.title}》',
-                                            icon: Icons.delete_sweep_rounded,
-                                          );
-                                        },
-                                        child: const Text('移除'),
-                                      ),
-                                    ],
-                                  ),
+                                  confirmLabel: '移除',
+                                );
+                                if (!confirmed || !context.mounted) return;
+                                ref
+                                    .read(playlistNotifierProvider.notifier)
+                                    .removeSongFromPlaylist(
+                                      currentPlaylist.id,
+                                      song.id,
+                                    );
+                                AppToast.show(
+                                  context,
+                                  '已从歌单移除《${song.title}》',
+                                  icon: Icons.delete_sweep_rounded,
                                 );
                               },
                             ),
@@ -420,6 +426,7 @@ class PlaylistDetailPage extends ConsumerWidget {
                       ),
               ),
             ],
+          ),
           ),
           const Positioned(
             left: 0,
@@ -437,61 +444,19 @@ class PlaylistDetailPage extends ConsumerWidget {
     WidgetRef ref,
     Playlist currentPlaylist,
   ) async {
-    final nameController = TextEditingController(text: currentPlaylist.name);
-    final descController = TextEditingController(
-      text: currentPlaylist.description,
-    );
-
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('重命名歌单'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: '歌单名称'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: descController,
-              decoration: const InputDecoration(labelText: '描述 (可选)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
-          ),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: nameController,
-            builder: (context, value, _) {
-              return FilledButton(
-                onPressed: value.text.trim().isEmpty
-                    ? null
-                    : () {
-                        ref
-                            .read(playlistNotifierProvider.notifier)
-                            .renamePlaylist(
-                              currentPlaylist.id,
-                              value.text,
-                              description: descController.text,
-                            );
-                        Navigator.pop(dialogContext);
-                      },
-                child: const Text('保存'),
+      builder: (_) => _RenamePlaylistDialog(
+        playlist: currentPlaylist,
+        onSave: (name, description) {
+          ref.read(playlistNotifierProvider.notifier).renamePlaylist(
+                currentPlaylist.id,
+                name,
+                description: description,
               );
-            },
-          ),
-        ],
+        },
       ),
-    ).whenComplete(() {
-      nameController.dispose();
-      descController.dispose();
-    });
+    );
   }
 
   Future<void> _exportM3u(
@@ -514,38 +479,98 @@ class PlaylistDetailPage extends ConsumerWidget {
     }
   }
 
-  void _confirmDelete(
+  Future<void> _confirmDelete(
     BuildContext context,
     WidgetRef ref,
     Playlist currentPlaylist,
-  ) {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除歌单'),
-        content: Text('确定要删除歌单《${currentPlaylist.name}》吗？歌单内的本地歌曲不会被删除。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+  ) async {
+    final confirmed = await showDestructiveConfirmDialog(
+      context,
+      title: '删除歌单',
+      message: '确定要删除歌单《${currentPlaylist.name}》吗？歌单内的本地歌曲不会被删除。',
+      confirmLabel: '删除',
+    );
+    if (!confirmed || !context.mounted) return;
+    ref.read(playlistNotifierProvider.notifier).deletePlaylist(currentPlaylist.id);
+    Navigator.pop(context);
+  }
+}
+
+class _RenamePlaylistDialog extends StatefulWidget {
+  final Playlist playlist;
+  final void Function(String name, String description) onSave;
+
+  const _RenamePlaylistDialog({
+    required this.playlist,
+    required this.onSave,
+  });
+
+  @override
+  State<_RenamePlaylistDialog> createState() => _RenamePlaylistDialogState();
+}
+
+class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _descController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.playlist.name);
+    _descController = TextEditingController(text: widget.playlist.description);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+    widget.onSave(name, _descController.text);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('重命名歌单'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _nameController,
+            autofocus: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(labelText: '歌单名称'),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.colorScheme.error,
-              foregroundColor: theme.colorScheme.onError,
-            ),
-            onPressed: () {
-              ref
-                  .read(playlistNotifierProvider.notifier)
-                  .deletePlaylist(currentPlaylist.id);
-              Navigator.pop(ctx);
-              Navigator.pop(context);
-            },
-            child: const Text('删除'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descController,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(labelText: '描述 (可选)'),
           ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _nameController,
+          builder: (context, value, _) {
+            return FilledButton(
+              onPressed: value.text.trim().isEmpty ? null : _submit,
+              child: const Text('保存'),
+            );
+          },
+        ),
+      ],
     );
   }
 }

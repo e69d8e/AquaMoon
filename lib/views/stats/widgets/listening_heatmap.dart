@@ -10,7 +10,7 @@ class ListeningHeatmap extends StatefulWidget {
   /// dateStr (yyyy-MM-dd) -> 当日收听秒数。
   final Map<String, int> dailySeconds;
 
-  static const double _cellSize = 13;
+  static const double _cellSize = 16;
   static const double _cellGap = 3;
 
   const ListeningHeatmap({
@@ -90,7 +90,9 @@ class _ListeningHeatmapState extends State<ListeningHeatmap> {
                 width:
                     weekColumns *
                     (ListeningHeatmap._cellSize + ListeningHeatmap._cellGap),
-                height: 14,
+                height:
+                    16 *
+                    MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 2.5),
                 child: Stack(
                   children: [
                     for (final entry in monthLabels.entries)
@@ -106,7 +108,7 @@ class _ListeningHeatmapState extends State<ListeningHeatmap> {
                             fontSize: 9.5,
                             color:
                                 theme.colorScheme.onSurfaceVariant.withValues(
-                              alpha: 0.7,
+                              alpha: 0.78,
                             ),
                           ),
                         ),
@@ -148,12 +150,16 @@ class _ListeningHeatmapState extends State<ListeningHeatmap> {
                     final day = DateTime(year, 1, cell + 1);
                     final hint =
                         '${day.month}月${day.day}日 · ${_formatMinutes(dailySeconds[_dateKey(day)] ?? 0)}';
-                    return GestureDetector(
-                      onTap: () => setState(() => _selectedHint = hint),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: cellColor(day),
-                          borderRadius: cellRadius,
+                    return Semantics(
+                      button: true,
+                      label: hint,
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedHint = hint),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: cellColor(day),
+                            borderRadius: cellRadius,
+                          ),
                         ),
                       ),
                     );
@@ -166,54 +172,64 @@ class _ListeningHeatmapState extends State<ListeningHeatmap> {
         const SizedBox(height: 6),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              Text(
-                '少',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.6,
-                  ),
+          child: SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '少',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.78,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    for (final alpha in [0.1, 0.35, 0.6, 0.8, 1.0]) ...[
+                      Container(
+                        width: 10,
+                        height: 10,
+                        margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                        decoration: BoxDecoration(
+                          color: alpha == 0.1
+                              ? theme.colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.55)
+                              : theme.colorScheme.primary.withValues(alpha: alpha),
+                          borderRadius: BorderRadius.circular(2.5),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: 4),
+                    Text(
+                      '多',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.78,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 4),
-              for (final alpha in [0.1, 0.35, 0.6, 0.8, 1.0]) ...[
-                Container(
-                  width: 10,
-                  height: 10,
-                  margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                  decoration: BoxDecoration(
-                    color: alpha == 0.1
-                        ? theme.colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.55)
-                        : theme.colorScheme.primary.withValues(alpha: alpha),
-                    borderRadius: BorderRadius.circular(2.5),
+                if (_selectedHint != null)
+                  Text(
+                    _selectedHint!,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
                   ),
-                ),
               ],
-              const SizedBox(width: 4),
-              Text(
-                '多',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.6,
-                  ),
-                ),
-              ),
-              if (_selectedHint != null) ...[
-                const Spacer(),
-                Text(
-                  _selectedHint!,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
         ),
       ],

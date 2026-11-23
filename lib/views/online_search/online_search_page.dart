@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/song.dart';
@@ -10,7 +11,9 @@ import '../../providers/library_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../services/file_export_service.dart';
 import '../../services/online_metadata_service.dart';
+import '../player/mini_player.dart';
 import '../widgets/glass_container.dart';
+import '../widgets/ui_helpers.dart';
 
 class OnlineSearchPage extends ConsumerStatefulWidget {
   final String? initialQuery;
@@ -302,183 +305,205 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isLight = theme.brightness == Brightness.light;
+    final appColors = AppColors.of(context);
 
     return Scaffold(
       appBar: AppBar(title: const Text('全网在线歌曲与歌词检索'), elevation: 0),
-      body: Column(
+      body: Stack(
         children: [
-          // Search Input Bar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-            child: Row(
+          ResponsivePageContainer(
+            maxWidth: 880,
+            child: Column(
               children: [
-                Expanded(
-                  // Listen to the controller locally so keystrokes only rebuild
-                  // the field (suffix icon visibility), not the whole page.
-                  child: ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _searchController,
-                    builder: (context, value, _) {
-                      return TextField(
-                        controller: _searchController,
-                        focusNode: _focusNode,
-                        style: const TextStyle(fontSize: 14.5),
-                        textInputAction: TextInputAction.search,
-                        decoration: InputDecoration(
-                          hintText: '搜索在线歌曲、歌手、专辑...',
-                          hintStyle: TextStyle(
-                            fontSize: 13.5,
-                            color: theme.colorScheme.onSurfaceVariant
-                                .withValues(alpha: 0.7),
+                // Search Input Bar
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        // Listen to the controller locally so keystrokes only rebuild
+                        // the field (suffix icon visibility), not the whole page.
+                        child: ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: _searchController,
+                          builder: (context, value, _) {
+                            return TextField(
+                              controller: _searchController,
+                              focusNode: _focusNode,
+                              style: const TextStyle(fontSize: 14.5),
+                              textInputAction: TextInputAction.search,
+                              decoration: InputDecoration(
+                                hintText: '搜索在线歌曲、歌手、专辑...',
+                                hintStyle: TextStyle(
+                                  fontSize: 13.5,
+                                  color: theme.colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.85),
+                                ),
+                                prefixIcon: const Icon(
+                                  Icons.saved_search_rounded,
+                                  size: 22,
+                                ),
+                                suffixIcon: value.text.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(
+                                          Icons.clear_rounded,
+                                          size: 18,
+                                        ),
+                                        tooltip: '清除搜索',
+                                        constraints: const BoxConstraints(
+                                          minWidth: 44,
+                                          minHeight: 40,
+                                        ),
+                                        onPressed: () =>
+                                            _searchController.clear(),
+                                      )
+                                    : null,
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 11,
+                                  horizontal: 12,
+                                ),
+                                filled: true,
+                                fillColor: theme
+                                    .colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.6),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                              onSubmitted: (_) => _performSearch(),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: _isLoading ? null : _performSearch,
+                        icon: _isLoading
+                            ? SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: theme.colorScheme.onPrimary,
+                                ),
+                              )
+                            : const Icon(Icons.search_rounded, size: 18),
+                        label: const Text('检索'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
                           ),
-                          prefixIcon: const Icon(
-                            Icons.saved_search_rounded,
-                            size: 22,
-                          ),
-                          suffixIcon: value.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(
-                                    Icons.clear_rounded,
-                                    size: 18,
-                                  ),
-                                  onPressed: () => _searchController.clear(),
-                                )
-                              : null,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 11,
-                            horizontal: 12,
-                          ),
-                          filled: true,
-                          fillColor: theme.colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.6),
-                          border: OutlineInputBorder(
+                          shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
                           ),
                         ),
-                        onSubmitted: (_) => _performSearch(),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: _isLoading ? null : _performSearch,
-                  icon: _isLoading
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+
+                // Platform Filter Chips
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 2,
+                  ),
+                  child: Row(
+                    children: _platforms.map((p) {
+                      final isSelected = _selectedPlatform == p;
+                      final sourceColor = _getSourceColor(p);
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: Text(p),
+                          selected: isSelected,
+                          showCheckmark: false,
+                          avatar: p != '全部'
+                              ? Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: sourceColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                )
+                              : null,
+                          labelStyle: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: isSelected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: isSelected
+                                ? theme.colorScheme.onPrimaryContainer
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                          selectedColor: theme.colorScheme.primaryContainer
+                              .withValues(alpha: 0.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.outlineVariant
+                                      .withValues(alpha: 0.5),
+                            ),
+                          ),
+                          onSelected: (val) {
+                            if (val) {
+                              setState(() {
+                                _selectedPlatform = p;
+                              });
+                              if (_searchController.text.trim().isNotEmpty) {
+                                _performSearch();
+                              }
+                            }
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+                const Divider(height: 1, thickness: 0.5),
+
+                // Search Content Area
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: 16),
+                              Text('正在连接各大音乐平台检索歌曲、高清封面与 LRC 歌词...'),
+                            ],
                           ),
                         )
-                      : const Icon(Icons.search_rounded, size: 18),
-                  label: const Text('检索'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                      : _results.isNotEmpty
+                      ? _buildResultsList(appColors)
+                      : _hasSearched
+                      ? _buildEmptyOrErrorState()
+                      : _buildInitialGuideState(),
                 ),
               ],
             ),
           ),
-
-          // Platform Filter Chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-            child: Row(
-              children: _platforms.map((p) {
-                final isSelected = _selectedPlatform == p;
-                final sourceColor = _getSourceColor(p);
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(p),
-                    selected: isSelected,
-                    showCheckmark: false,
-                    avatar: p != '全部'
-                        ? Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: sourceColor,
-                              shape: BoxShape.circle,
-                            ),
-                          )
-                        : null,
-                    labelStyle: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: isSelected
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                      color: isSelected
-                          ? (isLight ? theme.colorScheme.primary : Colors.white)
-                          : theme.colorScheme.onSurfaceVariant,
-                    ),
-                    selectedColor: theme.colorScheme.primaryContainer
-                        .withValues(alpha: 0.5),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      side: BorderSide(
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.outlineVariant.withValues(
-                                alpha: 0.5,
-                              ),
-                      ),
-                    ),
-                    onSelected: (val) {
-                      if (val) {
-                        setState(() {
-                          _selectedPlatform = p;
-                        });
-                        if (_searchController.text.trim().isNotEmpty) {
-                          _performSearch();
-                        }
-                      }
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-
-          const SizedBox(height: 6),
-          const Divider(height: 1, thickness: 0.5),
-
-          // Search Content Area
-          Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('正在连接各大音乐平台检索歌曲、高清封面与 LRC 歌词...'),
-                      ],
-                    ),
-                  )
-                : _results.isNotEmpty
-                ? _buildResultsList()
-                : _hasSearched
-                ? _buildEmptyOrErrorState()
-                : _buildInitialGuideState(),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: MiniPlayer()),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildResultsList() {
+  Widget _buildResultsList(AppColors appColors) {
     final theme = Theme.of(context);
 
     return Column(
@@ -486,32 +511,43 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-          child: Row(
-            children: [
-              Text(
-                '检索结果 · ${_results.length} 项',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '点击卡片可查看大图与歌词，或直接点击右侧下载',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.7,
+          child: SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  '检索结果 · ${_results.length} 项',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-              ),
-            ],
+                Text(
+                  '点击卡片可查看大图与歌词，或直接点击右侧下载',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.85,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         Expanded(
           child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 40),
+            padding: EdgeInsets.fromLTRB(
+              14,
+              4,
+              14,
+              MediaQuery.paddingOf(context).bottom + 104,
+            ),
             itemCount: _results.length,
             separatorBuilder: (context, index) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
@@ -650,20 +686,19 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                                   if (item.hasLyrics)
                                     Container(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 4,
-                                        vertical: 1,
+                                        horizontal: 5,
+                                        vertical: 1.5,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.purple.withValues(
-                                          alpha: 0.1,
-                                        ),
-                                        borderRadius: BorderRadius.circular(3),
+                                        color: theme.colorScheme.tertiary
+                                            .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(4),
                                       ),
-                                      child: const Text(
+                                      child: Text(
                                         '含歌词',
                                         style: TextStyle(
-                                          fontSize: 9.5,
-                                          color: Colors.purple,
+                                          fontSize: 10,
+                                          color: theme.colorScheme.tertiary,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
@@ -672,20 +707,20 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                                     const SizedBox(width: 4),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 4,
-                                        vertical: 1,
+                                        horizontal: 5,
+                                        vertical: 1.5,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.blue.withValues(
-                                          alpha: 0.1,
+                                        color: appColors.info.withValues(
+                                          alpha: 0.12,
                                         ),
-                                        borderRadius: BorderRadius.circular(3),
+                                        borderRadius: BorderRadius.circular(4),
                                       ),
-                                      child: const Text(
+                                      child: Text(
                                         '高清封面',
                                         style: TextStyle(
-                                          fontSize: 9.5,
-                                          color: Colors.blue,
+                                          fontSize: 10,
+                                          color: appColors.info,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
@@ -698,31 +733,59 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                         ),
 
                         // Action Buttons (Download Cover & Download Lyrics)
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.image_outlined, size: 20),
-                              tooltip: '下载封面图片',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () => _downloadCover(item),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.lyrics_outlined, size: 20),
-                              tooltip: '下载歌词文件 (.lrc)',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () => _downloadLyrics(item),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.more_horiz_rounded,
-                                size: 20,
-                              ),
-                              tooltip: '更多详情与操作',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () => _showResourceDetails(item),
-                            ),
-                          ],
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final compact = MediaQuery.sizeOf(context).width < 360;
+                            if (compact) {
+                              return IconButton(
+                                icon: const Icon(
+                                  Icons.more_horiz_rounded,
+                                  size: 20,
+                                ),
+                                tooltip: '更多详情与操作',
+                                constraints: const BoxConstraints(
+                                  minWidth: 44,
+                                  minHeight: 44,
+                                ),
+                                onPressed: () => _showResourceDetails(item),
+                              );
+                            }
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.image_outlined, size: 20),
+                                  tooltip: '下载封面图片',
+                                  constraints: const BoxConstraints(
+                                    minWidth: 40,
+                                    minHeight: 40,
+                                  ),
+                                  onPressed: () => _downloadCover(item),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.lyrics_outlined, size: 20),
+                                  tooltip: '下载歌词文件 (.lrc)',
+                                  constraints: const BoxConstraints(
+                                    minWidth: 40,
+                                    minHeight: 40,
+                                  ),
+                                  onPressed: () => _downloadLyrics(item),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.more_horiz_rounded,
+                                    size: 20,
+                                  ),
+                                  tooltip: '更多详情与操作',
+                                  constraints: const BoxConstraints(
+                                    minWidth: 40,
+                                    minHeight: 40,
+                                  ),
+                                  onPressed: () => _showResourceDetails(item),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -1007,7 +1070,6 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isLight = theme.brightness == Brightness.light;
     final lyricText = _item.syncedLyrics ?? _item.plainLyrics;
 
     return GlassContainer(
@@ -1016,57 +1078,24 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Column(
         children: [
-          // Drag handle
-          Center(
-            child: Container(
-              margin: const EdgeInsets.only(top: 10, bottom: 6),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.3,
-                ),
-                borderRadius: BorderRadius.circular(2),
+          ModalSheetHeader(
+            title: Text(
+              _item.title,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-          ),
-
-          // Header
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _item.title,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${_item.artist} · ${_item.album.isNotEmpty ? _item.album : "未知专辑"} (${_item.source})',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
+            subtitle: Text(
+              '${_item.artist} · ${_item.album.isNotEmpty ? _item.album : "未知专辑"} (${_item.source})',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
 
@@ -1212,7 +1241,7 @@ class _ResourceDetailSheetState extends ConsumerState<_ResourceDetailSheet> {
                             style: TextStyle(
                               fontSize: 13.5,
                               height: 1.8,
-                              color: isLight ? Colors.black87 : Colors.white70,
+                              color: theme.colorScheme.onSurface,
                               fontFamily: 'monospace',
                             ),
                           )

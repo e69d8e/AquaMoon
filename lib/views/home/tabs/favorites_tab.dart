@@ -14,6 +14,7 @@ import '../../widgets/locate_playing_button.dart';
 import '../../widgets/qq_music_auth_dialog.dart';
 import '../../widgets/qq_music_sync_helpers.dart';
 import '../../widgets/song_tile.dart';
+import '../../widgets/ui_helpers.dart';
 
 class FavoritesTab extends ConsumerStatefulWidget {
   const FavoritesTab({super.key});
@@ -143,336 +144,372 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab>
       return _buildEmptyState(context, theme, qqMeta);
     }
 
-    return Column(
-      children: [
-        // 搜索框与收藏概览 + 快捷播放操作合并进同一可折叠区。
-        SizeTransition(
-          sizeFactor: _searchBarAnimation,
-          alignment: Alignment.topCenter,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: DebouncedSearchField(
-                        key: _searchFieldKey,
-                        initialQuery: searchQuery,
-                        hintText: '搜索收藏歌曲、歌手、专辑...',
-                        onQueryChanged: (val) {
-                          ref
-                              .read(favoritesSearchQueryProvider.notifier)
-                              .state = val;
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      Icons.favorite_rounded,
-                      size: 14,
-                      color: appColors.favorite.withValues(alpha: 0.85),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      isSearching
-                          ? '${favorites.length}/${allFavorites.length}'
-                          : '${allFavorites.length}',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.85,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    PopupMenuButton<String>(
-                      icon: Icon(
-                        Icons.more_vert_rounded,
-                        size: 20,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.8,
-                        ),
-                      ),
-                      tooltip: '收藏操作',
-                      position: PopupMenuPosition.under,
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'play_all':
-                            if (favorites.isEmpty) return;
+    return ResponsivePageContainer(
+      child: Column(
+        children: [
+          // 搜索框与收藏概览 + 快捷播放操作合并进同一可折叠区。
+          CollapsibleSection(
+            animation: _searchBarAnimation,
+            collapsed: _searchCollapsed,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DebouncedSearchField(
+                          key: _searchFieldKey,
+                          initialQuery: searchQuery,
+                          hintText: '搜索收藏歌曲、歌手、专辑...',
+                          onQueryChanged: (val) {
                             ref
-                                .read(audioControllerProvider)
-                                .playSong(favorites.first, queue: favorites);
-                            break;
-                          case 'play_shuffled':
-                            if (favorites.isEmpty) return;
-                            final shuffled = List<Song>.from(favorites)
-                              ..shuffle();
-                            ref
-                                .read(audioControllerProvider)
-                                .playSong(shuffled.first, queue: shuffled);
-                            break;
-                          case 'locate':
-                            if (currentSongId != null) {
-                              _scrollToCurrentPlaying(currentSongId, favorites);
-                            }
-                            break;
-                          case 'qq_sync':
-                            if (!qqMeta.isSyncing) {
-                              triggerQQMusicSync(context, ref);
-                            }
-                            break;
-                          case 'qq_account':
-                          case 'qq_connect':
-                            QQMusicAuthDialog.show(context);
-                            break;
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem<String>(
-                          enabled: false,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                isSearching
-                                    ? '匹配到 ${favorites.length} 首 / 共 ${allFavorites.length} 首'
-                                    : '收藏共 ${allFavorites.length} 首',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              if (qqMeta.isBound) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  'QQ音乐 · ${qqMeta.displayLabel}'
-                                  '${qqMeta.localMatchedCount > 0 ? ' (本地 ${qqMeta.localMatchedCount})' : ''}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const PopupMenuDivider(),
-                        if (favorites.isNotEmpty) ...[
-                          const PopupMenuItem(
-                            value: 'play_all',
-                            child: Row(
-                              children: [
-                                Icon(Icons.play_arrow_rounded, size: 18),
-                                SizedBox(width: 10),
-                                Text('播放全部'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'play_shuffled',
-                            child: Row(
-                              children: [
-                                Icon(Icons.shuffle_rounded, size: 18),
-                                SizedBox(width: 10),
-                                Text('随机播放'),
-                              ],
-                            ),
-                          ),
-                        ],
-                        if (isCurrentSongInList)
-                          const PopupMenuItem(
-                            value: 'locate',
-                            child: Row(
-                              children: [
-                                Icon(Icons.my_location_rounded, size: 18),
-                                SizedBox(width: 10),
-                                Text('定位当前播放'),
-                              ],
-                            ),
-                          ),
-                        if (qqMeta.isBound) ...[
-                          PopupMenuItem(
-                            value: 'qq_sync',
-                            enabled: !qqMeta.isSyncing,
-                            child: Row(
-                              children: [
-                                if (qqMeta.isSyncing)
-                                  const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                else
-                                  const Icon(Icons.sync_rounded, size: 18),
-                                const SizedBox(width: 10),
-                                Text(
-                                  qqMeta.isSyncing ? '正在同步...' : '同步 QQ 音乐收藏',
-                                ),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'qq_account',
-                            child: Row(
-                              children: [
-                                Icon(Icons.account_circle_outlined, size: 18),
-                                SizedBox(width: 10),
-                                Text('QQ 音乐账号配置'),
-                              ],
-                            ),
-                          ),
-                        ] else
-                          const PopupMenuItem(
-                            value: 'qq_connect',
-                            child: Row(
-                              children: [
-                                Icon(Icons.add_link_rounded, size: 18),
-                                SizedBox(width: 10),
-                                Text('接入 QQ 音乐收藏'),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-                if (favorites.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8, bottom: 2),
-                    child: Row(
-                      children: [
-                        _FavActionPill(
-                          icon: Icons.play_arrow_rounded,
-                          label: '播放全部',
-                          filled: true,
-                          onTap: () => ref
-                              .read(audioControllerProvider)
-                              .playSong(favorites.first, queue: favorites),
-                        ),
-                        const SizedBox(width: 8),
-                        _FavActionPill(
-                          icon: Icons.shuffle_rounded,
-                          label: '随机',
-                          onTap: () {
-                            final shuffled = List<Song>.from(favorites)
-                              ..shuffle();
-                            ref
-                                .read(audioControllerProvider)
-                                .playSong(shuffled.first, queue: shuffled);
+                                .read(favoritesSearchQueryProvider.notifier)
+                                .state = val;
                           },
                         ),
-                        const Spacer(),
-                        if (qqMeta.isBound)
-                          InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: qqMeta.isSyncing
-                                ? null
-                                : () => triggerQQMusicSync(context, ref),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 9,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.surfaceContainerHighest
-                                    .withValues(alpha: isLight ? 0.5 : 0.4),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: appColors.subtleDivider,
-                                  width: 0.8,
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.favorite_rounded,
+                        size: 14,
+                        color: appColors.favorite.withValues(alpha: 0.90),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isSearching
+                            ? '${favorites.length}/${allFavorites.length}'
+                            : '${allFavorites.length}',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      PopupMenuButton<String>(
+                        icon: Icon(
+                          Icons.more_vert_rounded,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        tooltip: '收藏操作',
+                        position: PopupMenuPosition.under,
+                        onSelected: (value) {
+                          switch (value) {
+                            case 'play_all':
+                              if (favorites.isEmpty) return;
+                              ref
+                                  .read(audioControllerProvider)
+                                  .playSong(favorites.first, queue: favorites);
+                              break;
+                            case 'play_shuffled':
+                              if (favorites.isEmpty) return;
+                              final shuffled = List<Song>.from(favorites)
+                                ..shuffle();
+                              ref
+                                  .read(audioControllerProvider)
+                                  .playSong(shuffled.first, queue: shuffled);
+                              break;
+                            case 'locate':
+                              if (currentSongId != null) {
+                                _scrollToCurrentPlaying(currentSongId, favorites);
+                              }
+                              break;
+                            case 'qq_sync':
+                              if (!qqMeta.isSyncing) {
+                                triggerQQMusicSync(context, ref);
+                              }
+                              break;
+                            case 'qq_account':
+                            case 'qq_connect':
+                              QQMusicAuthDialog.show(context);
+                              break;
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem<String>(
+                            enabled: false,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  isSearching
+                                      ? '匹配到 ${favorites.length} 首 / 共 ${allFavorites.length} 首'
+                                      : '收藏共 ${allFavorites.length} 首',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
-                              ),
+                                if (qqMeta.isBound) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'QQ音乐 · ${qqMeta.displayLabel}'
+                                    '${qqMeta.localMatchedCount > 0 ? ' (本地 ${qqMeta.localMatchedCount})' : ''}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const PopupMenuDivider(),
+                          if (favorites.isNotEmpty) ...[
+                            const PopupMenuItem(
+                              value: 'play_all',
                               child: Row(
-                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.play_arrow_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('播放全部'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'play_shuffled',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.shuffle_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('随机播放'),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (isCurrentSongInList)
+                            const PopupMenuItem(
+                              value: 'locate',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.my_location_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('定位当前播放'),
+                                ],
+                              ),
+                            ),
+                          if (qqMeta.isBound) ...[
+                            PopupMenuItem(
+                              value: 'qq_sync',
+                              enabled: !qqMeta.isSyncing,
+                              child: Row(
                                 children: [
                                   if (qqMeta.isSyncing)
-                                    SizedBox(
-                                      width: 11,
-                                      height: 11,
+                                    const SizedBox(
+                                      width: 18,
+                                      height: 18,
                                       child: CircularProgressIndicator(
-                                        strokeWidth: 1.8,
-                                        color: theme.colorScheme.primary,
+                                        strokeWidth: 2,
                                       ),
                                     )
                                   else
-                                    Icon(
-                                      Icons.sync_rounded,
-                                      size: 13,
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  const SizedBox(width: 4),
+                                    const Icon(Icons.sync_rounded, size: 18),
+                                  const SizedBox(width: 10),
                                   Text(
-                                    qqMeta.isSyncing ? '同步中' : '同步云端',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
+                                    qqMeta.isSyncing ? '正在同步...' : '同步 QQ 音乐收藏',
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                      ],
+                            const PopupMenuItem(
+                              value: 'qq_account',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.account_circle_outlined, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('QQ 音乐账号配置'),
+                                ],
+                              ),
+                            ),
+                          ] else
+                            const PopupMenuItem(
+                              value: 'qq_connect',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.add_link_rounded, size: 18),
+                                  SizedBox(width: 10),
+                                  Text('接入 QQ 音乐收藏'),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (favorites.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 2),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                ActionPillButton(
+                                  icon: Icons.play_arrow_rounded,
+                                  label: '播放全部',
+                                  filled: true,
+                                  onTap: () => ref
+                                      .read(audioControllerProvider)
+                                      .playSong(
+                                        favorites.first,
+                                        queue: favorites,
+                                      ),
+                                ),
+                                ActionPillButton(
+                                  icon: Icons.shuffle_rounded,
+                                  label: '随机',
+                                  onTap: () {
+                                    final shuffled = List<Song>.from(favorites)
+                                      ..shuffle();
+                                    ref
+                                        .read(audioControllerProvider)
+                                        .playSong(
+                                          shuffled.first,
+                                          queue: shuffled,
+                                        );
+                                  },
+                                ),
+                              ],
+                            ),
+                            if (qqMeta.isBound)
+                              Semantics(
+                                button: true,
+                                enabled: !qqMeta.isSyncing,
+                                label: qqMeta.isSyncing
+                                    ? '正在同步云端收藏'
+                                    : '同步云端 QQ 音乐收藏',
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(18),
+                                  onTap: qqMeta.isSyncing
+                                      ? null
+                                      : () => triggerQQMusicSync(context, ref),
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      minHeight: 36,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: theme
+                                            .colorScheme
+                                            .surfaceContainerHighest
+                                            .withValues(
+                                              alpha: isLight ? 0.5 : 0.4,
+                                            ),
+                                        borderRadius: BorderRadius.circular(18),
+                                        border: Border.all(
+                                          color: appColors.subtleDivider,
+                                          width: 0.8,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (qqMeta.isSyncing)
+                                            SizedBox(
+                                              width: 12,
+                                              height: 12,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 1.8,
+                                                color:
+                                                    theme.colorScheme.primary,
+                                              ),
+                                            )
+                                          else
+                                            Icon(
+                                              Icons.sync_rounded,
+                                              size: 14,
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          const SizedBox(width: 5),
+                                          Text(
+                                            qqMeta.isSyncing ? '同步中' : '同步云端',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          if (qqMeta.syncError != null)
+            QQMusicSyncErrorBanner(message: qqMeta.syncError!),
+
+          Expanded(
+            child: Stack(
+              children: [
+                if (favorites.isEmpty)
+                  _buildSearchEmptyState(context, theme, trimmedQuery)
+                else
+                  RefreshIndicator(
+                    onRefresh: () => triggerQQMusicSync(context, ref),
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      // 底部留白 = 底部导航栏(MediaQuery 抬升量)+ 迷你播放器。
+                      padding: EdgeInsets.only(
+                        top: 2,
+                        bottom: MediaQuery.paddingOf(context).bottom + 104,
+                      ),
+                      itemCount: favorites.length,
+                      itemBuilder: (context, index) {
+                        final song = favorites[index];
+                        return SongTile(
+                          song: song,
+                          contextQueue: favorites,
+                          index: index,
+                        );
+                      },
+                    ),
+                  ),
+                if (isCurrentSongInList)
+                  Positioned(
+                    right: 16,
+                    bottom: MediaQuery.paddingOf(context).bottom + 98,
+                    child: LocatePlayingButton(
+                      onPressed: () =>
+                          _scrollToCurrentPlaying(currentSongId, favorites),
                     ),
                   ),
               ],
             ),
           ),
-        ),
-
-        if (qqMeta.syncError != null)
-          QQMusicSyncErrorBanner(message: qqMeta.syncError!),
-
-        Expanded(
-          child: Stack(
-            children: [
-              if (favorites.isEmpty)
-                _buildSearchEmptyState(context, theme, trimmedQuery)
-              else
-                RefreshIndicator(
-                  onRefresh: () => triggerQQMusicSync(context, ref),
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemExtent: 58.0,
-                    // 底部留白 = 底部导航栏(MediaQuery 抬升量)+ 迷你播放器。
-                    padding: EdgeInsets.only(
-                      top: 2,
-                      bottom: MediaQuery.paddingOf(context).bottom + 104,
-                    ),
-                    itemCount: favorites.length,
-                    itemBuilder: (context, index) {
-                      final song = favorites[index];
-                      return SongTile(
-                        song: song,
-                        contextQueue: favorites,
-                        index: index,
-                      );
-                    },
-                  ),
-                ),
-              if (isCurrentSongInList)
-                Positioned(
-                  right: 16,
-                  bottom: MediaQuery.paddingOf(context).bottom + 98,
-                  child: LocatePlayingButton(
-                    onPressed: () =>
-                        _scrollToCurrentPlaying(currentSongId, favorites),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -560,74 +597,6 @@ class _FavoritesTabState extends ConsumerState<FavoritesTab>
           label: const Text('连接 QQ 音乐收藏'),
         ),
       ],
-    );
-  }
-}
-
-class _FavActionPill extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool filled;
-  final VoidCallback onTap;
-
-  const _FavActionPill({
-    required this.icon,
-    required this.label,
-    this.filled = false,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final appColors = AppColors.of(context);
-    final isLight = theme.brightness == Brightness.light;
-
-    return Material(
-      color: filled
-          ? theme.colorScheme.primary.withValues(alpha: isLight ? 0.12 : 0.20)
-          : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.48),
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5.5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: filled
-                  ? theme.colorScheme.primary.withValues(alpha: 0.22)
-                  : appColors.subtleDivider,
-              width: 0.8,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 15,
-                color: filled
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: filled ? FontWeight.w700 : FontWeight.w500,
-                  color: filled
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurface,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

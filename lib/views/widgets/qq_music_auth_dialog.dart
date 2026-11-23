@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_toast.dart';
 import '../../models/qq_music_config.dart';
 import '../../providers/qq_music_provider.dart';
 import '../../providers/qq_music_session_provider.dart';
 import '../../services/qq_music_service.dart';
+import 'ui_helpers.dart';
 
 class QQMusicAuthDialog extends ConsumerStatefulWidget {
   const QQMusicAuthDialog({super.key});
@@ -117,28 +119,13 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
   }
 
   Future<void> _handleUnbind() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('断开 QQ 音乐绑定？'),
-        content: const Text(
-          '断开后将清空已同步的 QQ 音乐在线收藏列表，「收藏」页将恢复仅显示本地曲库中标记红心的歌曲。',
-          style: TextStyle(height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('断开绑定'),
-          ),
-        ],
-      ),
+    final confirmed = await showDestructiveConfirmDialog(
+      context,
+      title: '断开 QQ 音乐绑定？',
+      message: '断开后将清空已同步的 QQ 音乐在线收藏列表，「收藏」页将恢复仅显示本地曲库中标记红心的歌曲。',
+      confirmLabel: '断开绑定',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     await ref.read(qqMusicFavoritesProvider.notifier).unbind();
     if (!mounted) return;
     Navigator.of(context).pop();
@@ -148,6 +135,7 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final appColors = AppColors.of(context);
     final qqState = ref.watch(qqMusicFavoritesProvider);
 
     return AlertDialog(
@@ -339,8 +327,8 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
                                     : Icons.info_outline_rounded,
                                 size: 15,
                                 color: detectedKey.isNotEmpty
-                                    ? Colors.green
-                                    : Colors.orange,
+                                    ? appColors.success
+                                    : appColors.warning,
                               ),
                               const SizedBox(width: 6),
                               Expanded(
@@ -351,8 +339,8 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
                                   style: TextStyle(
                                     fontSize: 11.5,
                                     color: detectedKey.isNotEmpty
-                                        ? Colors.green
-                                        : Colors.orange,
+                                        ? appColors.success
+                                        : appColors.warning,
                                   ),
                                 ),
                               ),
@@ -371,17 +359,17 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withValues(alpha: 0.1),
+                    color: theme.colorScheme.error.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: Colors.redAccent.withValues(alpha: 0.35),
+                      color: theme.colorScheme.error.withValues(alpha: 0.35),
                     ),
                   ),
                   child: Text(
                     _inlineError!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: Colors.redAccent,
+                      color: theme.colorScheme.error,
                       height: 1.35,
                     ),
                   ),
@@ -395,7 +383,9 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
         if (qqState.isBound)
           TextButton(
             onPressed: _isSubmitting ? null : _handleUnbind,
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            style: TextButton.styleFrom(
+              foregroundColor: theme.colorScheme.error,
+            ),
             child: const Text('断开绑定'),
           ),
         TextButton(
@@ -405,12 +395,12 @@ class _QQMusicAuthDialogState extends ConsumerState<QQMusicAuthDialog> {
         FilledButton.icon(
           onPressed: _isSubmitting ? null : _handleSaveAndSync,
           icon: _isSubmitting
-              ? const SizedBox(
+              ? SizedBox(
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Colors.white,
+                    color: theme.colorScheme.onPrimary,
                   ),
                 )
               : const Icon(Icons.sync_rounded, size: 18),

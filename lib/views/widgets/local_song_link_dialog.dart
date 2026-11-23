@@ -251,13 +251,18 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
                 hintText: '搜索本地曲库（标题或歌手）',
                 hintStyle: TextStyle(
                   fontSize: 13,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.85),
                 ),
                 prefixIcon: const Icon(Icons.search_rounded, size: 20),
                 suffixIcon: _searchController.text.isEmpty
                     ? null
                     : IconButton(
                         icon: const Icon(Icons.close_rounded, size: 18),
+                        tooltip: '清除搜索',
+                        constraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 40,
+                        ),
                         onPressed: () {
                           _searchDebounce?.cancel();
                           _searchController.clear();
@@ -286,9 +291,10 @@ class _LocalSongLinkDialogState extends ConsumerState<LocalSongLinkDialog> {
               )
             else
               Flexible(
-                child: SizedBox(
-                  height: (candidates.length * 76.0).clamp(76.0, 340.0),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 340),
                   child: ListView.builder(
+                    shrinkWrap: true,
                     itemCount: candidates.length,
                     itemBuilder: (context, index) {
                     final entry = candidates[index];
